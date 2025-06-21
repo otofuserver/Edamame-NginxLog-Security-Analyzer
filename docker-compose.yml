@@ -14,14 +14,11 @@ services:
     networks:
       mysql_network:
         ipv4_address: 172.18.1.7
-
-
 secrets:
   db_config_enc:
     file: ./db_config.enc
   db_secret_key:
     file: ./secret.key
-
 networks:
   mysql_network:
     external: true

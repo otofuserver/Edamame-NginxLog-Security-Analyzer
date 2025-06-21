@@ -4,16 +4,13 @@
 # 必要なモジュールをインポート
 import re
 import time
-import threading
 import argparse
 from datetime import datetime
 import mysql.connector
 from mysql.connector import Error
-from pathlib import Path
 from cryptography.fernet import Fernet
 import json
 from urllib.parse import unquote
-import os
 import sys
 
 # アプリケーション情報
@@ -32,7 +29,9 @@ WHITELIST_MODE = False
 WHITELIST_IP = ""
 
 # Nginxログの正規表現パターン
-LOG_PATTERN = re.compile(r'(?P<ip>\d+\.\d+\.\d+\.\d+).+?"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (?P<url>[^ ]+) HTTP.*?" (?P<status>\d{3})')
+LOG_PATTERN = re.compile(
+    r'(?P<ip>\d+\.\d+\.\d+\.\d+).+?"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (?P<url>[^ ]+) HTTP.*?" (?P<status>\d{3})'
+)
 
 # DB再接続の最大試行回数と待機時間
 MAX_RETRIES = 5
@@ -71,7 +70,6 @@ def db_connect():
                 return DB_SESSION
         except Error as e:
             print(f"[DB ERROR] Connection attempt {attempt} failed: {e}")
-            print(f"[DB ERROR] Last attempt ({attempt}) failed. No more retries left.")
             if attempt == MAX_RETRIES:
                 print("[DB ERROR] Max retries exceeded. Exiting.")
                 sys.exit(1)
@@ -196,7 +194,9 @@ def init_db():
             for column_name, ddl in columns:
                 cursor.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (column_name,))
                 if cursor.fetchone() is None:
-                    print(f"[{datetime.now()}] [INFO] Adding missing column '{column_name}' to {table} using DDL: ALTER TABLE {table} ADD COLUMN {column_name} {ddl}")
+                    print(
+                        f"[{datetime.now()}] [INFO] Adding missing column '{column_name}' to {table} using DDL: ALTER TABLE {table} ADD COLUMN {column_name} {ddl}"
+                    )
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {ddl}")
                     conn.commit()
     except Error as e:
@@ -213,7 +213,7 @@ def fetch_settings():
         cursor.execute("SELECT whitelist_mode, whitelist_ip FROM settings WHERE id = 1")
         row = cursor.fetchone()
         if row:
-            WHITELIST_MODE = row[0] == 1
+            WHITELIST_MODE = bool(row[0])
             WHITELIST_IP = row[1]
     except Error as e:
         print(f"[DB ERROR] fetch_settings failed: {e}")
@@ -228,13 +228,19 @@ def add_registry_entry(method, url, ip):
         row = cursor.fetchone()
         is_whitelisted = WHITELIST_MODE and ip == WHITELIST_IP
         if row is None:
-            cursor.execute("""
+            cursor.execute(
+                """
                 INSERT INTO url_registry (method, full_url, created_at, is_whitelisted, description, updated_at, attack_type)
                 VALUES (%s, %s, %s, %s, NULL, %s, %s)
-            """, (method, url, datetime.now(), is_whitelisted, datetime.now(), attack_type))
+                """,
+                (method, url, datetime.now(), is_whitelisted, datetime.now(), attack_type),
+            )
             conn.commit()
         elif is_whitelisted and not row[1]:
-            cursor.execute("UPDATE url_registry SET is_whitelisted = TRUE, updated_at = %s WHERE full_url = %s", (datetime.now(), url))
+            cursor.execute(
+                "UPDATE url_registry SET is_whitelisted = TRUE, updated_at = %s WHERE full_url = %s",
+                (datetime.now(), url),
+            )
             conn.commit()
             print(f"[{datetime.now()}] [INFO] Updated whitelist status for URL: {url}")
     except Error as e:
@@ -245,10 +251,13 @@ def add_access_log(method, url, status, ip, blocked=False):
     try:
         conn = db_connect()
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO access_log (method, full_url, status_code, ip_address, access_time, blocked_by_modsec)
             VALUES (%s, %s, %s, %s, %s, %s)
-        """, (method, url, int(status), ip, datetime.now(), blocked))
+            """,
+            (method, url, int(status), ip, datetime.now(), blocked),
+        )
         conn.commit()
     except Error as e:
         print(f"[DB ERROR] add_access_log failed: {e}")
@@ -276,16 +285,22 @@ def detect_attack_type(url):
 MODSEC_BLOCK_PATTERN = re.compile(r"ModSecurity: Access denied", re.IGNORECASE)
 
 # ModSecurityルール詳細を抽出しmodsec_alertsに記録
-MODSEC_RULE_PATTERN = re.compile(r'ModSecurity: Access denied.*?\[id \"(?P<id>\d+)\"\].*?\[msg \"(?P<msg>.*?)\"\].*?\[data \"(?P<data>.*?)\"\].*?\[severity \"(?P<severity>\d+)\"\]', re.IGNORECASE | re.DOTALL)
+MODSEC_RULE_PATTERN = re.compile(
+    r'ModSecurity: Access denied.*?\[id "(?P<id>\d+)"\].*?\[msg "(?P<msg>.*?)"\].*?\[data "(?P<data>.*?)"\].*?\[severity "(?P<severity>\d+)"\]',
+    re.IGNORECASE | re.DOTALL,
+)
 
 def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
     try:
         conn = db_connect()
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT IGNORE INTO modsec_alerts (access_log_id, rule_id, msg, data, severity)
             VALUES (%s, %s, %s, %s, %s)
-        """, (access_log_id, rule_id, msg, data, severity))
+            """,
+            (access_log_id, rule_id, msg, data, severity),
+        )
         conn.commit()
     except Error as e:
         print(f"[DB ERROR] add_modsec_alert failed: {e}")
@@ -318,7 +333,7 @@ def process_line(line):
                         rule_match.group("id"),
                         rule_match.group("msg"),
                         rule_match.group("data"),
-                        rule_match.group("severity")
+                        rule_match.group("severity"),
                     )
             add_registry_entry(method, url, ip)
         except Error as e:

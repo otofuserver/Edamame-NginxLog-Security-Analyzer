@@ -23,7 +23,7 @@ def generate_key():
 
 
 def create_config():
-    print("\n[2/4] 🛠 DB接続情報の入力")
+    print("\n[2/4] �� DB接続情報の入力")
     config = {
         "host": input("MySQLホスト名: ").strip(),
         "user": input("MySQLユーザー名: ").strip(),
