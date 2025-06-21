@@ -1,0 +1,10 @@
+# すべて無視
+*
+*.xml
+*.iml
+
+# 下記4ファイルだけは無視しない
+!docker-compose.yml
+!Dockerfile
+!nginx_log_to_mysql.py
+!setup_secure_config.py
