@@ -30,7 +30,7 @@ WHITELIST_IP = ""
 
 # Nginxログの正規表現パターン
 LOG_PATTERN = re.compile(
-    r'(?P<ip>\d+\.\d+\.\d+\.\d+).+?"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (?P<url>[^ ]+) HTTP.*?" (?P<status>\d{3})'
+    r'(?P<ip>\d+\.\d+\.\d+\.\d+) - - \[(?P<time>[^\]]+)\] "(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (?P<url>[^ ]+) HTTP.*?" (?P<status>\d{3})'
 )
 
 # DB再接続の最大試行回数と待機時間
@@ -247,7 +247,7 @@ def add_registry_entry(method, url, ip):
         print(f"[DB ERROR] add_registry_entry failed: {e}")
 
 # 全アクセスをaccess_logに追記
-def add_access_log(method, url, status, ip, blocked=False):
+def add_access_log(method, url, status, ip, access_time, blocked=False):
     try:
         conn = db_connect()
         cursor = conn.cursor()
@@ -256,7 +256,7 @@ def add_access_log(method, url, status, ip, blocked=False):
             INSERT INTO access_log (method, full_url, status_code, ip_address, access_time, blocked_by_modsec)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (method, url, int(status), ip, datetime.now(), blocked),
+            (method, url, int(status), ip, access_time, blocked),
         )
         conn.commit()
     except Error as e:
@@ -313,15 +313,21 @@ def process_line(line):
         method = match.group("method")
         url = match.group("url")
         status = match.group("status")
+        log_time_str = match.group("time")
+        # NGINXログの日時形式: 21/Jun/2025:23:33:33 +0900
+        try:
+            access_time = datetime.strptime(log_time_str, "%d/%b/%Y:%H:%M:%S %z")
+        except Exception as e:
+            print(f"[WARN] Failed to parse log time '{log_time_str}': {e}")
+            access_time = datetime.now()
 
-        # サポートされていないHTTPメソッドをログに記録（無視）
         supported_methods = {"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"}
         if method not in supported_methods:
             print(f"[WARN] Unsupported HTTP method detected: {method}. Skipping entry.")
             return
 
         try:
-            add_access_log(method, url, status, ip, blocked)
+            add_access_log(method, url, status, ip, access_time, blocked)
             if blocked:
                 conn = db_connect()
                 cursor = conn.cursor()
