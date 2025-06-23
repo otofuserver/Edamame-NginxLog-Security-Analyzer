@@ -118,7 +118,7 @@ def init_db():
                 blocked_by_modsec BOOLEAN
             )
         """)
-        # ホワイトリスト���定管理テーブル
+        # ホワイトリスト設定管理テーブル
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 id INT PRIMARY KEY,
@@ -310,11 +310,17 @@ def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
     except Error as e:
         print(f"[DB ERROR] add_modsec_alert failed: {e}")
 
-def process_line(line):
+def process_line(line, modsec_pending):
     """
     ログ1行をパースし、アクセス記録・ModSecurity検知・URL登録を行う
+    blocked_by_modsecは「ModSecurity: Access denied」が行内または直前行に含まれるかで判定
     """
-    blocked = bool(MODSEC_BLOCK_PATTERN.search(line))
+    # ModSecurity詳細行かどうか判定
+    if MODSEC_BLOCK_PATTERN.search(line):
+        # ModSecurity: Access denied の行は一時保存し、次のリクエスト行で利用
+        modsec_pending['line'] = line
+        return
+
     match = LOG_PATTERN.search(line)
     if match:
         ip = match.group("ip")
@@ -334,14 +340,23 @@ def process_line(line):
             print(f"[WARN] Unsupported HTTP method detected: {method}. Skipping entry.")
             return
 
+        # 直前にModSecurity: Access denied行があればblocked扱い
+        blocked = False
+        modsec_line = None
+        if modsec_pending.get('line'):
+            blocked = True
+            modsec_line = modsec_pending['line']
+            modsec_pending['line'] = None
+
         try:
             add_access_log(method, url, status, ip, access_time, blocked)
-            if blocked:
+            if blocked and modsec_line:
                 conn = db_connect()
                 cursor = conn.cursor()
                 cursor.execute("SELECT MAX(id) FROM access_log")
                 log_id = cursor.fetchone()[0]
-                for rule_match in MODSEC_RULE_PATTERN.finditer(line):
+                # ModSecurity詳細情報を抽出して登録
+                for rule_match in MODSEC_RULE_PATTERN.finditer(modsec_line):
                     add_modsec_alert(
                         log_id,
                         rule_match.group("id"),
@@ -349,7 +364,6 @@ def process_line(line):
                         rule_match.group("data"),
                         rule_match.group("severity"),
                     )
-            # access_timeを渡すよう修正
             add_registry_entry(method, url, ip, access_time)
         except Error as e:
             print(f"[DB ERROR] Failed to log line: {e}")
@@ -363,13 +377,15 @@ def tail_log():
     log_path = LOG_PATH
     last_inode = None
     empty_read_count = 0
-    max_empty_reads = 50  # 連続で空��みしたらファイルを再オープン
+    max_empty_reads = 50  # 連続で空読みしたらファイルを再オープン
 
     def get_inode(path):
         try:
             return os.stat(path).st_ino
         except Exception:
             return None
+
+    modsec_pending = {'line': None}  # 直前のModSecurity: Access denied行を保持
 
     while True:
         try:
@@ -389,11 +405,11 @@ def tail_log():
                             # ファイルが切り替わった場合は再オープン
                             break
                         if empty_read_count >= max_empty_reads:
-                            # しばらく新規行がなければ再オープン
+                            # しばらく新規行がなければ再オ���プン
                             break
                         continue
                     empty_read_count = 0
-                    process_line(line)
+                    process_line(line, modsec_pending)
         except FileNotFoundError:
             print(f"[ERROR] Log file not found: {log_path}")
             time.sleep(1)
