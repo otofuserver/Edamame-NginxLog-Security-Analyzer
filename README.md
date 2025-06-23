@@ -63,7 +63,7 @@ docker logs -f nginxlog-LO
 ```
 
 ## 仕様・詳細
-- 詳細な仕様やDBスキーマは [`document/specification`](document/specification) を参照してください。
+- 詳細な仕様やDBスキーマは [`document/specification`](document/specification.txt) を参照してください。
 - 攻撃パターンのバージョン管理や追加は [`attack_patterns.json`](attack_patterns.json) を編集してください。
 
 

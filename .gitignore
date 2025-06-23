@@ -12,3 +12,4 @@
 !*.json
 # 以下のディレクトリは無視しない
 !.github
+!document
