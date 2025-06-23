@@ -219,7 +219,11 @@ def fetch_settings():
         print(f"[DB ERROR] fetch_settings failed: {e}")
 
 # 未登録のURLをurl_registryに登録（ホワイトリストIPはwhitelistとして登録）
-def add_registry_entry(method, url, ip):
+def add_registry_entry(method, url, ip, access_time):
+    """
+    url_registryへ新規URLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
+    created_at/updated_atにはアクセス時刻（ログから取得）を使用。
+    """
     attack_type = detect_attack_type(url)
     try:
         conn = db_connect()
@@ -233,13 +237,13 @@ def add_registry_entry(method, url, ip):
                 INSERT INTO url_registry (method, full_url, created_at, is_whitelisted, description, updated_at, attack_type)
                 VALUES (%s, %s, %s, %s, NULL, %s, %s)
                 """,
-                (method, url, datetime.now(), is_whitelisted, datetime.now(), attack_type),
+                (method, url, access_time, is_whitelisted, access_time, attack_type),
             )
             conn.commit()
         elif is_whitelisted and not row[1]:
             cursor.execute(
                 "UPDATE url_registry SET is_whitelisted = TRUE, updated_at = %s WHERE full_url = %s",
-                (datetime.now(), url),
+                (access_time, url),
             )
             conn.commit()
             print(f"[{datetime.now()}] [INFO] Updated whitelist status for URL: {url}")
@@ -306,6 +310,9 @@ def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
         print(f"[DB ERROR] add_modsec_alert failed: {e}")
 
 def process_line(line):
+    """
+    ログ1行をパースし、アクセス記録・ModSecurity検知・URL登録を行う
+    """
     blocked = bool(MODSEC_BLOCK_PATTERN.search(line))
     match = LOG_PATTERN.search(line)
     if match:
@@ -341,21 +348,28 @@ def process_line(line):
                         rule_match.group("data"),
                         rule_match.group("severity"),
                     )
-            add_registry_entry(method, url, ip)
+            # access_timeを渡すよう修正
+            add_registry_entry(method, url, ip, access_time)
         except Error as e:
             print(f"[DB ERROR] Failed to log line: {e}")
 
 # nginxログをリアルタイム監視（10秒ごとに設定も再取得）
 def tail_log():
+    """
+    nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する
+    ログが高速に追記される場合でも取りこぼしを防ぐ
+    """
     try:
         with open(LOG_PATH, "r") as f:
             f.seek(0, 2)
+            buffer = ""
             while True:
                 if int(time.time()) % 10 == 0:
                     fetch_settings()
                 line = f.readline()
+                # ログ追記がなければ少し待機して再度読み込む
                 if not line:
-                    time.sleep(0.1)
+                    time.sleep(0.2)  # 0.1秒→0.2秒に調整し、追記待ちの余裕を持たせる
                     continue
                 process_line(line)
     except FileNotFoundError:
