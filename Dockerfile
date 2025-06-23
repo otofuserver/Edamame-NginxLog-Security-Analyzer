@@ -5,7 +5,7 @@ RUN groupadd -g 113 nginxlog && useradd -u 107 -g 113 -M -s /usr/sbin/nologin ng
 
 # 必要パッケージのインストール
 RUN apt-get update && apt-get install -y libmariadb-dev gcc \
-    && pip install --no-cache-dir mysql-connector-python cryptography \
+    && pip install --no-cache-dir mysql-connector-python cryptography requests \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
