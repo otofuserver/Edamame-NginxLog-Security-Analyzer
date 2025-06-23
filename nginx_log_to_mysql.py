@@ -13,7 +13,6 @@ import json
 from urllib.parse import unquote
 import sys
 import os
-import requests  # 追加: バージョン比較用
 
 # アプリケーション情報
 APP_NAME = "Edamame NginxLog Security Analyzer"
@@ -86,6 +85,21 @@ def init_db():
         conn = db_connect()
         cursor = conn.cursor()
         cursor.execute("UPDATE settings SET backend_version = %s WHERE id = 1", (APP_VERSION,))
+        # attack_patterns.jsonのバージョンをsettingsテーブルに格納
+        try:
+            with open(ATTACK_PATTERNS_PATH, "r") as f:
+                local_patterns = json.load(f)
+            local_version = local_patterns.get("version", "")
+            cursor.execute("ALTER TABLE settings ADD COLUMN attack_patterns_version VARCHAR(50)", ())
+        except Exception:
+            pass  # 既にカラムが存在する場合は無視
+        try:
+            with open(ATTACK_PATTERNS_PATH, "r") as f:
+                local_patterns = json.load(f)
+            local_version = local_patterns.get("version", "")
+            cursor.execute("UPDATE settings SET attack_patterns_version = %s WHERE id = 1", (local_version,))
+        except Exception as e:
+            print(f"[INFO] attack_patterns.jsonのバージョン取得・保存に失敗: {e}")
         print(f"[{datetime.now()}] [INFO] backend_version updated to {APP_VERSION} in settings table.")
         conn.commit()
     except Error as e:
@@ -128,7 +142,8 @@ def init_db():
                 backend_version VARCHAR(50),
                 frontend_version VARCHAR(50),
                 frontend_last_login DATETIME,
-                frontend_last_ip VARCHAR(45)
+                frontend_last_ip VARCHAR(45),
+                attack_patterns_version VARCHAR(50)
             )
         """)
 
@@ -152,9 +167,10 @@ def init_db():
                 INSERT INTO settings (
                     id, whitelist_mode, whitelist_ip,
                     backend_version, frontend_version,
-                    frontend_last_login, frontend_last_ip
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """, (1, False, '', APP_VERSION, '', None, ''))
+                    frontend_last_login, frontend_last_ip,
+                    attack_patterns_version
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (1, False, '', APP_VERSION, '', None, '', ''))
         conn.commit()
         success = True
         # カラム追加が必要なテーブルと定義を順にチェック
@@ -271,30 +287,6 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
 # ログ1行を処理：アクセス保存＋新URL検出
 # URLに含まれる攻撃タイプを識別
 ATTACK_PATTERNS_PATH = "/run/secrets/attack_patterns.json"
-GITHUB_ATTACK_PATTERNS_URL = "https://raw.githubusercontent.com/otofuserver/Edamame-NginxLog-Security-Analyzer/master/attack_patterns.json"
-
-def check_attack_patterns_version():
-    """
-    attack_patterns.jsonのバージョンをGitHub最新版と比較し、古い場合は警告を表示する
-    """
-    try:
-        # ローカルのバージョン取得
-        with open(ATTACK_PATTERNS_PATH, "r") as f:
-            local_patterns = json.load(f)
-        local_version = local_patterns.get("version", "")
-        # GitHub最新版のバージョン取得
-        resp = requests.get(GITHUB_ATTACK_PATTERNS_URL, timeout=5)
-        if resp.status_code == 200:
-            remote_patterns = resp.json()
-            remote_version = remote_patterns.get("version", "")
-            if local_version != remote_version:
-                print(f"[WARNING] attack_patterns.jsonのバージョンが古い可能性があります。")
-                print(f"  ローカル: {local_version} / 最新: {remote_version}")
-                print(f"  最新版は {GITHUB_ATTACK_PATTERNS_URL} から取得できます。")
-        else:
-            print(f"[INFO] attack_patterns.jsonの最新版取得に失敗しました（HTTP {resp.status_code}）")
-    except Exception as e:
-        print(f"[INFO] attack_patterns.jsonのバージョンチェック���失敗: {e}")
 
 def detect_attack_type(url):
     """
@@ -403,7 +395,7 @@ def process_line(line, modsec_pending):
 def tail_log():
     """
     nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
-    ログが高速に追記される場合や、ログローテーション時も取りこぼしを防ぐ。
+    ログが高速に追記される場合や、ロ��ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
     last_inode = None
@@ -473,7 +465,7 @@ def main():
     parser.add_argument('--skip-init-db', action='store_true', help='Skip automatic DB initialization')
     args = parser.parse_args()
 
-    check_attack_patterns_version()  # バージョンチェックを追加
+    # check_attack_patterns_version() を削除
     rescan_attack_types()
     if not args.skip_init_db:
         if not init_db():
