@@ -1,5 +1,8 @@
 # Edamame NginxLog Security Analyzer
 
+> **このリポジトリはEdamame NginxLog Security Analyzerのバックエンド実装です。**
+> フロントエンドは公式のもの（例：edamame-frontend）を利用しても、独自開発のものを利用しても構いません（ただし動作保証はありません）。
+
 ## 概要
 Edamame NginxLog Security Analyzerは、NGINXのアクセスログをリアルタイムで監視し、MySQLデータベースに記録・分析するセキュリティ監査ツールです。ModSecurityによるブロックや攻撃パターンの自動識別、ホワイトリスト管理など、Webサーバのセキュリティ運用を強力にサポートします。
 
