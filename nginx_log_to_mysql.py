@@ -13,6 +13,7 @@ import json
 from urllib.parse import unquote
 import sys
 import os
+import requests  # 追加: バージョン比較用
 
 # アプリケーション情報
 APP_NAME = "Edamame NginxLog Security Analyzer"
@@ -118,7 +119,7 @@ def init_db():
                 blocked_by_modsec BOOLEAN
             )
         """)
-        # ホワイトリスト���定管理テーブル
+        # ホワイトリスト設定管理テーブル
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 id INT PRIMARY KEY,
@@ -270,6 +271,30 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
 # ログ1行を処理：アクセス保存＋新URL検出
 # URLに含まれる攻撃タイプを識別
 ATTACK_PATTERNS_PATH = "/run/secrets/attack_patterns.json"
+GITHUB_ATTACK_PATTERNS_URL = "https://raw.githubusercontent.com/otofuserver/Edamame-NginxLog-Security-Analyzer/master/attack_patterns.json"
+
+def check_attack_patterns_version():
+    """
+    attack_patterns.jsonのバージョンをGitHub最新版と比較し、古い場合は警告を表示する
+    """
+    try:
+        # ローカルのバージョン取得
+        with open(ATTACK_PATTERNS_PATH, "r") as f:
+            local_patterns = json.load(f)
+        local_version = local_patterns.get("version", "")
+        # GitHub最新版のバージョン取得
+        resp = requests.get(GITHUB_ATTACK_PATTERNS_URL, timeout=5)
+        if resp.status_code == 200:
+            remote_patterns = resp.json()
+            remote_version = remote_patterns.get("version", "")
+            if local_version != remote_version:
+                print(f"[WARNING] attack_patterns.jsonのバージョンが古い可能性があります。")
+                print(f"  ローカル: {local_version} / 最新: {remote_version}")
+                print(f"  最新版は {GITHUB_ATTACK_PATTERNS_URL} から取得できます。")
+        else:
+            print(f"[INFO] attack_patterns.jsonの最新版取得に失敗しました（HTTP {resp.status_code}）")
+    except Exception as e:
+        print(f"[INFO] attack_patterns.jsonのバージョンチェック���失敗: {e}")
 
 def detect_attack_type(url):
     """
@@ -448,6 +473,7 @@ def main():
     parser.add_argument('--skip-init-db', action='store_true', help='Skip automatic DB initialization')
     args = parser.parse_args()
 
+    check_attack_patterns_version()  # バージョンチェックを追加
     rescan_attack_types()
     if not args.skip_init_db:
         if not init_db():
