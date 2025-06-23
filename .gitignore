@@ -8,3 +8,4 @@
 !Dockerfile
 !nginx_log_to_mysql.py
 !setup_secure_config.py
+!.github
