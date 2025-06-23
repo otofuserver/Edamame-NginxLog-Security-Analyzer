@@ -52,7 +52,7 @@ def load_db_config():
 # DBへ接続（失敗時は最大N回リトライ）
 def db_connect():
     global DB_SESSION
-    if DB_SESSION and DB_SESSION.is_connected():
+    if DB_SESSION is not None and DB_SESSION.is_connected():
         return DB_SESSION
 
     print("[INFO] Attempting to connect to the database...")
