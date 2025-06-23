@@ -8,4 +8,7 @@
 !Dockerfile
 !nginx_log_to_mysql.py
 !setup_secure_config.py
+!*.md
+!*.json
+# 以下のディレクトリは無視しない
 !.github

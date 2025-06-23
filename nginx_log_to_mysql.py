@@ -118,7 +118,7 @@ def init_db():
                 blocked_by_modsec BOOLEAN
             )
         """)
-        # ホワイトリスト設定管理テーブル
+        # ホワイトリスト���定管理テーブル
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 id INT PRIMARY KEY,
@@ -272,12 +272,18 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
 ATTACK_PATTERNS_PATH = "/run/secrets/attack_patterns.json"
 
 def detect_attack_type(url):
+    """
+    URLから攻撃タイプを判定する。attack_patterns.jsonの"version"キーは無視する。
+    """
     try:
         url = unquote(url)
         with open(ATTACK_PATTERNS_PATH, "r") as f:
             patterns = json.load(f)
         matches = []
         for attack_name, pattern in patterns.items():
+            # "version"キーはシグネチャ判定から除外
+            if attack_name == "version":
+                continue
             if re.search(pattern, url, re.IGNORECASE):
                 matches.append(attack_name)
         if matches:
@@ -405,7 +411,7 @@ def tail_log():
                             # ファイルが切り替わった場合は再オープン
                             break
                         if empty_read_count >= max_empty_reads:
-                            # しばらく新規行がなければ再オ���プン
+                            # しばらく新規行がなければ再オープン
                             break
                         continue
                     empty_read_count = 0
