@@ -25,6 +25,24 @@ Edamame NginxLog Security Analyzerは、NGINXのアクセスログをリアル�
 
 ## セットアップ方法
 
+### 事前準備（Dockerユーザー権限の調整）
+
+1. **ホストサーバーでsyslogユーザーのUID/GIDを確認**
+   ```bash
+   id syslog
+   ```
+   例: `uid=101(syslog) gid=103(syslog) ...`
+
+2. **Dockerfileのユーザー作成部分を、上記で確認したUID/GIDに書き換える**
+   - 例: `useradd -u 101 -g 103 ...` のように修正
+
+3. **（推奨）ホストサーバー上のプロジェクトフォルダの所有者をsyslogユーザーに変更**
+   ```bash
+   sudo chown -R syslog:syslog /path/to/Edamame NginxLog Security Analyzer
+   ```
+
+---
+
 ### 1. DB接続情報の暗号化設定
 ```bash
 python3 setup_secure_config.py
@@ -50,5 +68,3 @@ docker logs -f nginxlog-LO
 
 
 ---
-
-
