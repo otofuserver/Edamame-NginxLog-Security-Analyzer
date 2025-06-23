@@ -1,0 +1,81 @@
+name: Python Lint & Test
+
+on:
+  push:
+    paths:
+      - '**.py'
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mysql-connector-python cryptography
+
+      - name: Lint (pycodestyle)
+        run: |
+          pip install pycodestyle
+          pycodestyle . --max-line-length=120
+
+      - name: Syntax check (compileall)
+        run: |
+          python -m compileall .
+
+      - name: Run unittest if exists
+        run: |
+          if ls test_*.py 1> /dev/null 2>&1; then
+            python -m unittest discover -s . -p "test_*.py"
+          else
+            echo "No unittest files found, skipping tests."
+          fi
+
+      - name: Check main scripts import
+        run: |
+          python -c "import nginx_log_to_mysql"
+          python -c "import setup_secure_config"
+
+      - name: Test setup_secure_config.py (secret.key/db_config.enc作成と復号テスト)
+        run: |
+          set -e
+          rm -f secret.key db_config.enc
+          export PYTHONUNBUFFERED=1
+          # 入力値を事前に用意
+          export TEST_MYSQL_HOST="testhost"
+          export TEST_MYSQL_USER="testuser"
+          export TEST_MYSQL_PASS="testpass"
+          export TEST_MYSQL_DB="testdb"
+          # 入力をエコーバックで渡す
+          (echo "$TEST_MYSQL_HOST"; echo "$TEST_MYSQL_USER"; echo "$TEST_MYSQL_DB") | \
+            python setup_secure_config.py <<EOF
+$TEST_MYSQL_PASS
+EOF
+          # ファイルが生成されているか確認
+          test -f secret.key
+          test -f db_config.enc
+          # 復号して内��を確認
+          cat <<EOF > check_config.py
+import json
+from cryptography.fernet import Fernet
+with open('secret.key', 'rb') as kf:
+    key = kf.read()
+fernet = Fernet(key)
+with open('db_config.enc', 'rb') as ef:
+    dec = fernet.decrypt(ef.read())
+conf = json.loads(dec)
+assert conf['host'] == '$TEST_MYSQL_HOST'
+assert conf['user'] == '$TEST_MYSQL_USER'
+assert conf['password'] == '$TEST_MYSQL_PASS'
+assert conf['database'] == '$TEST_MYSQL_DB'
+print('setup_secure_config.py test passed')
+EOF
+          python check_config.py
