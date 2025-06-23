@@ -12,6 +12,7 @@ from cryptography.fernet import Fernet
 import json
 from urllib.parse import unquote
 import sys
+import os
 
 # アプリケーション情報
 APP_NAME = "Edamame NginxLog Security Analyzer"
@@ -117,7 +118,7 @@ def init_db():
                 blocked_by_modsec BOOLEAN
             )
         """)
-        # ホワイトリスト設定管理テーブル
+        # ホワイトリスト���定管理テーブル
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS settings (
                 id INT PRIMARY KEY,
@@ -356,25 +357,49 @@ def process_line(line):
 # nginxログをリアルタイム監視（10秒ごとに設定も再取得）
 def tail_log():
     """
-    nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する
-    ログが高速に追記される場合でも取りこぼしを防ぐ
+    nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
+    ログが高速に追記される場合や、ログローテーション時も取りこぼしを防ぐ。
     """
-    try:
-        with open(LOG_PATH, "r") as f:
-            f.seek(0, 2)
-            buffer = ""
-            while True:
-                if int(time.time()) % 10 == 0:
-                    fetch_settings()
-                line = f.readline()
-                # ログ追記がなければ少し待機して再度読み込む
-                if not line:
-                    time.sleep(0.2)  # 0.1秒→0.2秒に調整し、追記待ちの余裕を持たせる
-                    continue
-                process_line(line)
-    except FileNotFoundError:
-        print(f"[ERROR] Log file not found: {LOG_PATH}")
-        sys.exit(1)
+    log_path = LOG_PATH
+    last_inode = None
+    empty_read_count = 0
+    max_empty_reads = 50  # 連続で空��みしたらファイルを再オープン
+
+    def get_inode(path):
+        try:
+            return os.stat(path).st_ino
+        except Exception:
+            return None
+
+    while True:
+        try:
+            with open(log_path, "r") as f:
+                f.seek(0, 2)
+                last_inode = get_inode(log_path)
+                while True:
+                    if int(time.time()) % 10 == 0:
+                        fetch_settings()
+                    line = f.readline()
+                    if not line:
+                        empty_read_count += 1
+                        time.sleep(0.1)
+                        # ログローテーションやinode変更を検知
+                        current_inode = get_inode(log_path)
+                        if current_inode != last_inode:
+                            # ファイルが切り替わった場合は再オープン
+                            break
+                        if empty_read_count >= max_empty_reads:
+                            # しばらく新規行がなければ再オープン
+                            break
+                        continue
+                    empty_read_count = 0
+                    process_line(line)
+        except FileNotFoundError:
+            print(f"[ERROR] Log file not found: {log_path}")
+            time.sleep(1)
+        except Exception as e:
+            print(f"[ERROR] tail_log exception: {e}")
+            time.sleep(1)
 
 # メイン関数（初期化 → 設定読込 → ログ監視）
 def rescan_attack_types():
