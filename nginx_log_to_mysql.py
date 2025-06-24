@@ -33,7 +33,7 @@ WHITELIST_IP = ""
 # 例: 192.168.10.11 - - [21/Jun/2025:23:33:33 +0900] "GET /epgstation/..." 200
 LOG_PATTERN = re.compile(
     r'(?P<ip>\d+\.\d+\.\d+\.\d+)\s-\s-\s'
-    r'\[(?P<time>[^]]+)]\s"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s'
+    r'\[(?P<time>[^\]]+)\]\s"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s'
     r'(?P<url>[^ ]+)\sHTTP.*?"\s(?P<status>\d{3})'
 )
 
@@ -43,6 +43,15 @@ RETRY_DELAY = 3
 
 # グローバルDB接続セッション
 DB_SESSION = None
+
+
+# タイムスタンプ＋ログレベル付きで標準出力に出す共通関数
+def log(msg, level="INFO"):
+    """
+    ログ出力用共通関数。タイムスタンプとレベルを付与して出力する。
+    """
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now}][{level}] {msg}")
 
 
 # DBの接続情報を復号化して取得
@@ -57,11 +66,14 @@ def load_db_config():
 
 # DBへ接続（失敗時は最大N回リトライ）
 def db_connect():
+    """
+    DBへ接続する関数。失敗時は最大N回リトライし、全て失敗した場合はNoneを返す。
+    """
     global DB_SESSION
     if DB_SESSION is not None and DB_SESSION.is_connected():
         return DB_SESSION
 
-    print("[INFO] Attempting to connect to the database...")
+    log("Attempting to connect to the database...", "INFO")
     config = load_db_config()
     for attempt in range(1, MAX_RETRIES + 1):
         try:
@@ -69,17 +81,19 @@ def db_connect():
             if conn.is_connected():
                 DB_SESSION = conn
                 if attempt > 1:
-                    print(f"[RECOVERED] DB connection recovered on retry #{attempt}.")
-                    print(f"[INFO] DB connection successful on retry #{attempt}.")
+                    log(f"DB connection recovered on retry #{attempt}.", "RECOVERED")
+                    log(f"DB connection successful on retry #{attempt}.", "INFO")
                 else:
-                    print("[INFO] Database connection established successfully.")
+                    log("Database connection established successfully.", "INFO")
                 return DB_SESSION
         except Error as e:
-            print(f"[DB ERROR] Connection attempt {attempt} failed: {e}")
+            log(f"Connection attempt {attempt} failed: {e}", "DB ERROR")
             if attempt == MAX_RETRIES:
-                print("[DB ERROR] Max retries exceeded. Exiting.")
+                log("Max retries exceeded. Exiting.", "DB ERROR")
                 sys.exit(1)
             time.sleep(RETRY_DELAY)
+    # すべてのリトライが失敗した場合はNoneを返す
+    return None
 
 
 # DBの初期テーブル構造を作成（なければ）
@@ -88,6 +102,9 @@ MODSEC_ALERT_TABLE = "modsec_alerts"
 
 
 def init_db():
+    """
+    DB初期化処理。テーブル・カラムの存在確認と作成、attack_patterns.jsonバージョン管理。
+    """
     try:
         conn = db_connect()
         cursor = conn.cursor()
@@ -96,25 +113,49 @@ def init_db():
         try:
             with open(ATTACK_PATTERNS_PATH, "r") as f:
                 local_patterns = json.load(f)
-            local_version = local_patterns.get("version", "")
-            cursor.execute("ALTER TABLE settings ADD COLUMN attack_patterns_version VARCHAR(50)", ())
-        except Exception:
-            pass  # 既にカラムが存在する場合は無視
-        try:
-            with open(ATTACK_PATTERNS_PATH, "r") as f:
-                local_patterns = json.load(f)
-            local_version = local_patterns.get("version", "")
+            version = local_patterns.get("version", "")
+            if version:
+                log(f"attack_patterns.jsonのバージョン情報を取得: {version}", "INFO")
+            else:
+                log("attack_patterns.jsonのバージョン情報の取得に失敗（versionキーが空または未定義）", "WARN")
             cursor.execute(
-                "UPDATE settings SET attack_patterns_version = %s WHERE id = 1",
-                (local_version,)
+                "SHOW COLUMNS FROM settings LIKE 'attack_patterns_version'"
             )
+            if cursor.fetchone() is None:
+                cursor.execute("ALTER TABLE settings ADD COLUMN attack_patterns_version VARCHAR(50)")
         except Exception as e:
-            print(f"[INFO] attack_patterns.jsonのバージョン取得・保存に失敗: {e}")
-        print(f"[{datetime.now()}] [INFO] backend_version updated to {APP_VERSION} in settings table.")
+            version = ""
+            log(f"attack_patterns.jsonのバージョン情報の取得に失敗: {e}", "WARN")
+            pass
+
+        # settingsテーブルが既存ならUPDATE、なければINSERT
+        try:
+            cursor.execute("SELECT COUNT(*) FROM settings")
+            if cursor.fetchone()[0] == 0:
+                cursor.execute("""
+                    INSERT INTO settings (
+                        id, whitelist_mode, whitelist_ip,
+                        backend_version, frontend_version,
+                        frontend_last_login, frontend_last_ip,
+                        attack_patterns_version
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """, (1, False, '', APP_VERSION, '', None, '', version))
+            else:
+                cursor.execute(
+                    "UPDATE settings SET attack_patterns_version = %s WHERE id = 1",
+                    (version,)
+                )
+        except Exception as e:
+            log(f"attack_patterns.jsonのバージョン取得・保存に失敗: {e}", "INFO")
+        log(f"backend_version updated to {APP_VERSION} in settings table.", "INFO")
         conn.commit()
     except Error as e:
-        print(f"[{datetime.now()}] [DB ERROR] Failed to update backend_version: {e}")
-    success = False
+        log(f"Failed to update backend_version: {e}", "DB ERROR")
+        return False  # ここでreturnを追加
+    except Exception as e:
+        # 予期しない例外も捕捉し、Falseを返す
+        log(f"Unexpected error in init_db: {e}", "ERROR")
+        return False
     try:
         conn = db_connect()
         cursor = conn.cursor()
@@ -182,7 +223,6 @@ def init_db():
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (1, False, '', APP_VERSION, '', None, '', ''))
         conn.commit()
-        success = True
         # カラム追加が必要なテーブルと定義を順にチェック
         required_columns = {
             "url_registry": [
@@ -222,16 +262,21 @@ def init_db():
             for column_name, ddl in columns:
                 cursor.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (column_name,))
                 if cursor.fetchone() is None:
-                    print(
-                        f"[{datetime.now()}] [INFO] Adding missing column '{column_name}' to {table} "
-                        f"using DDL: ALTER TABLE {table} ADD COLUMN {column_name} {ddl}"
+                    log(
+                        f"Adding missing column '{column_name}' to {table} "
+                        f"using DDL: ALTER TABLE {table} ADD COLUMN {column_name} {ddl}",
+                        "INFO"
                     )
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {ddl}")
                     conn.commit()
     except Error as e:
-        print(f"[{datetime.now()}] [DB ERROR] init_db failed: {e}")
+        log(f"init_db failed: {e}", "DB ERROR")
         return False
-    return success
+    except Exception as e:
+        # 予期しない例外も捕捉し、Falseを返す
+        log(f"Unexpected error in init_db (table creation): {e}", "ERROR")
+        return False
+    return True
 
 
 # DBから最新のホワイトリスト設定を取得
@@ -246,13 +291,13 @@ def fetch_settings():
             WHITELIST_MODE = bool(row[0])
             WHITELIST_IP = row[1]
     except Error as e:
-        print(f"[DB ERROR] fetch_settings failed: {e}")
+        log(f"fetch_settings failed: {e}", "DB ERROR")
 
 
 # 未登録のURLをurl_registryに登録（ホワイトリストIPはwhitelistとして登録）
 def add_registry_entry(method, url, ip, access_time):
     """
-    url_registryへ新規URLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
+    url_registryへ���規URLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
     created_at/updated_atにはアクセス時刻（ログから取得）���使用。
     """
     attack_type = detect_attack_type(url)
@@ -279,9 +324,9 @@ def add_registry_entry(method, url, ip, access_time):
                 (access_time, url),
             )
             conn.commit()
-            print(f"[{datetime.now()}] [INFO] Updated whitelist status for URL: {url}")
+            log(f"Updated whitelist status for URL: {url}", "INFO")
     except Error as e:
-        print(f"[DB ERROR] add_registry_entry failed: {e}")
+        log(f"add_registry_entry failed: {e}", "DB ERROR")
 
 
 # 全アクセスをaccess_logに追記
@@ -305,7 +350,7 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
         )
         conn.commit()
     except Error as e:
-        print(f"[DB ERROR] add_access_log failed: {e}")
+        log(f"add_access_log failed: {e}", "DB ERROR")
 
 
 # ログ1行を処理：アクセス保存＋新URL検出
@@ -331,20 +376,21 @@ def detect_attack_type(url):
         if matches:
             return ",".join(matches)
     except Exception as e:
-        print(f"[ERROR] Failed to detect attack type: {e}")
+        log(f"Failed to detect attack type: {e}", "ERROR")
     return None
 
 
-# ModSecurityによるブロックを判定するキーワード
+# ModSecurityによるブロックを判定するキーワー��
 MODSEC_BLOCK_PATTERN = re.compile(r"ModSecurity: Access denied", re.IGNORECASE)
 
 # ModSecurityルール詳細を抽出しmodsec_alertsに記録
+# 正規表現の ] はエスケープ不要なので \] を外す
 MODSEC_RULE_PATTERN = re.compile(
     r'ModSecurity: Access denied.*?'
-    r'\[id "(?P<id>\d+)"].*?'
-    r'\[msg "(?P<msg>.*?)"].*?'
-    r'\[data "(?P<data>.*?)"].*?'
-    r'\[severity "(?P<severity>\d+)"]',
+    r'\[id "(?P<id>\d+)"\].*?'
+    r'\[msg "(?P<msg>.*?)"\].*?'
+    r'\[data "(?P<data>.*?)"\].*?'
+    r'\[severity "(?P<severity>\d+)"\]',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -362,7 +408,7 @@ def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
         )
         conn.commit()
     except Error as e:
-        print(f"[DB ERROR] add_modsec_alert failed: {e}")
+        log(f"add_modsec_alert failed: {e}", "DB ERROR")
 
 
 def process_line(line, modsec_pending):
@@ -389,12 +435,12 @@ def process_line(line, modsec_pending):
                 log_time_str, "%d/%b/%Y:%H:%M:%S %z"
             )
         except Exception as e:
-            print(f"[WARN] Failed to parse log time '{log_time_str}': {e}")
+            log(f"Failed to parse log time '{log_time_str}': {e}", "WARN")
             access_time = datetime.now()
 
         supported_methods = {"GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "PATCH"}
         if method not in supported_methods:
-            print(f"[WARN] Unsupported HTTP method detected: {method}. Skipping entry.")
+            log(f"Unsupported HTTP method detected: {method}. Skipping entry.", "WARN")
             return
 
         # 直前にModSecurity: Access denied行があればblocked扱い
@@ -412,7 +458,7 @@ def process_line(line, modsec_pending):
                 cursor = conn.cursor()
                 cursor.execute("SELECT MAX(id) FROM access_log")
                 log_id = cursor.fetchone()[0]
-                # ModSecurity詳細情報を抽出して登録
+                # ModSecurity詳���情報を抽出して登録
                 for rule_match in MODSEC_RULE_PATTERN.finditer(modsec_line):
                     add_modsec_alert(
                         log_id,
@@ -423,7 +469,7 @@ def process_line(line, modsec_pending):
                     )
             add_registry_entry(method, url, ip, access_time)
         except Error as e:
-            print(f"[DB ERROR] Failed to log line: {e}")
+            log(f"Failed to log line: {e}", "DB ERROR")
 
 
 # nginxログをリアルタイム監視（10秒ごとに設定も再取得）
@@ -433,14 +479,14 @@ def tail_log():
     ログが高速に追記される場合や、ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
-    last_inode = None
     empty_read_count = 0
-    max_empty_reads = 50  # 連続で空読みしたらファイルを再オ���プン
+    max_empty_reads = 50  # 連続で空読みしたらファイルを再オープン
 
     def get_inode(path):
         try:
             return os.stat(path).st_ino
-        except Exception:
+        except OSError:
+            # ファイルが存在しない等のOSエラーのみ捕捉
             return None
 
     modsec_pending = {'line': None}  # 直前のModSecurity: Access denied行を保持
@@ -449,7 +495,7 @@ def tail_log():
         try:
             with open(log_path, "r") as f:
                 f.seek(0, 2)
-                last_inode = get_inode(log_path)
+                last_inode_val = get_inode(log_path)
                 while True:
                     if int(time.time()) % 10 == 0:
                         fetch_settings()
@@ -459,8 +505,8 @@ def tail_log():
                         time.sleep(0.1)
                         # ログローテーションやinode変更を検知
                         current_inode = get_inode(log_path)
-                        if current_inode != last_inode:
-                            # ファイルが切り替わった場合は再���ープン
+                        if current_inode != last_inode_val:
+                            # ファイルが切り替わった場合は再オープン
                             break
                         if empty_read_count >= max_empty_reads:
                             # しばらく新規行がなければ再オープン
@@ -469,10 +515,11 @@ def tail_log():
                     empty_read_count = 0
                     process_line(line, modsec_pending)
         except FileNotFoundError:
-            print(f"[ERROR] Log file not found: {log_path}")
+            log(f"Log file not found: {log_path}", "ERROR")
             time.sleep(1)
-        except Exception as e:
-            print(f"[ERROR] tail_log exception: {e}")
+        except OSError as e:
+            # OSErrorのみを捕捉し、他の例外は上位で捕捉
+            log(f"tail_log OSError: {e}", "ERROR")
             time.sleep(1)
 
 
@@ -490,31 +537,33 @@ def rescan_attack_types():
                 (new_type, entry_id)
             )
         conn.commit()
-        print(f"[{datetime.now()}] [INFO] attack_type fields have been updated based on latest patterns.")
+        log("attack_type fields have been updated based on latest patterns.", "INFO")
     except Error as e:
-        print(f"[{datetime.now()}] [DB ERROR] rescan_attack_types failed: {e}")
+        log(f"rescan_attack_types failed: {e}", "DB ERROR")
 
 
 def main():
-    # アプリ情報の表示
+    """
+    メイン関数。アプリ情報表示、引数処理、DB初期化、設定取得、ログ監視を行う。
+    """
     print(f"==== {APP_NAME} ====")
     print(f"Version: {APP_VERSION}")
-    print(f"{APP_AUTHOR}\n")
+    print(f"{APP_AUTHOR}")
+    print()  # 空行はそのまま
 
     parser = argparse.ArgumentParser(description='NGINX log monitor to MySQL')
     parser.add_argument('--skip-init-db', action='store_true', help='Skip automatic DB initialization')
     args = parser.parse_args()
 
-    # check_attack_patterns_version() を削除
     rescan_attack_types()
     if not args.skip_init_db:
         if not init_db():
-            print("[ERROR] Database init failed. Exiting.")
+            log("Database init failed. Exiting.", "ERROR")
             sys.exit(1)
-        print("[INFO] Database schema verified or created.")
+        log("Database schema verified or created.", "INFO")
 
     fetch_settings()
-    print("Starting log monitor...")
+    log("Starting log monitor...", "INFO")
     tail_log()
 
 
