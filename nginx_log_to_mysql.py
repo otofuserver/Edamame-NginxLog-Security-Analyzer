@@ -45,7 +45,7 @@ RETRY_DELAY = 3
 DB_SESSION = None
 
 
-# DB接続情報を復号化して取得
+# DBの接続情報を復号化して取得
 def load_db_config():
     with open(KEY_PATH, 'rb') as key_file:
         key = key_file.read()
@@ -118,7 +118,7 @@ def init_db():
     try:
         conn = db_connect()
         cursor = conn.cursor()
-        # URL登録テ��ブル（初回のみ一意登録）
+        # URL登録テーブル（初回のみ一意登録）
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS url_registry (
                 id INT AUTO_INCREMENT PRIMARY KEY,
@@ -265,7 +265,9 @@ def add_registry_entry(method, url, ip, access_time):
         if row is None:
             cursor.execute(
                 """
-                INSERT INTO url_registry (method, full_url, created_at, is_whitelisted, description, updated_at, attack_type)
+                INSERT INTO url_registry (
+                    method, full_url, created_at, is_whitelisted, description, updated_at, attack_type
+                )
                 VALUES (%s, %s, %s, %s, NULL, %s, %s)
                 """,
                 (method, url, access_time, is_whitelisted, access_time, attack_type),
@@ -292,7 +294,14 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
             INSERT INTO access_log (method, full_url, status_code, ip_address, access_time, blocked_by_modsec)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (method, url, int(status), ip, access_time, blocked),
+            (
+                method,
+                url,
+                int(status),
+                ip,
+                access_time,
+                blocked,
+            ),
         )
         conn.commit()
     except Error as e:
@@ -420,13 +429,13 @@ def process_line(line, modsec_pending):
 # nginxログをリアルタイム監視（10秒ごとに設定も再取得）
 def tail_log():
     """
-    nginxログファイルをリアルタ���ムで監視し、追記がなければ一定時間待機する。
+    nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
     ログが高速に追記される場合や、ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
     last_inode = None
     empty_read_count = 0
-    max_empty_reads = 50  # 連続で空読みしたらファイルを再オープン
+    max_empty_reads = 50  # 連続で空読みしたらファイルを再オ���プン
 
     def get_inode(path):
         try:
