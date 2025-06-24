@@ -5,6 +5,7 @@ import json
 import sys
 from cryptography.fernet import Fernet
 
+
 def main():
     """
     secret.keyとdb_config.encを復号し、内容が想定通りか検証する
@@ -27,6 +28,6 @@ def main():
         print("❌ setup_secure_config.py test failed:", str(e))
         sys.exit(1)
 
+
 if __name__ == "__main__":
     main()
-

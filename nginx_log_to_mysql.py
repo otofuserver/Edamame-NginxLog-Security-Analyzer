@@ -41,6 +41,7 @@ RETRY_DELAY = 3
 # グローバルDB接続セッション
 DB_SESSION = None
 
+
 # DB接続情報を復号化して取得
 def load_db_config():
     with open(KEY_PATH, 'rb') as key_file:
@@ -49,6 +50,7 @@ def load_db_config():
     with open(SECURE_CONFIG_PATH, 'rb') as enc_file:
         decrypted = fernet.decrypt(enc_file.read())
     return json.loads(decrypted)
+
 
 # DBへ接続（失敗時は最大N回リトライ）
 def db_connect():
@@ -76,9 +78,11 @@ def db_connect():
                 sys.exit(1)
             time.sleep(RETRY_DELAY)
 
+
 # DBの初期テーブル構造を作成（なければ）
 # ModSecurityアラート詳細保存用テーブルを作成（ブロック理由など）
 MODSEC_ALERT_TABLE = "modsec_alerts"
+
 
 def init_db():
     try:
@@ -97,7 +101,10 @@ def init_db():
             with open(ATTACK_PATTERNS_PATH, "r") as f:
                 local_patterns = json.load(f)
             local_version = local_patterns.get("version", "")
-            cursor.execute("UPDATE settings SET attack_patterns_version = %s WHERE id = 1", (local_version,))
+            cursor.execute(
+                "UPDATE settings SET attack_patterns_version = %s WHERE id = 1",
+                (local_version,)
+            )
         except Exception as e:
             print(f"[INFO] attack_patterns.jsonのバージョン取得・保存に失敗: {e}")
         print(f"[{datetime.now()}] [INFO] backend_version updated to {APP_VERSION} in settings table.")
@@ -213,7 +220,8 @@ def init_db():
                 cursor.execute(f"SHOW COLUMNS FROM {table} LIKE %s", (column_name,))
                 if cursor.fetchone() is None:
                     print(
-                        f"[{datetime.now()}] [INFO] Adding missing column '{column_name}' to {table} using DDL: ALTER TABLE {table} ADD COLUMN {column_name} {ddl}"
+                        f"[{datetime.now()}] [INFO] Adding missing column '{column_name}' to {table} "
+                        f"using DDL: ALTER TABLE {table} ADD COLUMN {column_name} {ddl}"
                     )
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {ddl}")
                     conn.commit()
@@ -221,6 +229,7 @@ def init_db():
         print(f"[{datetime.now()}] [DB ERROR] init_db failed: {e}")
         return False
     return success
+
 
 # DBから最新のホワイトリスト設定を取得
 def fetch_settings():
@@ -236,11 +245,12 @@ def fetch_settings():
     except Error as e:
         print(f"[DB ERROR] fetch_settings failed: {e}")
 
+
 # 未登録のURLをurl_registryに登録（ホワイトリストIPはwhitelistとして登録）
 def add_registry_entry(method, url, ip, access_time):
     """
     url_registryへ新規URLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
-    created_at/updated_atにはアクセス時刻（ログから取得）を使用。
+    created_at/updated_atにはアクセス時刻（ログから取得）���使用。
     """
     attack_type = detect_attack_type(url)
     try:
@@ -268,6 +278,7 @@ def add_registry_entry(method, url, ip, access_time):
     except Error as e:
         print(f"[DB ERROR] add_registry_entry failed: {e}")
 
+
 # 全アクセスをaccess_logに追記
 def add_access_log(method, url, status, ip, access_time, blocked=False):
     try:
@@ -284,9 +295,11 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
     except Error as e:
         print(f"[DB ERROR] add_access_log failed: {e}")
 
+
 # ログ1行を処理：アクセス保存＋新URL検出
 # URLに含まれる攻撃タイプを識別
 ATTACK_PATTERNS_PATH = "/run/secrets/attack_patterns.json"
+
 
 def detect_attack_type(url):
     """
@@ -309,6 +322,7 @@ def detect_attack_type(url):
         print(f"[ERROR] Failed to detect attack type: {e}")
     return None
 
+
 # ModSecurityによるブロックを判定するキーワード
 MODSEC_BLOCK_PATTERN = re.compile(r"ModSecurity: Access denied", re.IGNORECASE)
 
@@ -317,6 +331,7 @@ MODSEC_RULE_PATTERN = re.compile(
     r'ModSecurity: Access denied.*?\[id "(?P<id>\d+)"\].*?\[msg "(?P<msg>.*?)"\].*?\[data "(?P<data>.*?)"\].*?\[severity "(?P<severity>\d+)"\]',
     re.IGNORECASE | re.DOTALL,
 )
+
 
 def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
     try:
@@ -332,6 +347,7 @@ def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
         conn.commit()
     except Error as e:
         print(f"[DB ERROR] add_modsec_alert failed: {e}")
+
 
 def process_line(line, modsec_pending):
     """
@@ -353,7 +369,9 @@ def process_line(line, modsec_pending):
         log_time_str = match.group("time")
         # NGINXログの日時形式: 21/Jun/2025:23:33:33 +0900
         try:
-            access_time = datetime.strptime(log_time_str, "%d/%b/%Y:%H:%M:%S %z")
+            access_time = datetime.strptime(
+                log_time_str, "%d/%b/%Y:%H:%M:%S %z"
+            )
         except Exception as e:
             print(f"[WARN] Failed to parse log time '{log_time_str}': {e}")
             access_time = datetime.now()
@@ -391,11 +409,12 @@ def process_line(line, modsec_pending):
         except Error as e:
             print(f"[DB ERROR] Failed to log line: {e}")
 
+
 # nginxログをリアルタイム監視（10秒ごとに設定も再取得）
 def tail_log():
     """
     nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
-    ログが高速に追記される場合や、ロ��ローテーション時も取りこぼしを防ぐ。
+    ログが高速に追記される場合や、ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
     last_inode = None
@@ -425,7 +444,7 @@ def tail_log():
                         # ログローテーションやinode変更を検知
                         current_inode = get_inode(log_path)
                         if current_inode != last_inode:
-                            # ファイルが切り替わった場合は再オープン
+                            # ファイルが切り替わった場合は再���ープン
                             break
                         if empty_read_count >= max_empty_reads:
                             # しばらく新規行がなければ再オープン
@@ -440,6 +459,7 @@ def tail_log():
             print(f"[ERROR] tail_log exception: {e}")
             time.sleep(1)
 
+
 # メイン関数（初期化 → 設定読込 → ログ監視）
 def rescan_attack_types():
     try:
@@ -449,11 +469,15 @@ def rescan_attack_types():
         rows = cursor.fetchall()
         for entry_id, url in rows:
             new_type = detect_attack_type(url)
-            cursor.execute("UPDATE url_registry SET attack_type = %s WHERE id = %s", (new_type, entry_id))
+            cursor.execute(
+                "UPDATE url_registry SET attack_type = %s WHERE id = %s",
+                (new_type, entry_id)
+            )
         conn.commit()
         print(f"[{datetime.now()}] [INFO] attack_type fields have been updated based on latest patterns.")
     except Error as e:
         print(f"[{datetime.now()}] [DB ERROR] rescan_attack_types failed: {e}")
+
 
 def main():
     # アプリ情報の表示
@@ -476,6 +500,7 @@ def main():
     fetch_settings()
     print("Starting log monitor...")
     tail_log()
+
 
 # エントリーポイント
 if __name__ == "__main__":
