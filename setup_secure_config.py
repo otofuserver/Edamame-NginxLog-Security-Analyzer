@@ -23,12 +23,25 @@ def generate_key():
 
 
 def create_config():
-    print("\n[2/4] �� DB接続情報の入力")
+    """
+    DB接続情報を環境変数または対話入力で取得し、JSONバイト列で返す
+    """
+    # [2/4] DB接続情報の入力ステップを表示
+    print("\n[2/4] 🔒 DB接続情報の入力")
+
+    def getenv_or_input(env, prompt, is_password=False):
+        val = os.environ.get(env)
+        if val is not None:
+            return val.strip()
+        if is_password:
+            return getpass.getpass(prompt).strip()
+        return input(prompt).strip()
+
     config = {
-        "host": input("MySQLホスト名: ").strip(),
-        "user": input("MySQLユーザー名: ").strip(),
-        "password": getpass.getpass("MySQLパスワード: ").strip(),
-        "database": input("データベース名: ").strip(),
+        "host": getenv_or_input("TEST_MYSQL_HOST", "MySQLホスト名: "),
+        "user": getenv_or_input("TEST_MYSQL_USER", "MySQLユーザー名: "),
+        "password": getenv_or_input("TEST_MYSQL_PASS", "MySQLパスワード: ", is_password=True),
+        "database": getenv_or_input("TEST_MYSQL_DB", "データベース名: "),
     }
     return json.dumps(config).encode()
 
