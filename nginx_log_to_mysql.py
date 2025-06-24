@@ -115,7 +115,7 @@ def init_db():
     try:
         conn = db_connect()
         cursor = conn.cursor()
-        # URL登録テーブル（初回のみ一意登録）
+        # URL登録テ��ブル（初回のみ一意登録）
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS url_registry (
                 id INT AUTO_INCREMENT PRIMARY KEY,
