@@ -44,38 +44,37 @@ jobs:
           python -c "import nginx_log_to_mysql"
           python -c "import setup_secure_config"
 
-      - name: Test setup_secure_config.py (secret.key/db_config.enc作成と復号テスト)
+      - name: Test setup_secure_config.py
         run: |
           set -e
           rm -f secret.key db_config.enc
           export PYTHONUNBUFFERED=1
-          # 入力値を事前に用意
+
           export TEST_MYSQL_HOST="testhost"
           export TEST_MYSQL_USER="testuser"
           export TEST_MYSQL_PASS="testpass"
           export TEST_MYSQL_DB="testdb"
-          # 入力をエコーバックで渡す
-          (echo "$TEST_MYSQL_HOST"; echo "$TEST_MYSQL_USER"; echo "$TEST_MYSQL_DB") | \
-            python setup_secure_config.py <<EOF
-$TEST_MYSQL_PASS
-EOF
-          # ファイルが生成されているか確認
-          test -f secret.key
-          test -f db_config.enc
-          # 復号して内��を確認
-          cat <<EOF > check_config.py
-import json
-from cryptography.fernet import Fernet
-with open('secret.key', 'rb') as kf:
-    key = kf.read()
-fernet = Fernet(key)
-with open('db_config.enc', 'rb') as ef:
-    dec = fernet.decrypt(ef.read())
-conf = json.loads(dec)
-assert conf['host'] == '$TEST_MYSQL_HOST'
-assert conf['user'] == '$TEST_MYSQL_USER'
-assert conf['password'] == '$TEST_MYSQL_PASS'
-assert conf['database'] == '$TEST_MYSQL_DB'
-print('setup_secure_config.py test passed')
-EOF
-          python check_config.py
+
+          echo "Running setup_secure_config.py..."
+          {
+            echo "$TEST_MYSQL_HOST"
+            echo "$TEST_MYSQL_USER"
+            echo "$TEST_MYSQL_DB"
+          } | python setup_secure_config.py <<< "$TEST_MYSQL_PASS"
+          echo "✅ setup_secure_config.py executed successfully."
+
+          test -f secret.key && echo "✅ secret.key created"
+          test -f db_config.enc && echo "✅ db_config.enc created"
+
+      - name: Check encrypted config
+        run: |
+          echo "Running config check..."
+          python .github/workflows/check_config.py
+
+      - name: Upload encrypted config artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-config
+          path: |
+            secret.key
+            db_config.enc
