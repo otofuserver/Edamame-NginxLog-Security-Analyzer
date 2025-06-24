@@ -9,30 +9,30 @@ jobs:
   lint-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: リポジトリをチェックアウト
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Python 3.11環境セットアップ
         uses: actions/setup-python@v4
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: 依存パッケージをインストール（mysql-connector-python, cryptography）
         run: |
           python -m pip install --upgrade pip
           pip install mysql-connector-python cryptography
 
-      - name: Lint (pycodestyle)
+      - name: Lint（全PythonファイルのPEP8チェック・W605除外）
         run: |
           pip install pycodestyle
           # W605（冗長なエスケープ）を無視して実行
           pycodestyle . --max-line-length=120 --ignore=W605
 
-      - name: Syntax check (compileall)
+      - name: Python構文チェック（全ファイル compileall）
         run: |
           python -m compileall .
 
-      - name: Run unittest if exists
+      - name: ユニットテスト実行（test_*.pyが存在する場合のみ）
         run: |
           if ls test_*.py 1> /dev/null 2>&1; then
             python -m unittest discover -s . -p "test_*.py"
@@ -40,12 +40,15 @@ jobs:
             echo "No unittest files found, skipping tests."
           fi
 
-      - name: Check main scripts import
+      - name: nginx_log_to_mysql.py のimportテスト
         run: |
           python -c "import nginx_log_to_mysql"
+
+      - name: setup_secure_config.py のimportテスト
+        run: |
           python -c "import setup_secure_config"
 
-      - name: Test setup_secure_config.py
+      - name: setup_secure_config.py の暗号化ファイル生成テスト
         run: |
           set -e
           rm -f secret.key db_config.enc
@@ -67,12 +70,12 @@ jobs:
           test -f secret.key && echo "✅ secret.key created"
           test -f db_config.enc && echo "✅ db_config.enc created"
 
-      - name: Check encrypted config
+      - name: 暗号化設定ファイルの復号・内容検証（check_config.py）
         run: |
           echo "Running config check..."
           python .github/workflows/check_config.py
 
-      - name: Upload encrypted config artifacts
+      - name: 暗号化設定ファイル（secret.key, db_config.enc）をアーティファクトとしてアップロード
         uses: actions/upload-artifact@v4
         with:
           name: secure-config
