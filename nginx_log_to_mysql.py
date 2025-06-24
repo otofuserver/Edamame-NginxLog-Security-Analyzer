@@ -30,8 +30,11 @@ WHITELIST_MODE = False
 WHITELIST_IP = ""
 
 # Nginxログの正規表現パターン
+# 例: 192.168.10.11 - - [21/Jun/2025:23:33:33 +0900] "GET /epgstation/..." 200
 LOG_PATTERN = re.compile(
-    r'(?P<ip>\d+\.\d+\.\d+\.\d+) - - \[(?P<time>[^\]]+)\] "(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH) (?P<url>[^ ]+) HTTP.*?" (?P<status>\d{3})'
+    r'(?P<ip>\d+\.\d+\.\d+\.\d+)\s-\s-\s'
+    r'\[(?P<time>[^]]+)]\s"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s'
+    r'(?P<url>[^ ]+)\sHTTP.*?"\s(?P<status>\d{3})'
 )
 
 # DB再接続の最大試行回数と待機時間
@@ -328,7 +331,11 @@ MODSEC_BLOCK_PATTERN = re.compile(r"ModSecurity: Access denied", re.IGNORECASE)
 
 # ModSecurityルール詳細を抽出しmodsec_alertsに記録
 MODSEC_RULE_PATTERN = re.compile(
-    r'ModSecurity: Access denied.*?\[id "(?P<id>\d+)"\].*?\[msg "(?P<msg>.*?)"\].*?\[data "(?P<data>.*?)"\].*?\[severity "(?P<severity>\d+)"\]',
+    r'ModSecurity: Access denied.*?'
+    r'\[id "(?P<id>\d+)"].*?'
+    r'\[msg "(?P<msg>.*?)"].*?'
+    r'\[data "(?P<data>.*?)"].*?'
+    r'\[severity "(?P<severity>\d+)"]',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -356,7 +363,7 @@ def process_line(line, modsec_pending):
     """
     # ModSecurity詳細行かどうか判定
     if MODSEC_BLOCK_PATTERN.search(line):
-        # ModSecurity: Access denied の行は一時保存し、次のリクエスト行で利用
+        # ModSecurity: Access denied の行は一時�����存し、次のリクエスト行で利用
         modsec_pending['line'] = line
         return
 
@@ -413,7 +420,7 @@ def process_line(line, modsec_pending):
 # nginxログをリアルタイム監視（10秒ごとに設定も再取得）
 def tail_log():
     """
-    nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
+    nginxログファイルをリアルタ���ムで監視し、追記がなければ一定時間待機する。
     ログが高速に追記される場合や、ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
