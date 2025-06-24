@@ -90,11 +90,36 @@
 ---
 
 ## セキュア設定ファイル（暗号化）
+
 - `setup_secure_config.py` を使用して暗号鍵と接続情報を生成・暗号化
 - 生成ファイル：
   - `secret.key`（Fernet鍵）
   - `db_config.enc`（暗号化されたJSON）
 - デフォルトの読み取り先： `/run/secrets/`
+- **仕様詳細:**
+  - `setup_secure_config.py`は対話式ウィザード形式で動作し、MySQL接続情報（ホスト名・ユーザー名・パスワード・DB名）を環境変数またはユーザー入力から取得する。
+  - 入力された情報はJSON形式で暗号化され、`db_config.enc`として保存される。
+  - 暗号鍵は`secret.key`として保存される。両ファイルともパーミッションは600で作成される。
+  - 暗号化・復号にはPython cryptographyパッケージのFernetを使用する。
+
+---
+
+## ログ出力仕様
+
+- ログ出力は`log`関数を通じて行う。
+- フォーマットは `[YYYY-MM-DD HH:MM:SS][LEVEL] メッセージ` となる。
+- LEVELは "INFO", "WARN", "ERROR", "DB ERROR", "RECOVERED" など用途に応じて付与される。
+- ログは標準出力（コンソール）に出力される。
+
+---
+
+## エラー処理・リトライ仕様（DB接続）
+
+- DB接続は`db_connect`関数で行い、最大5回（MAX_RETRIES=5）までリトライする。
+- 各リトライ間は3秒（RETRY_DELAY=3）待機する。
+- すべてのリトライが失敗した場合はエラーログを出力し、`sys.exit(1)`でプロセスを終了する。
+- DB接続失敗時やSQLエラー時は、エラーメッセージをログ出力する。
+- DB初期化やテーブル作成時も例外発生時はエラーログを出力し、必要に応じてFalseを返す。
 
 ---
 
@@ -141,7 +166,7 @@ python3 setup_secure_config.py
 - APIサーバ化（FastAPIなど）
 - フロントエンド：React/Next.jsベース管理画面
 - 設定のWeb UI化
-- CSVエクスポート、Slack通知、GeoIP�����携
+- CSVエクスポート、Slack通知、GeoIP連携
 
 ---
 
@@ -151,3 +176,4 @@ python3 setup_secure_config.py
   Linter（pycodestyle等）のW605警告は # noqa: W605 で除外してください。
 - `MODSEC_RULE_PATTERN` のような [.*?] 形式の正規表現でも、linterのW605警告は # noqa: W605 で除外してください。
 - テストやCIでもこの警告は無視して問題ありません。
+- ワークフロー（python-test.yml）でもpycodestyle実行時に `--ignore=W605` を指定し、W605警告を除外しています。
