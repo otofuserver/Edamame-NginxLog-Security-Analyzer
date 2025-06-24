@@ -1,5 +1,11 @@
 FROM python:3.11-slim
 
+# タイムゾーンを日本（Asia/Tokyo）に設定
+ENV TZ=Asia/Tokyo
+RUN apt-get update && apt-get install -y tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Tokyo /etc/localtime \
+    && dpkg-reconfigure -f noninteractive tzdata
+
 # UID/GID に合わせて nginxlog ユーザーを作成
 RUN groupadd -g 113 nginxlog && useradd -u 107 -g 113 -M -s /usr/sbin/nologin nginxlog
 
