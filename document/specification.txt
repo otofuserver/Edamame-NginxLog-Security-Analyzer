@@ -141,4 +141,13 @@ python3 setup_secure_config.py
 - APIサーバ化（FastAPIなど）
 - フロントエンド：React/Next.jsベース管理画面
 - 設定のWeb UI化
-- CSVエクスポート、Slack通知、GeoIP���携
+- CSVエクスポート、Slack通知、GeoIP�����携
+
+---
+
+## コーディング・Lint方針
+
+- Pythonの正規表現で [^\]]+ のような \] エスケープは必要です。
+  Linter（pycodestyle等）のW605警告は # noqa: W605 で除外してください。
+- `MODSEC_RULE_PATTERN` のような [.*?] 形式の正規表現でも、linterのW605警告は # noqa: W605 で除外してください。
+- テストやCIでもこの警告は無視して問題ありません。

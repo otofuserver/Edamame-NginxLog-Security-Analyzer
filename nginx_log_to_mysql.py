@@ -31,11 +31,12 @@ WHITELIST_IP = ""
 
 # Nginxログの正規表現パターン
 # 例: 192.168.10.11 - - [21/Jun/2025:23:33:33 +0900] "GET /epgstation/..." 200
+# [^\]]+ の \] は正規表現上必要なエスケープです。linterのW605警告は無視してください。 # noqa: W605
 LOG_PATTERN = re.compile(
     r'(?P<ip>\d+\.\d+\.\d+\.\d+)\s-\s-\s'
     r'\[(?P<time>[^\]]+)\]\s"(?P<method>GET|POST|PUT|DELETE|HEAD|OPTIONS|PATCH)\s'
     r'(?P<url>[^ ]+)\sHTTP.*?"\s(?P<status>\d{3})'
-)
+)  # noqa: W605
 
 # DB再接続の最大試行回数と待機時間
 MAX_RETRIES = 5
@@ -298,7 +299,7 @@ def fetch_settings():
 def add_registry_entry(method, url, ip, access_time):
     """
     url_registryへ���規URLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
-    created_at/updated_atにはアクセス時刻（ログから取得）���使用。
+    created_at/updated_atにはアクセス時刻（ログから取得）�����使用。
     """
     attack_type = detect_attack_type(url)
     try:
@@ -385,6 +386,7 @@ MODSEC_BLOCK_PATTERN = re.compile(r"ModSecurity: Access denied", re.IGNORECASE)
 
 # ModSecurityルール詳細を抽出しmodsec_alertsに記録
 # 正規表現の ] はエスケープ不要なので \] を外す
+# [.*?] の ] は正��表現上エスケープ不要ですが、linterのW605警告が出る場合は # noqa: W605 で除外してください。
 MODSEC_RULE_PATTERN = re.compile(
     r'ModSecurity: Access denied.*?'
     r'\[id "(?P<id>\d+)"\].*?'
@@ -392,7 +394,7 @@ MODSEC_RULE_PATTERN = re.compile(
     r'\[data "(?P<data>.*?)"\].*?'
     r'\[severity "(?P<severity>\d+)"\]',
     re.IGNORECASE | re.DOTALL,
-)
+)  # noqa: W605
 
 
 def add_modsec_alert(access_log_id, rule_id, msg, data, severity):
@@ -443,7 +445,7 @@ def process_line(line, modsec_pending):
             log(f"Unsupported HTTP method detected: {method}. Skipping entry.", "WARN")
             return
 
-        # 直前にModSecurity: Access denied行があればblocked扱い
+        # 直前にModSecurity: Access denied行があればblocked���い
         blocked = False
         modsec_line = None
         if modsec_pending.get('line'):
@@ -476,7 +478,7 @@ def process_line(line, modsec_pending):
 def tail_log():
     """
     nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
-    ログが高速に追記される場合や、ローテーション時も取りこぼしを防ぐ。
+    ログが高速���追記される場合や、ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
     empty_read_count = 0
