@@ -111,7 +111,7 @@
 ### 🧑‍💻 UI用DB参照ポイント
 - **ホワイトリストURL管理**: `url_registry` (`is_whitelisted`, `description`)
 - **ModSecurityログ可視化**: `modsec_alerts`, `access_log`
-- **ダッ��ュボード表示**: 日時別件数集計, `attack_type` 分布など
+- **ダッシュボード表示**: 日時別件数集計, `attack_type` 分布など
 
 ### 📊 推奨グラフビュー
 - 時間帯別アクセスグラフ（line chart）
