@@ -1,5 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
+## specification.txt バージョン情報
+- **specification.txt version**: v1.0.2
+- ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
+
 ## 基本情報
 - **アプリ名**: Edamame NginxLog Security Analyzer
 - **バージョン**: v1.0.0
@@ -66,9 +70,9 @@
 | attack_type      | VARCHAR(255)     | 識別された攻撃タイプ（複数可）     |
 
 ### `modsec_alerts`
-| カラム名         | 型              | ���明                                  |
+| カラム名         | 型              | 説明                                  |
 |------------------|------------------|---------------------------------------|
-| id               | INT              | 主キー、自動採番                    |
+| id               | INT              | 主キー、���動採番                    |
 | access_log_id    | INT              | `access_log.id` への外部キー         |
 | rule_id          | VARCHAR(20)      | ModSecurityルールID                  |
 | msg              | TEXT             | アラートメッセージ                   |
@@ -86,6 +90,28 @@
 | frontend_last_login    | DATETIME         | フロントログイン日時           |
 | frontend_last_ip       | VARCHAR(45)      | フロントログイン元IP           |
 | attack_patterns_version| VARCHAR(50)      | attack_patterns.jsonのバージョン|
+
+### `users`（フロントエンド認証用）
+| カラム名         | 型              | 説明                           |
+|------------------|------------------|--------------------------------|
+| id               | INT              | 主キー、自動採番               |
+| username         | VARCHAR(64)      | ユーザー名（ユニーク）         |
+| password_hash    | VARCHAR(255)     | パスワード（ハッシュ化）       |
+| email            | VARCHAR(255)     | メールアドレス（ユニーク）     |
+| is_active        | BOOLEAN          | 有効フラグ                     |
+| created_at       | DATETIME         | 作成日時                       |
+| updated_at       | DATETIME         | 最終更新日時                   |
+| last_login_at    | DATETIME         | 最終ログイン日時               |
+
+### `login_history`（ログイン履歴）
+| カラム名         | 型              | 説明                           |
+|------------------|------------------|--------------------------------|
+| id               | INT              | 主キー、自動採番               |
+| user_id          | INT              | users.id への外部キー           |
+| login_ip         | VARCHAR(45)      | ログイン元IP                   |
+| login_time       | DATETIME         | ログイン日時                   |
+| success          | BOOLEAN          | 成功/失敗フラグ                |
+| user_agent       | TEXT             | ユーザーエージェント           |
 
 ---
 
@@ -174,6 +200,7 @@ python3 setup_secure_config.py
 
 - Pythonの正規表現で [^\]]+ のような \] エスケープは必要です。
   Linter（pycodestyle等）のW605警告は # noqa: W605 で除外してください。
-- `MODSEC_RULE_PATTERN` のような [.*?] 形式の正規表現でも、linterのW605警告は # noqa: W605 で除外してください。
+- `MODSEC_RULE_PATTERN` のような [.*?] 形式の正規表現でも、linterのW605警告は # noqa: W605 で除外��てください。
 - テストやCIでもこの警告は無視して問題ありません。
 - ワークフロー（python-test.yml）でもpycodestyle実行時に `--ignore=W605` を指定し、W605警告を除外しています。
+- **specification.txtを更新した場合は、必ず冒頭のバージョン情報も更新すること。**

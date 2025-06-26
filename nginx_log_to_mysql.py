@@ -270,6 +270,35 @@ def init_db():
                     )
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column_name} {ddl}")
                     conn.commit()
+        # --- ここからユーザー認証用テーブル追加 ---
+        # usersテーブル（フロントエンド認証用）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(64) NOT NULL UNIQUE,
+                password_hash VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                last_login_at DATETIME
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+        # login_historyテーブル（ログイン履歴）
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS login_history (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                user_id INT NOT NULL,
+                login_ip VARCHAR(45) NOT NULL,
+                login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                user_agent TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+        """)
+        # --- ここまで追加 ---
+
+        conn.commit()
     except Error as e:
         log(f"init_db failed: {e}", "DB ERROR")
         return False
@@ -298,8 +327,8 @@ def fetch_settings():
 # 未登録のURLをurl_registryに登録（ホワイトリストIPはwhitelistとして登録）
 def add_registry_entry(method, url, ip, access_time):
     """
-    url_registryへ���規URLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
-    created_at/updated_atにはアクセス時刻（ログから取得）�����使用。
+    url_registryへURLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
+    created_at/updated_atにはアクセス時刻（ログから取得）使用。
     """
     attack_type = detect_attack_type(url)
     try:
@@ -381,12 +410,12 @@ def detect_attack_type(url):
     return None
 
 
-# ModSecurityによるブロックを判定するキーワー��
+# ModSecurityによるブロックを判定するキーワード
 MODSEC_BLOCK_PATTERN = re.compile(r"ModSecurity: Access denied", re.IGNORECASE)
 
 # ModSecurityルール詳細を抽出しmodsec_alertsに記録
 # 正規表現の ] はエスケープ不要なので \] を外す
-# [.*?] の ] は正��表現上エスケープ不要ですが、linterのW605警告が出る場合は # noqa: W605 で除外してください。
+# [.*?] の ] は正規表現上エスケープ不要ですが、linterのW605警告が出る場合は # noqa: W605 で除外してください。
 MODSEC_RULE_PATTERN = re.compile(
     r'ModSecurity: Access denied.*?'
     r'\[id "(?P<id>\d+)"\].*?'
@@ -420,7 +449,7 @@ def process_line(line, modsec_pending):
     """
     # ModSecurity詳細行かどうか判定
     if MODSEC_BLOCK_PATTERN.search(line):
-        # ModSecurity: Access denied の行は一時�����存し、次のリクエスト行で利用
+        # ModSecurity: Access denied の行は一時保存し、次のリクエスト行で利用
         modsec_pending['line'] = line
         return
 
@@ -445,7 +474,7 @@ def process_line(line, modsec_pending):
             log(f"Unsupported HTTP method detected: {method}. Skipping entry.", "WARN")
             return
 
-        # 直前にModSecurity: Access denied行があればblocked���い
+        # 直前にModSecurity: Access denied行があればblocked扱い
         blocked = False
         modsec_line = None
         if modsec_pending.get('line'):
@@ -460,7 +489,7 @@ def process_line(line, modsec_pending):
                 cursor = conn.cursor()
                 cursor.execute("SELECT MAX(id) FROM access_log")
                 log_id = cursor.fetchone()[0]
-                # ModSecurity詳���情報を抽出して登録
+                # ModSecurity詳細情報を抽出して登録
                 for rule_match in MODSEC_RULE_PATTERN.finditer(modsec_line):
                     add_modsec_alert(
                         log_id,
@@ -478,7 +507,7 @@ def process_line(line, modsec_pending):
 def tail_log():
     """
     nginxログファイルをリアルタイムで監視し、追記がなければ一定時間待機する。
-    ログが高速���追記される場合や、ローテーション時も取りこぼしを防ぐ。
+    ログが高速追記される場合や、ローテーション時も取りこぼしを防ぐ。
     """
     log_path = LOG_PATH
     empty_read_count = 0
