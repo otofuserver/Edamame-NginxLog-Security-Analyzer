@@ -13,6 +13,7 @@ import json
 from urllib.parse import unquote
 import sys
 import os
+import bcrypt  # 追加: bcryptによるパスワードハッシュ化
 
 # アプリケーション情報
 APP_NAME = "Edamame NginxLog Security Analyzer"
@@ -105,6 +106,7 @@ MODSEC_ALERT_TABLE = "modsec_alerts"
 def init_db():
     """
     DB初期化処理。テーブル・カラムの存在確認と作成、attack_patterns.jsonバージョン管理。
+    usersテーブル新規作成時は初期ユーザー(admin)を自動追加する。
     """
     try:
         conn = db_connect()
@@ -297,6 +299,25 @@ def init_db():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
         """)
         # --- ここまで追加 ---
+
+        # --- 初期ユーザー(admin)の自動追加 ---
+        # usersテーブルが空の場合のみadminユーザーを追加
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+        if user_count == 0:
+            # パスワードをbcryptでハッシュ化（初期値: admin123）
+            # 本番運用時は必ず変更すること
+            admin_password = "admin123"
+            hashed = bcrypt.hashpw(admin_password.encode("utf-8"), bcrypt.gensalt())
+            cursor.execute(
+                """
+                INSERT INTO users (username, password_hash, email, is_active)
+                VALUES (%s, %s, %s, %s)
+                """,
+                ("admin", hashed.decode("utf-8"), "admin@example.com", True)
+            )
+            log("初期ユーザー(admin)をusersテーブルに追加しました。", "INFO")
+        # --- ここまで ---
 
         conn.commit()
     except Error as e:
@@ -601,4 +622,3 @@ def main():
 # エントリーポイント
 if __name__ == "__main__":
     main()
-
