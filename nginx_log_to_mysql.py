@@ -171,7 +171,9 @@ def init_db():
                 updated_at DATETIME,
                 is_whitelisted BOOLEAN,
                 description TEXT,
-                attack_type VARCHAR(255)
+                attack_type VARCHAR(255),
+                user_final_threat BOOLEAN,  
+                user_threat_note TEXT      
             )
         """)
         # 全アクセス記録用テーブル
@@ -231,7 +233,9 @@ def init_db():
                 ("updated_at", "DATETIME AFTER created_at"),
                 ("is_whitelisted", "BOOLEAN"),
                 ("description", "TEXT"),
-                ("attack_type", "VARCHAR(255) AFTER description")
+                ("attack_type", "VARCHAR(255) AFTER description"),
+                ("user_final_threat", "BOOLEAN"),
+                ("user_threat_note", "TEXT")
             ],
             "settings": [
                 ("whitelist_mode", "BOOLEAN"),
@@ -322,6 +326,20 @@ def init_db():
         # 予期しない例外も捕捉し、Falseを返す
         log(f"Unexpected error in init_db (table creation): {e}", "ERROR")
         return False
+    # settingsテーブルからfrontend_last_login, frontend_last_ipの廃止
+    # 既存のカラムがあれば削除
+    try:
+        cursor.execute("SHOW COLUMNS FROM settings LIKE 'frontend_last_login'")
+        if cursor.fetchone() is not None:
+            cursor.execute("ALTER TABLE settings DROP COLUMN frontend_last_login")
+            log("settingsテーブルからfrontend_last_loginカラムを削除しました。", "INFO")
+        cursor.execute("SHOW COLUMNS FROM settings LIKE 'frontend_last_ip'")
+        if cursor.fetchone() is not None:
+            cursor.execute("ALTER TABLE settings DROP COLUMN frontend_last_ip")
+            log("settingsテーブルからfrontend_last_ipカラムを削除しました。", "INFO")
+        conn.commit()
+    except Exception as e:
+        log(f"settingsテーブルのカラム削除に失敗: {e}", "WARN")
     return True
 
 
