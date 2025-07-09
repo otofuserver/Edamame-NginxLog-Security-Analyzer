@@ -1,8 +1,13 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.3
+- **specification.txt version**: v1.0.6
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
+
+## 変更履歴
+- v1.0.6: settingsテーブルからfrontend_last_login, frontend_last_ipカラムとその利用を廃止し、ユーザー認証用テーブル（users, login_history）に完全移行（2025-07-09）
+- v1.0.5: 文字化け修正（Fernet鍵・環境変数・パーミッション等）（2025-07-03）
+- v1.0.4: main関数に型アノテーション追加、関数コメント詳細化、例外処理追加（2025-06-27）
 
 ## 基本情報
 - **アプリ名**: Edamame NginxLog Security Analyzer
@@ -72,7 +77,7 @@
 ### `modsec_alerts`
 | カラム名         | 型              | 説明                                  |
 |------------------|------------------|---------------------------------------|
-| id               | INT              | 主キー、���動採番                    |
+| id               | INT              | 主キー、自動採番                    |
 | access_log_id    | INT              | `access_log.id` への外部キー         |
 | rule_id          | VARCHAR(20)      | ModSecurityルールID                  |
 | msg              | TEXT             | アラートメッセージ                   |
@@ -87,8 +92,6 @@
 | whitelist_ip           | VARCHAR(45)      | 登録用のIPアドレス       |
 | backend_version        | VARCHAR(50)      | バックエンドバージョン情報     |
 | frontend_version       | VARCHAR(50)      | フロントエンドバージョン情報   |
-| frontend_last_login    | DATETIME         | フロントログイン日時           |
-| frontend_last_ip       | VARCHAR(45)      | フロントログイン元IP           |
 | attack_patterns_version| VARCHAR(50)      | attack_patterns.jsonのバージョン|
 
 ### `users`（フロントエンド認証用）
@@ -124,13 +127,13 @@
 
 - `setup_secure_config.py` を使用して暗号鍵と接続情報を生成・暗号化
 - 生成ファイル：
-  - `secret.key`（Fernet���）
+  - `secret.key`（Fernet鍵）
   - `db_config.enc`（暗号化されたJSON）
 - デフォルトの読み取り先： `/run/secrets/`
 - **仕様詳細:**
-  - `setup_secure_config.py`は対話式ウィザード形式で動作し、MySQL接続情報（ホスト名・ユーザー名・パスワード・DB名）を環���変数またはユーザー入力から取得する。
+  - `setup_secure_config.py`は対話式ウィザード形式で動作し、MySQL接続情報（ホスト名・ユーザー名・パスワード・DB名）を環境変数またはユーザー入力から取得する。
   - 入力された情報はJSON形式で暗号化され、`db_config.enc`として保存される。
-  - 暗号鍵は`secret.key`として保存される。両ファイルともパーミ���ションは600で作成される。
+  - 暗号鍵は`secret.key`として保存される。両ファイルともパーミッションは600で作成される。
   - 暗号化・復号にはPython cryptographyパッケージのFernetを使用する。
 
 ---

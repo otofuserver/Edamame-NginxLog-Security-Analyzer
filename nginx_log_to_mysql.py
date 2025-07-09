@@ -139,10 +139,9 @@ def init_db():
                     INSERT INTO settings (
                         id, whitelist_mode, whitelist_ip,
                         backend_version, frontend_version,
-                        frontend_last_login, frontend_last_ip,
                         attack_patterns_version
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                """, (1, False, '', APP_VERSION, '', None, '', version))
+                """, (1, False, '', APP_VERSION, '', '', version))
             else:
                 cursor.execute(
                     "UPDATE settings SET attack_patterns_version = %s WHERE id = 1",
@@ -195,8 +194,6 @@ def init_db():
                 whitelist_ip VARCHAR(45),
                 backend_version VARCHAR(50),
                 frontend_version VARCHAR(50),
-                frontend_last_login DATETIME,
-                frontend_last_ip VARCHAR(45),
                 attack_patterns_version VARCHAR(50)
             )
         """)
@@ -221,10 +218,9 @@ def init_db():
                 INSERT INTO settings (
                     id, whitelist_mode, whitelist_ip,
                     backend_version, frontend_version,
-                    frontend_last_login, frontend_last_ip,
                     attack_patterns_version
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, (1, False, '', APP_VERSION, '', None, '', ''))
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+            """, (1, False, '', APP_VERSION, '', ''))
         conn.commit()
         # カラム追加が必要なテーブルと定義を順にチェック
         required_columns = {
@@ -242,8 +238,7 @@ def init_db():
                 ("whitelist_ip", "VARCHAR(45)"),
                 ("backend_version", "VARCHAR(50)"),
                 ("frontend_version", "VARCHAR(50)"),
-                ("frontend_last_login", "DATETIME"),
-                ("frontend_last_ip", "VARCHAR(45)")
+                ("attack_patterns_version", "VARCHAR(50)")
             ],
             "access_log": [
                 ("method", "VARCHAR(10)"),
@@ -594,29 +589,39 @@ def rescan_attack_types():
         log(f"rescan_attack_types failed: {e}", "DB ERROR")
 
 
-def main():
+def main() -> None:
     """
-    メイン関数。アプリ情報表示、引数処理、DB初期化、設定取得、ログ監視を行う。
+    メイン関数。
+    アプリ情報表示、引数処理、DB初期化、設定取得、ログ監視を行う。
+    例外発生時はエラーログを出力し終了する。
+
+    戻り値:
+        なし
     """
-    print(f"==== {APP_NAME} ====")
-    print(f"Version: {APP_VERSION}")
-    print(f"{APP_AUTHOR}")
-    print()  # 空行はそのまま
+    try:
+        print(f"==== {APP_NAME} ====")
+        print(f"Version: {APP_VERSION}")
+        print(f"{APP_AUTHOR}")
+        print()  # 空行はそのまま
 
-    parser = argparse.ArgumentParser(description='NGINX log monitor to MySQL')
-    parser.add_argument('--skip-init-db', action='store_true', help='Skip automatic DB initialization')
-    args = parser.parse_args()
+        parser = argparse.ArgumentParser(description='NGINX log monitor to MySQL')
+        parser.add_argument('--skip-init-db', action='store_true', help='Skip automatic DB initialization')
+        args = parser.parse_args()
 
-    rescan_attack_types()
-    if not args.skip_init_db:
-        if not init_db():
-            log("Database init failed. Exiting.", "ERROR")
-            sys.exit(1)
-        log("Database schema verified or created.", "INFO")
+        rescan_attack_types()
+        if not args.skip_init_db:
+            if not init_db():
+                log("Database init failed. Exiting.", "ERROR")
+                sys.exit(1)
+            log("Database schema verified or created.", "INFO")
 
-    fetch_settings()
-    log("Starting log monitor...", "INFO")
-    tail_log()
+        fetch_settings()
+        log("Starting log monitor...", "INFO")
+        tail_log()
+    except Exception as e:
+        # 予期しない例外発生時のエラーハンドリング
+        log(f"予期しないエラーが発生しました: {e}", "ERROR")
+        sys.exit(1)
 
 
 # エントリーポイント
