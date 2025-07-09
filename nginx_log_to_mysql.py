@@ -14,6 +14,7 @@ from urllib.parse import unquote
 import sys
 import os
 import bcrypt  # 追加: bcryptによるパスワードハッシュ化
+import requests  # 外部ファイル取得用
 
 # アプリケーション情報
 APP_NAME = "Edamame NginxLog Security Analyzer"
@@ -45,6 +46,10 @@ RETRY_DELAY = 3
 
 # グローバルDB接続セッション
 DB_SESSION = None
+
+# attack_patterns.jsonの最終バージョンチェック時刻（グローバル変数）
+LAST_ATTACK_PATTERNS_CHECK = 0
+ATTACK_PATTERNS_CHECK_INTERVAL = 3600  # 1時間（秒）
 
 
 # タイムスタンプ＋ログレベル付きで標準出力に出す共通関数
@@ -105,9 +110,11 @@ MODSEC_ALERT_TABLE = "modsec_alerts"
 
 def init_db():
     """
-    DB初期化処理。テーブル・カラムの存在確認と作成、attack_patterns.jsonバージョン管理。
+    DB初期化処理。テーブル・カラムの存在確認と作成。
     usersテーブル新規作成時は初期ユーザー(admin)を自動追加する。
     """
+    # attack_patterns.jsonの自動バージョンチェック・更新
+    update_attack_patterns_if_needed()
     try:
         conn = db_connect()
         cursor = conn.cursor()
@@ -195,8 +202,7 @@ def init_db():
                 whitelist_mode BOOLEAN,
                 whitelist_ip VARCHAR(45),
                 backend_version VARCHAR(50),
-                frontend_version VARCHAR(50),
-                attack_patterns_version VARCHAR(50)
+                frontend_version VARCHAR(50)
             )
         """)
 
@@ -219,8 +225,7 @@ def init_db():
             cursor.execute("""
                 INSERT INTO settings (
                     id, whitelist_mode, whitelist_ip,
-                    backend_version, frontend_version,
-                    attack_patterns_version
+                    backend_version, frontend_version
                 ) VALUES (%s, %s, %s, %s, %s, %s)
             """, (1, False, '', APP_VERSION, '', ''))
         conn.commit()
@@ -241,8 +246,7 @@ def init_db():
                 ("whitelist_mode", "BOOLEAN"),
                 ("whitelist_ip", "VARCHAR(45)"),
                 ("backend_version", "VARCHAR(50)"),
-                ("frontend_version", "VARCHAR(50)"),
-                ("attack_patterns_version", "VARCHAR(50)")
+                ("frontend_version", "VARCHAR(50)")
             ],
             "access_log": [
                 ("method", "VARCHAR(10)"),
@@ -562,6 +566,8 @@ def tail_log():
                 f.seek(0, 2)
                 last_inode_val = get_inode(log_path)
                 while True:
+                    # 1時間ごとにattack_patterns.jsonのバージョン確認
+                    periodic_attack_patterns_update()
                     if int(time.time()) % 10 == 0:
                         fetch_settings()
                     line = f.readline()
@@ -588,6 +594,18 @@ def tail_log():
             time.sleep(1)
 
 
+# 定期的にattack_patterns.jsonのバージョン確認を行う
+def periodic_attack_patterns_update():
+    """
+    attack_patterns.jsonのバージョン確認を1時間に1回だけ実施する。
+    """
+    global LAST_ATTACK_PATTERNS_CHECK
+    now = time.time()
+    if now - LAST_ATTACK_PATTERNS_CHECK > ATTACK_PATTERNS_CHECK_INTERVAL:
+        update_attack_patterns_if_needed()
+        LAST_ATTACK_PATTERNS_CHECK = now
+
+
 # メイン関数（初期化 → 設定読込 → ログ監視）
 def rescan_attack_types():
     try:
@@ -605,6 +623,47 @@ def rescan_attack_types():
         log("attack_type fields have been updated based on latest patterns.", "INFO")
     except Error as e:
         log(f"rescan_attack_types failed: {e}", "DB ERROR")
+
+
+def get_remote_attack_patterns_version():
+    """
+    attack_patterns.jsonのGitHub最新版のバージョンを取得する関数。
+    """
+    url = "https://raw.githubusercontent.com/otofuserver/Edamame-NginxLog-Security-Analyzer/master/attack_patterns.json"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("version", None), data
+        else:
+            log(f"attack_patterns.jsonの取得に失敗: status={response.status_code}", "WARN")
+    except Exception as e:
+        log(f"attack_patterns.jsonの取得エラー: {e}", "WARN")
+    return None, None
+
+
+def update_attack_patterns_if_needed():
+    """
+    attack_patterns.jsonのバージョンをGitHubで確認し、
+    新しい場合はダウンロードしてローカルに保存する。
+    """
+    local_version = None
+    try:
+        with open(ATTACK_PATTERNS_PATH, "r", encoding="utf-8") as f:
+            local_patterns = json.load(f)
+            local_version = local_patterns.get("version", None)
+    except Exception:
+        pass  # ローカルファイルがない場合はNone
+    remote_version, remote_data = get_remote_attack_patterns_version()
+    if remote_version and remote_version != local_version:
+        try:
+            with open(ATTACK_PATTERNS_PATH, "w", encoding="utf-8") as f:
+                json.dump(remote_data, f, ensure_ascii=False, indent=2)
+            log(f"attack_patterns.jsonをバージョン{remote_version}へ更新しました。", "INFO")
+        except Exception as e:
+            log(f"attack_patterns.jsonの保存に失敗: {e}", "ERROR")
+    else:
+        log("attack_patterns.jsonは最新です。", "INFO")
 
 
 def main() -> None:

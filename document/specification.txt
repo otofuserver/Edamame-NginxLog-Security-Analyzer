@@ -1,10 +1,11 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.6
+- **specification.txt version**: v1.0.7
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.7: attack_patterns.jsonのバージョン管理をsettingsテーブルから廃止し、GitHubリポジトリから自動バージョン確認・自動更新に変更（2025-07-09）
 - v1.0.6: settingsテーブルからfrontend_last_login, frontend_last_ipカラムとその利用を廃止し、ユーザー認証用テーブル（users, login_history）に完全移行（2025-07-09）
 - v1.0.5: 文字化け修正（Fernet鍵・環境変数・パーミッション等）（2025-07-03）
 - v1.0.4: main関数に型アノテーション追加、関数コメント詳細化、例外処理追加（2025-06-27）
@@ -44,7 +45,7 @@
 - 起動時に `url_registry` を再スキャンし、`attack_type` を最新に更新
 - パターンは `/run/secrets/attack_patterns.json` にJSON形式で定義
 - **備考:** `attack_patterns.json` には `"version"` キーが含まれるが、これはシグネチャ判定対象外
-- **バージョン管理:** attack_patterns.jsonのバージョンはsettingsテーブルの`attack_patterns_version`カラムに格納される
+- **バージョン管理:** attack_patterns.jsonのバージョンはsettingsテーブルで管理せず、GitHubリポジトリから自動でバージョン確認・更新される
 - **注意:** バックエンドは外部ネットワークへのバージョン確認は行わない。バージョン確認や更新通知はフロントエンド側で実施すること
 
 ---
@@ -92,7 +93,6 @@
 | whitelist_ip           | VARCHAR(45)      | 登録用のIPアドレス       |
 | backend_version        | VARCHAR(50)      | バックエンドバージョン情報     |
 | frontend_version       | VARCHAR(50)      | フロントエンドバージョン情報   |
-| attack_patterns_version| VARCHAR(50)      | attack_patterns.jsonのバージョン|
 
 ### `users`（フロントエンド認証用）
 | カラム名         | 型              | 説明                           |
