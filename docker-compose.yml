@@ -14,6 +14,9 @@ services:
     networks:
       mysql_network:
         ipv4_address: 172.18.1.7
+      NLL_network:
+        ipv4_address: 172.18.7.2
+
 secrets:
   db_config_enc:
     file: ./db_config.enc
@@ -22,3 +25,6 @@ secrets:
 networks:
   mysql_network:
     external: true
+  NLL_network:
+    external: true
+
