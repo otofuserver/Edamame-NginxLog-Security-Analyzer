@@ -1,7 +1,12 @@
 {
-  "version": "v1.0",
+  "version": "v1.1",
   "SQLi": "(['\"]\\s*or\\s*['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+)",
   "XSS": "<script.*?>",
   "LFI": "\\.\\./",
-  "RFI": "https?://.*"
+  "RFI": "https?://.*",
+  "CommandInjection": "(;|&&|\\|\\|)\\s*(ls|cat|whoami|id|pwd)",
+  "SSRF": "http(s)?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|169\\.254\\.)",
+  "XXE": "<!DOCTYPE\\s+[^>]*\\s+SYSTEM\\s+['\\\"]",
+  "CSRF": "csrf_token=|_csrf=",
+  "OpenRedirect": "redirect=|url="
 }
