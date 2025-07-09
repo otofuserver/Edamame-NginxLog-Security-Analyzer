@@ -14,6 +14,12 @@ RUN apt-get update && apt-get install -y libmariadb-dev gcc \
     && pip install --no-cache-dir mysql-connector-python cryptography \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+# bcryptをインストール（パスワードハッシュ化用）
+RUN pip install --no-cache-dir bcrypt
+
+# requestsをインストール（外部ファイル取得用）
+RUN pip install --no-cache-dir requests
+
 WORKDIR /app
 
 # アプリケーションコードと秘密鍵などを追加
