@@ -22,7 +22,7 @@ if modules_dir not in sys.path:
 
 # 変数の事前定義（インポートエラー時のデフォルト値）
 APP_NAME = "Edamame NginxLog Security Analyzer"
-APP_VERSION = "v1.0.27"
+APP_VERSION = "v1.0.28"
 APP_AUTHOR = "Developed by Code Copilot"
 LOG_PATH = "/var/log/nginx/nginx.log"
 SECURE_CONFIG_PATH = "/run/secrets/db_config_enc"
@@ -56,7 +56,7 @@ except ImportError as e:
 
     # インポートエラー時も設定変数が確実に利用できるよう再定義
     APP_NAME = "Edamame NginxLog Security Analyzer"
-    APP_VERSION = "v1.0.27"
+    APP_VERSION = "v1.0.28"
     APP_AUTHOR = "Developed by Code Copilot"
     LOG_PATH = "/var/log/nginx/nginx.log"
     SECURE_CONFIG_PATH = "/run/secrets/db_config_enc"
@@ -181,7 +181,7 @@ def db_connect():
 def init_db():
     """
     DB初期化処理。テーブル・カラムの存在確認と作成。
-    usersテーブル新規作成時は初期ユーザー(admin)を自動追加する。
+    usersテーブル新規作成時は初期ユーザー(admin)を自動追加��る。
     """
     try:
         conn = db_connect()
@@ -191,7 +191,7 @@ def init_db():
         # --- テーブル作成・カラム追加処理をmodules/db_schema.pyへ委譲 ---
         create_initial_tables(conn, APP_VERSION, log_func=log)
 
-        # 主要テーブルのカラム存在確認・不足カラム自動追加もmodules/db_schema.pyへ委譲
+        # 主要テーブルのカラム存在確認���不足カラム自動追加もmodules/db_schema.pyへ委譲
         ensure_all_required_columns(conn, log_func=log)
 
         # settingsテーブルからfrontend_last_login, frontend_last_ipの廃止カラム削除
@@ -425,7 +425,7 @@ def tail_log(log_func=None, process_func=None):
         if file_size > 10000:  # 10KB以上の場合
             f.seek(max(0, file_size - 10000))  # 末尾10KBから読み込み
             f.readline()  # 途中の行を破棄
-            log("大きなログファイルのため、末尾10KBから処理を開始します", "INFO")
+            log("大きなログファイルのため、末��10KBから処理を開始します", "INFO")
         else:
             f.seek(0)  # 小さなファイルは最初から読み込み
             log("ログファイル全体を初期処理します", "INFO")
@@ -449,7 +449,7 @@ def tail_log(log_func=None, process_func=None):
 
         # 現在のファイル位置を記録
         last_position = f.tell()
-        log(f"初期処理完了。監視開始位置: {last_position} bytes", "INFO")
+        log(f"初期処理完了��監視開始位置: {last_position} bytes", "INFO")
 
     last_inode_val = get_inode(log_path)
 
@@ -603,7 +603,7 @@ def rescan_attack_types():
 
 def test_attack_detection():
     """
-    攻撃パターン検出機能のテスト（データベース書き込みあり）
+    攻撃パター��検出機能のテスト（データベース書き込みあり）
     テスト完了後に自動でテストデータをクリーンアップ
     """
     from modules.attack_pattern import run_comprehensive_test
