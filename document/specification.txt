@@ -1,10 +1,20 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.29
+- **specification.txt version**: v1.0.30
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.30: 設定管理の一元化とコード品質向上（2025-07-15）
+  - nginx_log_to_mysql.py: config.pyからの重複定義を削除し設定管理を一元化
+    - APP_NAME、APP_VERSION、APP_AUTHORの重複定義を削除
+    - config.pyからのインポートを優先し、事前定義の重複を解消
+    - インポートエラー時の最小限のフォールバック処理のみ保持
+    - インデントエラーを修正してPEP8準拠の4スペースインデントに統一
+  - modules/db_schema.py: ロール管理システムの一貫性を向上
+    - usersテーブル作成時にrole_idカラムと外部キー制約を含めるよう修正
+    - ロール管理ヘルパー関数を追加（get_user_role, update_user_role, list_all_roles, get_users_with_roles）
+  - 設定の一元管理により保守性とコードの簡潔性を向上
 - v1.0.29: nginxエラーログのフィルタリング機能を大幅強化（2025-07-15）
   - modules/log_parser.py: file openエラーなどの処理不要なエラーログのスルー機能を改善
     - より包括的なエラーパターンマッチングを実装（"*29501 open()", "connect() failed"等を追加）

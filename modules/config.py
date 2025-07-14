@@ -6,7 +6,7 @@ PEP8/日本語コメント/スネークケース
 
 # アプリケーション情報
 APP_NAME = "Edamame NginxLog Security Analyzer"
-APP_VERSION = "v1.0.29"
+APP_VERSION = "v1.0.30"
 APP_AUTHOR = "Developed by Code Copilot"
 
 # パス設定

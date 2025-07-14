@@ -7,8 +7,6 @@ import json
 import requests
 import os
 import re
-import time
-from datetime import datetime
 from urllib.parse import unquote, unquote_plus
 
 
@@ -382,6 +380,16 @@ def display_test_results_table(db_connection, log_func=None):
             log("テストデータが見つかりませんでした", "WARN")
             return False
 
+        # 攻撃タイプのマッピング辞書を関数スコープで定義
+        expected_attacks = {
+            "xss": "XSS",
+            "sqli": "SQLi",
+            "lfi": "LFI",
+            "redirect": "OpenRedirect",
+            "command": "CommandInjection",
+            "normal": "normal"
+        }
+
         # テーブルヘッダー
         print("\n" + "="*120)
         print("攻撃パターン検出テスト結果")
@@ -395,16 +403,6 @@ def display_test_results_table(db_connection, log_func=None):
 
             # URLを短縮表示（50文字制限）
             display_url = url if len(url) <= 50 else url[:47] + "..."
-
-            # 攻撃タイプに基づくステータス判定
-            expected_attacks = {
-                "xss": "XSS",
-                "sqli": "SQLi",
-                "lfi": "LFI",
-                "redirect": "OpenRedirect",
-                "command": "CommandInjection",
-                "normal": "normal"
-            }
 
             # URLから期待される攻撃タイプを推測
             expected_type = "normal"
@@ -431,6 +429,7 @@ def display_test_results_table(db_connection, log_func=None):
         for row in results:
             method, url, attack_type, description, created_at = row
 
+            # URLから期待される攻撃タイプを推測（既に定義済みのexpected_attacks辞書を使用）
             expected_type = "normal"
             for key, value in expected_attacks.items():
                 if key in url.lower():
@@ -510,4 +509,3 @@ def run_comprehensive_test(attack_patterns_path, db_connection, log_func=None):
         except:
             pass
         return False
-
