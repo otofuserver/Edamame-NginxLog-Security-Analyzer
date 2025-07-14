@@ -1,10 +1,14 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.19
+- **specification.txt version**: v1.0.20
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.20: ファイル監視ログの詳細レベル最適化（2025-07-14）
+  - nginx_log_to_mysql.py: ファイルサイズ変化検出、新規ログ処理開始・完了のログレベルをINFOからDEBUGに変更
+  - 本番環境での冗長なログ出力を削減し、可読性を向上
+  - NGINX_LOG_DEBUG環境変数でデバッグログ制御が可能
 - v1.0.19: 真のtail機能を実装し、ファイルポジション維持による効率化（2025-07-10）
   - nginx_log_to_mysql.py: ファイルポジションを維持する真のtail機能を実装
   - 毎回ファイルを最初から読み込む非効率な処理を解決

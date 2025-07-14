@@ -454,7 +454,7 @@ def tail_log(log_func=None, process_func=None):
             # ファイルサイズの変化をチェック
             current_file_size = get_file_size(log_path)
             if current_file_size != last_file_size:
-                log(f"ファイルサイズ変化を検出: {last_file_size} -> {current_file_size} bytes", "INFO")
+                log(f"ファイルサイズ変化を検出: {last_file_size} -> {current_file_size} bytes", "DEBUG")
                 last_file_size = current_file_size
 
                 # ファイルサイズが増加した場合のみ新規ログを読み込み
@@ -473,7 +473,7 @@ def tail_log(log_func=None, process_func=None):
 
                             # 新規行を処理
                             if new_lines:
-                                log(f"新規ログ {len(new_lines)}行を検出して処理開始", "INFO")
+                                log(f"新規ログ {len(new_lines)}行を検出して処理開始", "DEBUG")
 
                                 success_count = 0
                                 parse_fail_count = 0
@@ -501,7 +501,7 @@ def tail_log(log_func=None, process_func=None):
 
                                 # 処理結果のサマリー
                                 if len(new_lines) == 1:
-                                    log(f"新規ログ処理完了: 成功={success_count}, パース失敗={parse_fail_count}, 処理失敗={process_fail_count}, エラー={error_count}", "INFO")
+                                    log(f"新規ログ処理完了: 成功={success_count}, パース失敗={parse_fail_count}, 処理失敗={process_fail_count}, エラー={error_count}", "DEBUG")
                                 else:
                                     log(f"バッチ処理完了 ({len(new_lines)}行): 成功={success_count}, パース失敗={parse_fail_count}, 処理失敗={process_fail_count}, エラー={error_count}", "INFO")
 
