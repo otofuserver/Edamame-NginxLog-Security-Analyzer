@@ -1,15 +1,58 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.8
+- **specification.txt version**: v1.0.19
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.19: 真のtail機能を実装し、ファイルポジション維持による効率化（2025-07-10）
+  - nginx_log_to_mysql.py: ファイルポジションを維持する真のtail機能を実装
+  - 毎回ファイルを最初から読み込む非効率な処理を解決
+  - ログローテーション対応とファイル位置の永続化
+  - メモリ使用量の削減と処理速度の大幅向上
+- v1.0.18: バッチログ処理機能とログ出力最適化（2025-07-10）
+  - nginx_log_to_mysql.py: 連続ログ行の自動検出とバッチ処理機能を追加
+  - 大量ログ発生時のサマリー表示機能（成功/失敗数の集計表示）
+  - 冗長なINFOログ出力を削減し、バッチ処理時は統計情報で表示
+  - ログ処理のパフォーマンス向上とコンソール出力の可読性改善
+- v1.0.17: デバッグログの制御機能とパフォーマンス最適化（2025-07-10）
+  - nginx_log_to_mysql.py: DEBUGレベルログの環境変数制御を追加（NGINX_LOG_DEBUG）
+  - 本番環境での可読性向上とログ出力量の最適化
+  - ログパーサーの文字化け問題修正を確認・文書化
+- v1.0.16: syslog形式のnginxログに対応（2025-07-10）
+  - modules/log_parser.py: syslog形式の正規表現パターンを最優先で追加
+  - dockerコンテナ環境でのsyslogヘッダー付きログに対応
+  - パターン別デバッグ機能を強化（使用したパターン名を表示）
+- v1.0.15: access_logのip_addressに「Jul」が挿入されるバグを修正（2025-07-10）
+  - modules/log_parser.py: 厳密なIPアドレスパターンと妥当性検証機能を追加
+  - IPv4/IPv6アドレスの形式チェック強化
+  - 月名やその他無効な文字列の挿入を防止
+- v1.0.14: 新規ログ読み込み問題の詳細デバッグ機能を追加（2025-07-10）
+  - modules/log_parser.py: デバッグログ��御、重要情報のみINFOレベル出力
+  - nginx_log_to_mysql.py: ファイルサイズ変化検出、詳細監視レポート機能
+  - 新規ログ検出時の明確な表示（★マーク）、処理結果の詳細ログ
+- v1.0.13: 新規ログが読み込まれないバグを修正（2025-07-10）
+  - nginx_log_to_mysql.py: tail_log関数の既存ログ処理と新規ログ監視を分離
+  - 初期処理後の新規ログ検出機能を改善
+  - 新規ログ処理の詳細ログ出力を追加
+- v1.0.12: nginxログ読み込み問題の修正とログパーサー改善（2025-07-10）
+  - modules/log_parser.py: 複数ログ形式対応、柔軟な正規表現、詳細デバッグ機能
+  - nginx_log_to_mysql.py: tail_log関数の強化、エラーハンドリング改善
+  - ファイル存在・権限チェック、進捗表示機能を追加
+- v1.0.11: モジュールインポートエラーの修正とmodules/__init__.pyの追加（2025-07-10）
+  - modules/__init__.py: Pythonパッケージ化による参照解決
+  - nginx_log_to_mysql.py: インポート文の修正とエラーハンドリング強化
+  - 前任者の不完全な移行作業の完了
+- v1.0.10: コードベース全体のリファクタリング実施（モジュール分割、設定集約）（2025-07-09）
+  - modules/config.py: 設定値・定数を集約
+  - modules/log_parser.py: ログパース処理を分離
+  - その他モジュール構造の最適化
 - v1.0.8: attack_patterns.jsonにCommandInjection, SSRF, XXE, CSRF, OpenRedirectパターンを追加し、バージョンをv1.1へ更新（2025-07-09）
 - v1.0.7: attack_patterns.jsonのバージョン管理をsettingsテーブルから廃止し、GitHubリポジトリから自動バージョン確認・自動更新に変更（2025-07-09）
 - v1.0.6: settingsテーブルからfrontend_last_login, frontend_last_ipカラムとその利用を廃止し、ユーザー認証用テーブル（users, login_history）に完全移行（2025-07-09）
 - v1.0.5: 文字化け修正（Fernet鍵・環境変数・パーミッション等）（2025-07-03）
 - v1.0.4: main関数に型アノテーション追加、関数コメント詳細化、例外処理追加（2025-06-27）
+- v1.0.9: users/login_historyテーブル作成・初期ユーザー(admin)自動追加処理をnginx_log_to_mysql.pyからmodules/db_schema.pyへ完全移行（2025-07-09）
 
 ## 基本情報
 - **アプリ名**: Edamame NginxLog Security Analyzer
@@ -76,6 +119,8 @@
 | is_whitelisted   | BOOLEAN          | ホワイトリスト対象か               |
 | description      | TEXT             | クライアントによる説明入力欄       |
 | attack_type      | VARCHAR(255)     | 識別された攻撃タイプ（複数可）     |
+| user_final_threat| BOOLEAN          | ユーザーの脅威最終判断             |
+| user_threat_note | TEXT             | 脅威判断に対するメモ欄             |
 
 ### `modsec_alerts`
 | カラム名         | 型              | 説明                                  |
@@ -95,6 +140,7 @@
 | whitelist_ip           | VARCHAR(45)      | 登録用のIPアドレス       |
 | backend_version        | VARCHAR(50)      | バックエンドバージョン情報     |
 | frontend_version       | VARCHAR(50)      | フロントエンドバージョン情報   |
+| attack_patterns_version| VARCHAR(50)      | attack_patterns.jsonバージョン |
 
 ### `users`（フロントエンド認証用）
 | カラム名         | 型              | 説明                           |
@@ -165,7 +211,7 @@
 アプリはまだHTTP APIサーバではないが、将来以下の構成を想定：
 - `/api/url_registry` GET： 登録された全URL一覧取得（未記入description用）
 - `/api/url_registry/:id` PATCH： `description`, `is_whitelisted` の更新
-- `/api/access_log` GET： 全アクセス履歴（フィルタ: IP/期間/ブロック有無）
+- `/api/access_log` GET： ��アクセス履歴（フィルタ: IP/期間/ブロック有無）
 - `/api/modsec_alerts` GET： ブロック詳細一覧
 - `/api/settings` GET/PATCH： 全体設定取得・更新
 

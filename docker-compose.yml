@@ -6,6 +6,7 @@ services:
     volumes:
       - /var/log/docker/docker-nginx-LO.log:/var/log/nginx/nginx.log:ro
       - ./attack_patterns.json:/run/secrets/attack_patterns.json:ro
+      - ./modules:/app/modules:ro
     environment:
       - PYTHONUNBUFFERED=1
     secrets:
