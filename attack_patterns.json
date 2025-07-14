@@ -1,12 +1,16 @@
 {
-  "version": "v1.1",
-  "SQLi": "(['\"]\\s*or\\s*['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+)",
-  "XSS": "<script.*?>",
-  "LFI": "\\.\\./",
-  "RFI": "https?://.*",
-  "CommandInjection": "(;|&&|\\|\\|)\\s*(ls|cat|whoami|id|pwd)",
-  "SSRF": "http(s)?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|169\\.254\\.)",
-  "XXE": "<!DOCTYPE\\s+[^>]*\\s+SYSTEM\\s+['\\\"]",
-  "CSRF": "csrf_token=|_csrf=",
-  "OpenRedirect": "redirect=|url="
+  "version": "v1.2",
+  "SQLi": "(['\"]\\s*or\\s*['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+|union\\s+select|'\\s*or\\s*'|--\\s*$|#\\s*$)",
+  "XSS": "(<script.*?>|javascript:|on\\w+\\s*=|<img.*?src.*?=|<iframe|<object|<embed)",
+  "LFI": "(\\.\\./|\\.\\.\\\\|/etc/passwd|/proc/self|\\\\windows\\\\system32)",
+  "RFI": "https?://[^\\s'\"<>]+",
+  "CommandInjection": "(;|&&|\\|\\||\\||`|\\$\\(|\\${)\\s*(ls|cat|whoami|id|pwd|rm|cp|mv|mkdir|rmdir|chmod|chown|ps|kill|ping|wget|curl|nc|netcat|sh|bash|zsh|cmd|powershell|exec|system)",
+  "SSRF": "http(s)?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|169\\.254\\.|192\\.168\\.|10\\.0\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|\\[::1\\])",
+  "XXE": "(<!DOCTYPE\\s+[^>]*\\s+SYSTEM\\s+['\\\"]|<!ENTITY\\s+[^>]*\\s+SYSTEM\\s+['\\\"]|&[a-zA-Z0-9_]+;)",
+  "CSRF": "(csrf_token=|_csrf=|authenticity_token=)",
+  "OpenRedirect": "(redirect=|url=|next=|return=|goto=|location=)",
+  "PathTraversal": "(\\.\\./|\\.\\.\\\\/|%2e%2e%2f|%2e%2e%5c|file://)",
+  "LDAP": "(\\(\\||\\)\\(|\\*\\)|\\(\\*|%28%7C|%29%28|%2A%29)",
+  "NoSQL": "(\\$ne|\\$eq|\\$gt|\\$lt|\\$regex|\\$where|\\$nin|\\$in|\\$exists)",
+  "TemplateInjection": "(\\{\\{.*?\\}\\}|\\$\\{.*?\\}|<%.*?%>|\\[%.*?%\\])"
 }

@@ -1,10 +1,52 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.21
+- **specification.txt version**: v1.0.26
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.26: 攻撃パターン検出精度の大幅向上とURLデコード機能の強化（2025-07-14）
+  - attack_patterns.json: バージョンをv1.2に更新し、攻撃パターンを大幅に強化
+    - CommandInjection: rmなど追加コマンドとより多くの演算子（|, &&, ||, ;, $(), ${}など）に対応
+    - 新たな攻撃タイプを追加: PathTraversal, LDAP, NoSQL, TemplateInjection
+    - SQLi, XSS, LFI, RFI, SSRF, XXE, CSRF, OpenRedirectの検出パターンも改善
+  - modules/attack_pattern.py: URLデコード機能を実装し、エンコードされた攻撃も検出可能
+    - decode_url関数: 二重エンコーディング・プラスエンコーディングにも対応
+    - detect_attack_type関数: 元URLとデコード後URL両方で攻撃パターン検査を実行
+    - より正確な正規表現マッチングとフォールバック処理を実装
+  - nginx_log_to_mysql.py: URLデコード機能をメイン処理に統合
+    - add_registry_entry, add_access_log関数でURLをデコード後に保存
+    - エンコード例: %3Cscript%3E → <script> として保存し可読性を向上
+  - テスト機能の大幅改善:
+    - display_test_results_table関数: テスト結果を詳細なテーブル形式で表示
+    - run_comprehensive_test関数: 包括的なテスト実行とクリーンアップを自動化
+    - --run-testオプション実行時の自動終了とホス���復帰機能を追加
+    - 成功/失敗統計とPASS/FAILステータス表示機能
+- v1.0.25: テスト機能に自動クリーンアップ機能を追加（2025-07-14）
+  - nginx_log_to_mysql.py: test_attack_detection関数にテスト後の自動クリーンアップ機能を実装
+  - テスト成功・失敗・例外発生のすべてのケースでテストデータを確実に削除
+  - テスト完了後にurl_registryからテストデータを自動削除し、データベースを清潔に保持
+  - 堅牢なエラーハンドリングによりクリーンアップ失敗時も処理を継続
+- v1.0.24: rescan_attack_types関数のカーソル処理バグ修正（2025-07-14）
+  - nginx_log_to_mysql.py: "Unread result found"エラーを修正
+  - cursor.execute()の戻り値誤用を修正し、正しいfetchone()処理に変更
+  - MySQLカーソーの仕様に準拠した適切な結果取得処理を実装
+  - データベース初期化時のクラッシュを解決
+- v1.0.23: テスト機能のデータベース書き込み対応とdescription自動設定（2025-07-14）
+  - modules/attack_pattern.py: test_attack_patterns_with_db関数を追加してテストデータのDB書き込み機能を実装
+  - テストデータのdescriptionカラムに「【テスト自動追加】」���ーカーと詳細説明を自動設定
+  - cleanup_test_data関数を追加してテストデータの自動クリーンアップ機能を実装
+  - nginx_log_to_mysql.py: test_attack_detection関数を修正してDB書き込み機能付きテストを実行
+  - cleanup_test_attack_data関数を追加してテストデータのクリーンアップ機能を提供
+  - テスト用URLは/test/で始まり、6種類の攻撃パターン+正常パターンを含む
+- v1.0.22: 自動脅威判定機能の修正と強化（2025-07-14）
+  - modules/attack_pattern.py: detect_attack_type関数を完全に書き直し、正規表現マッチングを実装
+  - 従来の単純文字列比較から正規表現ベースの攻撃パターン検出に変更
+  - 複数攻撃タイプの同時検出に対応（カンマ区切りで返却）
+  - JSONの実際の構造に合わせた実装（versionキーを除外）
+  - test_attack_patterns関数を追加してデバッグ機能を強化
+  - nginx_log_to_mysql.py: rescan_attack_types関数を強化し、変更内容の詳細ログを追加
+  - 既存のurl_registryテーブルの攻撃タイプが正常に更新されるように修正
 - v1.0.21: URLデコード機能の実装（2025-07-14）
   - modules/log_parser.py: urllib.parse.unquoteを使用したURLデコード機能を追加
   - access_logとurl_registryに保存するURLをデコード後の可読性の高い形式に変更

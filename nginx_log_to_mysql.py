@@ -234,14 +234,20 @@ def fetch_settings():
 # 未登録のURLをurl_registryに登録（ホワイトリストIPはwhitelistとして登録）
 def add_registry_entry(method, url, ip, access_time):
     """
-    url_registryへURLを登��する。ホワイトリストIPの場合はis_whitelistedも設定。
+    url_registryへURLを登録する。ホワイトリストIPの場合はis_whitelistedも設定。
     created_at/updated_atにはアクセス時刻（ログから取得）使用。
+    URLはデコードした状態で保存する。
     """
-    attack_type = detect_attack_type(url, ATTACK_PATTERNS_PATH)
+    from modules.attack_pattern import decode_url
+
+    # URLをデコードしてから保存
+    decoded_url = decode_url(url)
+    attack_type = detect_attack_type(decoded_url, ATTACK_PATTERNS_PATH)
+
     try:
         conn = db_connect()
         cursor = conn.cursor()
-        cursor.execute("SELECT id, is_whitelisted FROM url_registry WHERE full_url=%s", (url,))
+        cursor.execute("SELECT id, is_whitelisted FROM url_registry WHERE full_url=%s", (decoded_url,))
         row = cursor.fetchone()
         is_whitelisted = WHITELIST_MODE and ip == WHITELIST_IP
         if row is None:
@@ -252,16 +258,16 @@ def add_registry_entry(method, url, ip, access_time):
                 )
                 VALUES (%s, %s, %s, %s, NULL, %s, %s)
                 """,
-                (method, url, access_time, is_whitelisted, access_time, attack_type),
+                (method, decoded_url, access_time, is_whitelisted, access_time, attack_type),
             )
             conn.commit()
         elif is_whitelisted and not row[1]:
             cursor.execute(
                 "UPDATE url_registry SET is_whitelisted = TRUE, updated_at = %s WHERE full_url = %s",
-                (access_time, url),
+                (access_time, decoded_url),
             )
             conn.commit()
-            log(f"Updated whitelist status for URL: {url}", "INFO")
+            log(f"Updated whitelist status for URL: {decoded_url}", "INFO")
     except Error as e:
         log(f"add_registry_entry failed: {e}", "DB ERROR")
 
@@ -269,7 +275,8 @@ def add_registry_entry(method, url, ip, access_time):
 # 全アクセスをaccess_logに追記
 def add_access_log(method, url, status, ip, access_time, blocked=False):
     """
-    アクセス���グをDBに保存
+    アクセスログをDBに保存
+    URLはデコードした状態で保存する
     :param method: HTTPメソッド
     :param url: アクセスURL
     :param status: ステータスコード
@@ -277,6 +284,11 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
     :param access_time: アクセス時刻
     :param blocked: ModSecurityブロックの有無
     """
+    from modules.attack_pattern import decode_url
+
+    # URLをデコードしてから保存
+    decoded_url = decode_url(url)
+
     try:
         conn = db_connect()
         cursor = conn.cursor()
@@ -285,7 +297,7 @@ def add_access_log(method, url, status, ip, access_time, blocked=False):
             INSERT INTO access_log (method, full_url, status_code, ip_address, access_time, blocked_by_modsec)
             VALUES (%s, %s, %s, %s, %s, %s)
             """,
-            (method, url, int(status), ip, access_time, blocked)
+            (method, decoded_url, int(status), ip, access_time, blocked)
         )
         conn.commit()
     except Error as e:
@@ -552,21 +564,93 @@ def periodic_attack_patterns_update():
 
 # メイン関数（初期化 → 設定読込 → ログ監視）
 def rescan_attack_types():
+    """
+    既存のurl_registryテーブルの全エントリに対して攻撃タイプを再スキャンする
+    """
     try:
         conn = db_connect()
         cursor = conn.cursor()
         cursor.execute("SELECT id, full_url FROM url_registry")
         rows = cursor.fetchall()
+
+        updated_count = 0
         for entry_id, url in rows:
+            # 既存の攻撃タイプを取得
+            cursor.execute("SELECT attack_type FROM url_registry WHERE id = %s", (entry_id,))
+            result = cursor.fetchone()
+            old_type = result[0] if result else "unknown"
+
             new_type = detect_attack_type(url, ATTACK_PATTERNS_PATH)
-            cursor.execute(
-                "UPDATE url_registry SET attack_type = %s WHERE id = %s",
-                (new_type, entry_id)
-            )
+
+            if old_type != new_type:
+                cursor.execute(
+                    "UPDATE url_registry SET attack_type = %s WHERE id = %s",
+                    (new_type, entry_id)
+                )
+                updated_count += 1
+                log(f"Updated URL {url}: {old_type} -> {new_type}", "DEBUG")
+
         conn.commit()
-        log("attack_type fields have been updated based on latest patterns.", "INFO")
+        log(f"attack_type fields have been updated based on latest patterns. Updated: {updated_count}/{len(rows)} entries", "INFO")
+
+        # 攻撃パターンのテストも実行
+        if updated_count > 0:
+            test_attack_detection()
+
     except Error as e:
         log(f"rescan_attack_types failed: {e}", "DB ERROR")
+
+
+def test_attack_detection():
+    """
+    攻撃パターン検出機能のテスト（データベース書き込みあり）
+    テスト完了後に自動でテストデータをクリーンアップ
+    """
+    from modules.attack_pattern import run_comprehensive_test
+
+    try:
+        conn = db_connect()
+        if not conn:
+            log("データベース接続に失敗したため、テストをスキップします", "WARN")
+            return False
+
+        # 包括的なテストを実行（テーブル表示付き）
+        result = run_comprehensive_test(ATTACK_PATTERNS_PATH, conn, log_func=log)
+
+        return result
+
+    except Exception as e:
+        log(f"テスト実行中にエラーが発生: {e}", "ERROR")
+        # 例外発生時もクリーンアップを実行
+        try:
+            from modules.attack_pattern import cleanup_test_data
+            conn = db_connect()
+            if conn:
+                log("例外発生時のクリーンアップを実行中...", "INFO")
+                cleanup_test_data(conn, log_func=log)
+        except:
+            pass  # クリーンアップ時のエラーは無視
+        return False
+
+
+def cleanup_test_attack_data():
+    """
+    テスト用攻撃パターンデータのクリーンアップ
+    """
+    from modules.attack_pattern import cleanup_test_data
+
+    try:
+        conn = db_connect()
+        if not conn:
+            log("データベース接続に失敗したため、クリーンアップをスキップします", "WARN")
+            return False
+
+        result = cleanup_test_data(conn, log_func=log)
+        return result
+
+    except Exception as e:
+        log(f"テストデータクリーンアップ中にエラーが発生: {e}", "ERROR")
+        return False
 
 
 def update_attack_patterns_if_needed():
@@ -594,9 +678,39 @@ def main() -> None:
 
         parser = argparse.ArgumentParser(description='NGINX log monitor to MySQL')
         parser.add_argument('--skip-init-db', action='store_true', help='Skip automatic DB initialization')
+        parser.add_argument('--run-test', action='store_true', help='Run attack pattern detection test')
         args = parser.parse_args()
 
+        # テスト実行オプションが指定された場合は、テストのみ実行して終了
+        if args.run_test:
+            log("手動テスト実行が指定されました", "INFO")
+
+            # DB初期化を実行（テストに必要）
+            if not init_db():
+                log("Database init failed. Exiting.", "ERROR")
+                sys.exit(1)
+
+            # テスト実行
+            test_result = test_attack_detection()
+
+            if test_result:
+                log("テスト実行完了。正常終了します。", "INFO")
+                print("\n" + "="*60)
+                print("テスト実行が完了しました。")
+                print("詳細な結果は上記のテーブルをご確認ください。")
+                print("="*60)
+                sys.exit(0)  # 正常終了
+            else:
+                log("テスト実行に失敗しました。", "ERROR")
+                print("\n" + "="*60)
+                print("テスト実行に失敗しました。")
+                print("ログを確認して問題を修正してください。")
+                print("="*60)
+                sys.exit(1)  # エラー終了
+
+        # 通常の監視モード実行
         rescan_attack_types()
+
         if not args.skip_init_db:
             if not init_db():
                 log("Database init failed. Exiting.", "ERROR")
@@ -606,6 +720,10 @@ def main() -> None:
         fetch_settings()
         log("Starting log monitor...", "INFO")
         tail_log(log_func=log, process_func=process_line)
+
+    except KeyboardInterrupt:
+        log("キーボード割り込みを受信しました。プログラムを終了します。", "INFO")
+        sys.exit(0)
     except Exception as e:
         # 予期しない例外発生時のエラーハンドリング
         log(f"予期しないエラーが発生しました: {e}", "ERROR")
