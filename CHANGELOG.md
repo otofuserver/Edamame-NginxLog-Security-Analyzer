@@ -1,0 +1,143 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.0.32] - 2025-07-15
+
+### Changed
+- specification.txtの変更履歴をすべてCHANGELOG.mdに移行
+  - specification.txtから詳細な変更履歴セクションを削除し、仕様書として整理
+  - 変更履歴管理をCHANGELOG.mdに一元化
+  - specification.txtにCHANGELOG.mdへの参照を追加
+
+### Improved
+- ドキュメント構造の明確化
+  - specification.txt: 技術仕様・データベース構造・機能説明に特化
+  - CHANGELOG.md: 開発履歴・変更管理に特化
+- プロジェクト管理の効率化とメンテナンス性向上
+
+## [1.0.31] - 2025-07-15
+
+### Added
+- プロジェクト直下にCHANGELOG.mdを新規作成
+  - Keep a Changelog形式とSemantic Versioningに準拠した詳細な変更履歴管理
+  - specification.txtとの相互補完によるドキュメント体系の強化
+- 開発者向けガイドラインと貢献ルールを明文化
+
+### Improved
+- プロジェクトの変更管理とトレーサビリティを大幅向上
+- Added/Changed/Fixed/Improvedで分類した構造化された履歴管理
+
+## [1.0.30] - 2025-07-15
+
+### Added
+- ロール管理システムのヘルパー関数を追加
+  - `get_user_role()`: ユーザーのロール情報を取得
+  - `update_user_role()`: ユーザーのロールを更新
+  - `list_all_roles()`: すべてのロール一覧を取得
+  - `get_users_with_roles()`: ユーザー一覧とロール情報を取得
+
+### Changed
+- nginx_log_to_mysql.py: config.pyからの重複定義を削除し設定管理を一元化
+  - APP_NAME、APP_VERSION、APP_AUTHORの重複定義を削除
+  - config.pyからのインポートを優先し、事前定義の重複を解消
+  - インポートエラー時の最小限のフォールバック処理のみ保持
+- modules/db_schema.py: usersテーブル作成時にrole_idカラムと外部キー制約を含めるよう修正
+- modules/attack_pattern.py: expected_attacks変数のスコープ問題を修正
+
+### Fixed
+- nginx_log_to_mysql.py: PEP8準拠の4スペースインデントに統一してインデントエラーを解消
+- modules/attack_pattern.py: 「ローカル変数 'expected_attacks' は代入の前に参照される可能性があります」警告を解消
+- 変数の重複定義による警告の完全解消
+
+### Improved
+- 設定の一元管理により保守性とコードの簡潔性を向上
+- ロール管理システムの一貫性向上
+- コードの可読性と保守性を向上
+
+## [1.0.29] - 2025-07-15
+
+### Added
+- modules/log_parser.py: nginxエラーログのフィルタリング機能を大幅強化
+  - より包括的なエラーパターンマッチングを実装（"*29501 open()", "connect() failed"等を追加）
+  - syslog形式のnginxエラーログを専用正規表現で確実に検出・スルー
+  - アクセスログでない行（リクエスト情報を含まない行）を自動判定してスルー
+
+### Changed
+- エラーログのスルー時に詳細なデバッグ情報を出力（80文字まで表示）
+
+### Fixed
+- 「ログ行のパースに失敗しました」警告の大量出力を防止し、ログの可読性を大幅向上
+
+## [1.0.28] - 2025-07-15
+
+### Added
+- modules/db_schema.py: ロール管理システムの実装
+  - rolesテーブルを新規作成：role_name（ロール名）、description（説明）、作成・更新日時
+  - 初期ロール自動追加：administrator（管理者）、monitor（監視メンバー）
+  - usersテーブルにrole_idカラム追加：ロールとの関連付け、外部キー制約設定
+  - 初期ユーザー(admin)に自動で管理者ロールを設定
+  - 既存のadminユーザーにも管理者ロールを自動付与する移行処理を実装
+
+### Changed
+- データベース初期化時にロール・ユーザー管理システムが自動構築される
+
+## [1.0.27] - 2025-07-15
+
+### Added
+- modules/log_parser.py: file openエラーなどの処理不要なエラーログを自動スルーする機能を追加
+  - "failed (2: No such file or directory)"など、ファイルアクセスエラーを自動検出してスキップ
+
+### Changed
+- パターンマッチングロジックを修正し、エラーログとアクセスログの処理を明確に分離
+- ログレベルを最適化（DEBUGレベルでスルー情報を出力）
+
+### Fixed
+- 不要なパースエラーの大量出力を防止し、ログの可読性を向上
+
+## [1.0.26] - 2025-07-14
+
+### Added
+- attack_patterns.json: バージョンをv1.2に更新し、攻撃パターンを大幅に強化
+  - CommandInjection: rmなど追加コマンドとより多くの演算子（|, &&, ||, ;, $(), ${}など）に対応
+  - 新たな攻撃タイプを追加: PathTraversal, LDAP, NoSQL, TemplateInjection
+  - SQLi, XSS, LFI, RFI, SSRF, XXE, CSRF, OpenRedirectの検出パターンも改善
+- modules/attack_pattern.py: URLデコード機能を実装し、エンコードされた攻撃も検出可能
+  - decode_url関数: 二重エンコーディング・プラスエンコーディングにも対応
+  - detect_attack_type関数: 元URLとデコード後URL両方で攻撃パターン検査を実行
+  - より正確な正規表現マッチングとフォールバック処理を実装
+- テスト機能の大幅改善:
+  - display_test_results_table関数: テスト結果を詳細なテーブル形式で表示
+  - run_comprehensive_test関数: 包括的なテスト実行とクリーンアップを自動化
+  - --run-testオプション実行時の自動終了とホスト復帰機能を追加
+  - 成功/失敗統計とPASS/FAILステータス表示機能
+
+### Changed
+- nginx_log_to_mysql.py: URLデコード機能をメイン処理に統合
+  - add_registry_entry, add_access_log関数でURLをデコード後に保存
+  - エンコード例: %3Cscript%3E → <script> と���て保存し可読性を向上
+
+---
+
+## バージョン管理について
+
+- このプロジェクトは [Semantic Versioning](https://semver.org/) に従います
+- 主要な変更は必ず`specification.txt`にも記録されます
+- バージョン番号は`config.py`の`APP_VERSION`と同期されます
+
+## 貢献ガイドライン
+
+1. **変更を行う前に**: 必ず最新のバージョンを確認してください
+2. **変更後**: このCHANGELOG.mdと`specification.txt`の両方を更新してください
+3. **コミット**: 明確で説明的なコミットメッセージを記述してください
+
+## リンク
+
+- [プロジェクト仕様書](./document/specification.txt)
+- [README](./README.md)
+- [ライセンス](./LICENSE)

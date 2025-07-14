@@ -11,8 +11,11 @@ Pythonファイルへ機能の追加や仕様の変更を行った場合は、�
 ※このリポジトリのREADME.mdはGitHub用のREADMEです。プロジェクトの概要・セットアップ・仕様を記載します。
 
 # specification.txtのバージョン管理ルール
+- プロジェクト内のファイルで仕様を変更したら記載すること。
 - specification.txtを更新した場合は、必ず冒頭のバージョン情報も更新すること。
-- specification.txtのバージョン情報を更新した場合は、config.pyのAPP_VERSIONも同じバージョンに更新すること。
+
+# CHANGELOG.mdのバージョン管理ルール
+- CHANGELOG.mdのバージョン情報を更新した場合は、config.pyのAPP_VERSIONも同じバージョンに更新すること。
 
 # コミットメッセージについて
 - ファイルを変更した際は、コミット用メッセージの例も必ず提案してください。
