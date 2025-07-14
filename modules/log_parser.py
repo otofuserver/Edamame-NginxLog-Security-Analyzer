@@ -34,6 +34,7 @@ def parse_log_line(line, log_func=None):
     nginxログの1行をパースしてデータを抽出
     複数のログ形式に対応し、自動判定を行う（syslog形式にも対応）
     syslogの「message repeated」行もスキップ処理を追加
+    file openエラーなどの処理不要なエラーログはスルーする
     :param line: ログの1行
     :param log_func: ログ出力用関数（省略可）
     :return: パース結果の辞書（失敗時はNone）
@@ -55,9 +56,21 @@ def parse_log_line(line, log_func=None):
         log(f"syslogの重複メッセージをスキップ: {line[:50]}...", "DEBUG")
         return None
 
+    # file openエラーなどの処理不要なエラーログをスルー
+    if "[error]" in line and any(error_type in line for error_type in [
+        "open()", "failed (2: No such file or directory)",
+        "failed (13: Permission denied)", "failed (20: Not a directory)"
+    ]):
+        log(f"file openエラーをスルー: {line[:50]}...", "DEBUG")
+        return None
+
     # nginxログの複数形式に対応する正規表現パターン
     patterns = [
-        # syslog形式のnginxログ（修正版：より厳密にIPアドレスを抽出）
+        # syslog形式のnginxエラーログ（修正版）
+        # Jul 15 00:27:41 otofuserver docker-nginx-LO[1869]: 2025/07/15 00:27:41 [error] 215#215: *29501 ... client: 192.168.15.13, ... request: "GET /test HTTP/1.1"
+        r'^[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\S+\[\d+\]:\s+.*?client:\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[a-fA-F0-9:]+).*?request:\s+"([^"]*)"',
+
+        # syslog形式のnginxアクセスログ（修正版：より厳密にIPアドレスを抽出）
         # Jul 10 02:29:57 otofuserver docker-nginx-LO[1587]: 192.168.10.11 - - [10/Jul/2025:02:29:57 +0900] "POST /epgstation/..." 200
         r'^[A-Za-z]{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\S+\s+\S+\[\d+\]:\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}|[a-fA-F0-9:]+)\s+\S+\s+\S+\s+\[([^\]]+)\]\s+"([^"]*)"\s+(\d+)',
 
@@ -82,7 +95,48 @@ def parse_log_line(line, log_func=None):
         try:
             match = re.match(pattern, line)
             if match:
-                if i <= 1:  # syslog形式の場合（通常とmessage repeated両方）
+                if i == 0:  # syslog形式のnginxエラーログ
+                    ip_candidate = match.group(1)
+                    request_line = match.group(2)
+
+                    # IPアドレスの妥当性検証
+                    if not is_valid_ip(ip_candidate):
+                        log(f"無効なIPアドレスを検出（エラーログ）: '{ip_candidate}' (行: {line[:50]}...)", "WARN")
+                        continue
+
+                    # リクエスト行からメソッドとURLを抽出
+                    request_parts = request_line.split()
+                    if len(request_parts) >= 2:
+                        method = request_parts[0]
+                        url = request_parts[1]
+                    else:
+                        method = "GET"
+                        url = request_line if request_line else "/"
+
+                    # エラーログの場合はステータスコードを400番台に設定
+                    status_code = "404"  # ファイルが見つからないエラーの場合
+
+                    # syslogのタイムスタンプから現在の年を使用してdatetimeを作成
+                    syslog_time_match = re.match(r'^([A-Za-z]{3})\s+(\d{1,2})\s+(\d{2}:\d{2}:\d{2})', line)
+                    if syslog_time_match:
+                        current_year = datetime.now().year
+                        month_str = syslog_time_match.group(1)
+                        day = int(syslog_time_match.group(2))
+                        time_str = syslog_time_match.group(3)
+
+                        # 月名を数値に変換
+                        month_map = {
+                            'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
+                            'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+                        }
+                        month = month_map.get(month_str, 1)
+
+                        hour, minute, second = map(int, time_str.split(':'))
+                        access_time = datetime(current_year, month, day, hour, minute, second)
+                    else:
+                        access_time = datetime.now()
+
+                elif i <= 2:  # syslog形式のアクセスログ（通常とmessage repeated両方）
                     ip_candidate = match.group(1)
                     timestamp_str = match.group(2)
                     request_line = match.group(3)
@@ -102,7 +156,10 @@ def parse_log_line(line, log_func=None):
                         method = "GET"
                         url = request_line if request_line else "/"
 
-                else:
+                    # タイムスタンプをdatetimeオブジェクトに変換
+                    access_time = parse_timestamp(timestamp_str, log)
+
+                else:  # Combined/Common/簡易/フォールバック形式
                     ip_candidate = match.group(1)
                     timestamp_str = match.group(2)
 
@@ -116,7 +173,7 @@ def parse_log_line(line, log_func=None):
                             log(f"最後のパターンでも無効なIP。処理を続行します: '{ip_candidate}'", "WARN")
 
                     # HTTPメソッドとURLの抽出（パターンによって処理を分岐）
-                    if i < 5:  # Combined/Common/簡易形式
+                    if i <= 5:  # Combined/Common/簡易形式
                         request_line = match.group(3)
                         status_code = match.group(4)
 
@@ -128,7 +185,7 @@ def parse_log_line(line, log_func=None):
                         else:
                             method = "GET"
                             url = request_line if request_line else "/"
-                    elif i == 5:  # 簡易形式（メソッドとURLが分離）
+                    elif i == 6:  # 簡易形式（メソッドとURLが分離）
                         method = match.group(3)
                         url = match.group(4)
                         status_code = match.group(5)
@@ -145,10 +202,10 @@ def parse_log_line(line, log_func=None):
                             method = "GET"
                             url = request_line if request_line else "/"
 
-                ip_address = ip_candidate
+                    # タイムスタンプをdatetimeオブジェクトに変換
+                    access_time = parse_timestamp(timestamp_str, log)
 
-                # タイムスタンプをdatetimeオブジェクトに変換
-                access_time = parse_timestamp(timestamp_str, log)
+                ip_address = ip_candidate
 
                 # URLの正規化
                 if not url.startswith('/'):
@@ -166,7 +223,8 @@ def parse_log_line(line, log_func=None):
                 }
 
                 # パース成功時のログ（使用したパターンも表示）
-                pattern_name = ["syslog", "syslog-repeated", "combined", "common", "簡易", "フォールバック"][i]
+                pattern_names = ["syslog-error", "syslog-access", "syslog-repeated", "combined", "common", "簡易", "フォールバック"]
+                pattern_name = pattern_names[i] if i < len(pattern_names) else f"pattern-{i}"
                 log(f"ログパース成功({pattern_name}形式): {method} {url} (ステータス: {status_code}, IP: {ip_address})", "DEBUG")
                 return result
 

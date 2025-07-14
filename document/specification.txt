@@ -1,10 +1,16 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.26
+- **specification.txt version**: v1.0.27
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.27: file openエラーのスルー機能とログパーサー強化（2025-07-15）
+  - modules/log_parser.py: file openエラーなどの処理不要なエラーログを自動スルーする機能を追加
+    - "failed (2: No such file or directory)"など、ファイルアクセスエラーを自動検出してスキップ
+    - パターンマッチングロジックを修正し、エラーログとアクセスログの処理を明確に分離
+    - ログレベルを最適化（DEBUGレベルでスルー情報を出力）
+    - 不要なパースエラーの大量出力を防止し、ログの可読性を向上
 - v1.0.26: 攻撃パターン検出精度の大幅向上とURLデコード機能の強化（2025-07-14）
   - attack_patterns.json: バージョンをv1.2に更新し、攻撃パターンを大幅に強化
     - CommandInjection: rmなど追加コマンドとより多くの演算子（|, &&, ||, ;, $(), ${}など）に対応
