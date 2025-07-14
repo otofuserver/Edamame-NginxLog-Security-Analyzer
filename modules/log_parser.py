@@ -5,6 +5,7 @@ PEP8/日本語コメント/スネークケース
 """
 import re
 from datetime import datetime
+from urllib.parse import unquote
 
 
 def is_valid_ip(ip_str):
@@ -153,6 +154,9 @@ def parse_log_line(line, log_func=None):
                 if not url.startswith('/'):
                     url = '/' + url
 
+                # URLデコードを実行（%3Cscript%3E → <script>等）
+                url = decode_url(url)
+
                 result = {
                     'ip': ip_address,
                     'method': method.upper(),
@@ -189,7 +193,7 @@ def parse_timestamp(timestamp_str, log_func=None):
         else:
             print(f"[{level}] {msg}")
 
-    # 複数のタイムスタンプ���式に対応
+    # 複数のタイムスタンプ形式に対応
     timestamp_formats = [
         "%d/%b/%Y:%H:%M:%S",      # 10/Jul/2025:14:30:45
         "%Y-%m-%d %H:%M:%S",      # 2025-07-10 14:30:45
@@ -328,3 +332,17 @@ def normalize_url(url):
     except Exception:
         return url  # エラー時は元のURLを返す
 
+
+def decode_url(url_str):
+    """
+    URLエンコードされた文字列をデコードする
+    :param url_str: URLエンコードされた文字列
+    :return: デコードされた文字列
+    """
+    try:
+        # URLデコードを実行（安全な文字列への変換）
+        decoded_url = unquote(url_str)
+        return decoded_url
+    except Exception as e:
+        # デコードに失敗した場合は元の文字列をそのまま返す
+        return url_str

@@ -1,10 +1,15 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.20
+- **specification.txt version**: v1.0.21
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.21: URLデコード機能の実装（2025-07-14）
+  - modules/log_parser.py: urllib.parse.unquoteを使用したURLデコード機能を追加
+  - access_logとurl_registryに保存するURLをデコード後の可読性の高い形式に変更
+  - エンコード例: /search?q=%3Cscript%3E → /search?q=<script> に変換
+  - デコード失敗時は元の文字列をそのまま保存する安全な実装
 - v1.0.20: ファイル監視ログの詳細レベル最適化（2025-07-14）
   - nginx_log_to_mysql.py: ファイルサイズ変化検出、新規ログ処理開始・完了のログレベルをINFOからDEBUGに変更
   - 本番環境での冗長なログ出力を削減し、可読性を向上
