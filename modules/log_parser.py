@@ -57,11 +57,24 @@ def parse_log_line(line, log_func=None):
         return None
 
     # file openエラーなどの処理不要なエラーログをスルー
-    if "[error]" in line and any(error_type in line for error_type in [
-        "open()", "failed (2: No such file or directory)",
-        "failed (13: Permission denied)", "failed (20: Not a directory)"
+    # nginxのエラーログ（file not found、permission denied等）を除外
+    if "[error]" in line and any(error_pattern in line for error_pattern in [
+        "open()",
+        "failed (2: No such file or directory)",
+        "failed (13: Permission denied)",
+        "failed (20: Not a directory)",
+        "No such file or directory",
+        "Permission denied",
+        "Not a directory",
+        "*29501 open()",  # 具体的なエラーパターンも追加
+        "connect() failed"
     ]):
-        log(f"file openエラーをスルー: {line[:50]}...", "DEBUG")
+        log(f"nginxエラーログをスルー: {line[:80]}...", "DEBUG")
+        return None
+
+    # syslogでnginxエラーが含まれる行で、アクセスログではない行もスルー
+    if re.search(r'docker-nginx.*\[error\]', line) and not re.search(r'"\w+ /', line):
+        log(f"syslog形式のnginxエラーログをスルー: {line[:80]}...", "DEBUG")
         return None
 
     # nginxログの複数形式に対応する正規表現パターン

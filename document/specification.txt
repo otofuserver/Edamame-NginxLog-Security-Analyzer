@@ -1,10 +1,25 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.27
+- **specification.txt version**: v1.0.29
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 
 ## 変更履歴
+- v1.0.29: nginxエラーログのフィルタリング機能を大幅強化（2025-07-15）
+  - modules/log_parser.py: file openエラーなどの処理不要なエラーログのスルー機能を改善
+    - より包括的なエラーパターンマッチングを実装（"*29501 open()", "connect() failed"等を追加）
+    - syslog形式のnginxエラーログを専用正規表現で確実に検出・スルー
+    - アクセスログでない行（リクエスト情報を含まない行）を自動判定してスルー
+    - エラーログのスルー時に詳細なデバッグ情報を出力（80文字まで表示）
+    - 「ログ行のパースに失敗しました」警告の大量出力を防止し、ログの可読性を大幅向上
+- v1.0.28: ロール管理システムの実装（2025-07-15）
+  - modules/db_schema.py: ロール管理機能を追加
+    - rolesテーブルを新規作成：role_name（ロール名）、description（説明）、作成・更新日時
+    - 初期ロール自動追加：administrator（管理者）、monitor（監視メンバー）
+    - usersテーブルにrole_idカラム追加：ロールとの関連付け、外部キー制約設定
+    - 初期ユーザー(admin)に自動で管理者ロールを設定
+    - 既存のadminユーザーにも管理者ロールを自動付与する移行処理を実装
+  - データベース初期化時にロール・ユーザー管理システムが自動構築される
 - v1.0.27: file openエラーのスルー機能とログパーサー強化（2025-07-15）
   - modules/log_parser.py: file openエラーなどの処理不要なエラーログを自動スルーする機能を追加
     - "failed (2: No such file or directory)"など、ファイルアクセスエラーを自動検出してスキップ
@@ -207,19 +222,35 @@
 | password_hash    | VARCHAR(255)     | パスワード（ハッシュ化）       |
 | email            | VARCHAR(255)     | メールアドレス（ユニーク）     |
 | is_active        | BOOLEAN          | 有効フラグ                     |
+| role_id          | INT              | ロールID（rolesテーブルへの外部キー） |
 | created_at       | DATETIME         | 作成日時                       |
 | updated_at       | DATETIME         | 最終更新日時                   |
 | last_login_at    | DATETIME         | 最終ログイン日時               |
 
 #### 🆕 初期ユーザー自動追加仕様
 - usersテーブル新規作成時、初期ユーザー（admin/admin123, admin@example.com, is_active=True）を自動追加する。
+- 初期ユーザーには自動で管理者ロール（administrator）が設定される。
 - パスワードはbcryptでハッシュ化して保存される。
 - 本番運用時は初期パスワードを必ず変更すること。
+
+### `roles`（ロール管理）
+| カラム名         | 型              | 説明                           |
+|------------------|------------------|--------------------------------|
+| id               | INT              | 主キー、自動採番               |
+| role_name        | VARCHAR(50)      | ロール名（ユニーク）           |
+| description      | TEXT             | ロールの説明                   |
+| created_at       | DATETIME         | 作成日時                       |
+| updated_at       | DATETIME         | 最終更新日時                   |
+
+#### 🆕 初期ロール自動追加仕様
+- rolesテーブル新規作成時、以下の初期ロールを自動追加する：
+  - **administrator**：管理者（すべての機能にアクセス可能）
+  - **monitor**：監視メンバー（ログ閲覧と基本的な分析機能のみ）
 
 ### `login_history`（ログイン履歴）
 | カラム名         | 型              | 説明                           |
 |------------------|------------------|--------------------------------|
-| id               | INT              | 主キー、自動採番               |
+| id               | INT              | 主キ���、自動採番               |
 | user_id          | INT              | users.id への外部キー           |
 | login_ip         | VARCHAR(45)      | ログイン元IP                   |
 | login_time       | DATETIME         | ログイン日時                   |
