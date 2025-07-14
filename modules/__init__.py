@@ -6,7 +6,7 @@ PEP8/日本語コメント/スネークケース
 
 # バージョン情報
 __version__ = "1.0.0"
-__author__ = "Developed by Code Copilot"
+__author__ = "お豆腐サーバー開発"
 
 # 各モジュールの主要機能をインポート
 from .config import (

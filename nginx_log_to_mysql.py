@@ -21,16 +21,16 @@ if modules_dir not in sys.path:
     sys.path.insert(0, modules_dir)
 
 # 変数の事前定義（インポートエラー時のデフォルト値）
-APP_NAME = "Edamame NginxLog Security Analyzer"
-APP_VERSION = "v1.0.0"
-APP_AUTHOR = "Developed by Code Copilot"
-LOG_PATH = "/var/log/nginx/nginx.log"
-SECURE_CONFIG_PATH = "/run/secrets/db_config_enc"
-KEY_PATH = "/run/secrets/db_secret_key"
-ATTACK_PATTERNS_PATH = "/run/secrets/attack_patterns.json"
-MAX_RETRIES = 5
-RETRY_DELAY = 3
-ATTACK_PATTERNS_CHECK_INTERVAL = 3600
+APP_NAME = ""
+APP_VERSION = ""
+APP_AUTHOR = ""
+LOG_PATH = ""
+SECURE_CONFIG_PATH = ""
+KEY_PATH = ""
+ATTACK_PATTERNS_PATH = ""
+MAX_RETRIES = 0
+RETRY_DELAY = 0
+ATTACK_PATTERNS_CHECK_INTERVAL = 0
 
 # modulesからの機能インポート
 try:
@@ -428,7 +428,7 @@ def tail_log(log_func=None, process_func=None):
             log("大きなログファイルのため、末尾10KBから処理を開始します", "INFO")
         else:
             f.seek(0)  # 小さなファイルは最初から読み込み
-            log("ログファイル全体を初���処理します", "INFO")
+            log("ログファイル全体を初期処理します", "INFO")
 
         # 既存の行を読み込み（初期処理のみ）
         existing_lines = f.readlines()

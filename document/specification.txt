@@ -34,7 +34,7 @@
   - データベース初期化時のクラッシュを解決
 - v1.0.23: テスト機能のデータベース書き込み対応とdescription自動設定（2025-07-14）
   - modules/attack_pattern.py: test_attack_patterns_with_db関数を追加してテストデータのDB書き込み機能を実装
-  - テストデータのdescriptionカラムに「【テスト自動追加】」���ーカーと詳細説明を自動設定
+  - テストデータのdescriptionカラムに「【テスト自動追加】」マーカーと詳細説明を自動設定
   - cleanup_test_data関数を追加してテストデータの自動クリーンアップ機能を実装
   - nginx_log_to_mysql.py: test_attack_detection関数を修正してDB書き込み機能付きテストを実行
   - cleanup_test_attack_data関数を追加してテストデータのクリーンアップ機能を提供
@@ -79,7 +79,7 @@
   - IPv4/IPv6アドレスの形式チェック強化
   - 月名やその他無効な文字列の挿入を防止
 - v1.0.14: 新規ログ読み込み問題の詳細デバッグ機能を追加（2025-07-10）
-  - modules/log_parser.py: デバッグログ��御、重要情報のみINFOレベル出力
+  - modules/log_parser.py: デバッグログ詳細化、重要情報のみINFOレベル出力
   - nginx_log_to_mysql.py: ファイルサイズ変化検出、詳細監視レポート機能
   - 新規ログ検出時の明確な表示（★マーク）、処理結果の詳細ログ
 - v1.0.13: 新規ログが読み込まれないバグを修正（2025-07-10）
