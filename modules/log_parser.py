@@ -353,10 +353,11 @@ def detect_log_format(line):
         return 'unknown'
 
 
-def extract_query_params(url):
+def extract_query_params(url, log_func=None):
     """
     URLからクエリパラメータを抽出
     :param url: URL文字列
+    :param log_func: ログ出力用関数（省略可）
     :return: クエリパラメータの辞書
     """
     try:
@@ -375,7 +376,9 @@ def extract_query_params(url):
 
         return params
 
-    except Exception:
+    except (ValueError, AttributeError, TypeError) as e:
+        if log_func:
+            log_func(f"クエリパラメータの解析でエラー: {e}", "DEBUG")
         return {}
 
 
@@ -400,7 +403,7 @@ def normalize_url(url):
 
         return url
 
-    except Exception:
+    except (ValueError, AttributeError, TypeError):
         return url  # エラー時は元のURLを返す
 
 
@@ -414,6 +417,6 @@ def decode_url(url_str):
         # URLデコードを実行（安全な文字列への変換）
         decoded_url = unquote(url_str)
         return decoded_url
-    except Exception as e:
+    except (UnicodeDecodeError, ValueError, TypeError):
         # デコードに失敗した場合は元の文字列をそのまま返す
         return url_str
