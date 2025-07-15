@@ -3,7 +3,6 @@ DBスキーマ管理モジュール
 DBの初期テーブル構造作成・カラム存在確認・追加機能を提供
 PEP8/日本語コメント/スネークケース
 """
-import mysql.connector
 from mysql.connector import Error
 import bcrypt
 import json
