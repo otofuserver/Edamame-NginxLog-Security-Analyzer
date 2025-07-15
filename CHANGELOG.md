@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.35] - 2025-07-16
+
+### Fixed
+- attack_pattern.pyの残存警告とエラーを完全修正
+  - 77行目、520行目、531行目の`except Exception:`を具体的なエラータイプに変更
+  - detect_attack_type関数にlog_funcパラメータを追加し、74-75行目の未解決参照エラーを解消
+  - nginx_log_to_mysql.pyの関数呼び出し箇所（233行目、634行目）も更新
+  - フォールバック関数のパラメータも統一
+
+### Improved
+- 例外処理の精度をさらに向上
+  - mysql.connector.Error、ValueError、TypeError、IOError、OSError、UnicodeErrorを適切に分類
+  - 各エラータイプに応じた詳細なログメッセージとハンドリング
+  - エラー時の自動クリーンアップ処理の信頼性向上
+
+### Added
+- ログ関数パラメータの一貫性確保
+  - 全ての攻撃パターン関連関数でlog_funcパラメータを統一
+  - モジュール間でのログ出力の一貫性を向上
+
+## [1.0.34] - 2025-07-16
+
+### Fixed
+- attack_pattern.pyの例外処理を改善
+  - 5箇所の`except Exception:`を具体的なエラータイプに変更
+  - decode_url関数: UnicodeDecodeError, ValueErrorを明示的に処理
+  - detect_attack_type関数: FileNotFoundError, PermissionError, json.JSONDecodeError, IOError, OSErrorを分離処理
+  - get_current_version関数: ファイルアクセスとJSON解析エラーを分類
+  - validate_attack_patterns_file関数: 各エラータイプに応じた適切なFalse返却
+  - run_comprehensive_test関数: mysql.connector.Error, ファイルI/Oエラーを個別処理
+
+### Improved
+- エラーハンドリングの精度向上
+  - 各エラータイプに応じた詳細なログメッセージを追加
+  - データベース関連エラーとファイルI/Oエラーの分離
+  - エラー時の自動クリーンアップ処理を強化
+
+### Added
+- mysql.connectorモジュールのインポートを追加（mysql.connector.Error使用のため）
+
 ## [1.0.33] - 2025-07-16
 
 ### Fixed

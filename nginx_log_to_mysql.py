@@ -86,7 +86,9 @@ except ImportError as e:
             log_func("モジュール未ロード: save_modsec_alerts はスキップされました", "WARN")
         return False
 
-    def detect_attack_type(url, patterns_path):
+    def detect_attack_type(url, patterns_path, log_func=None):
+        if log_func:
+            log_func("モジュール未ロード: detect_attack_type はスキップされました", "WARN")
         return "unknown"
 
     def update_if_needed(patterns_path, log_func=None):
@@ -169,7 +171,7 @@ def db_connect():
 def init_db():
     """
     DB初期化処理。テーブル・カラムの存在確認と作成。
-    usersテーブル新規作成時は初期ユーザー(admin)を自動追加��る。
+    usersテーブル新規作成時は初期ユーザー(admin)を自動追加する。
     """
     try:
         conn = db_connect()
@@ -230,7 +232,7 @@ def add_registry_entry(method, url, ip, access_time):
 
     # URLをデコードしてから保存
     decoded_url = decode_url(url)
-    attack_type = detect_attack_type(decoded_url, ATTACK_PATTERNS_PATH)
+    attack_type = detect_attack_type(decoded_url, ATTACK_PATTERNS_PATH, log_func=log)
 
     try:
         conn = db_connect()
@@ -631,7 +633,7 @@ def rescan_attack_types():
             result = cursor.fetchone()
             old_type = result[0] if result else "unknown"
 
-            new_type = detect_attack_type(url, ATTACK_PATTERNS_PATH)
+            new_type = detect_attack_type(url, ATTACK_PATTERNS_PATH, log_func=log)
 
             if old_type != new_type:
                 cursor.execute(

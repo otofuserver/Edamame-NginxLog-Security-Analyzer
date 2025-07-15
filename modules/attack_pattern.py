@@ -7,7 +7,8 @@ import json
 import requests
 import os
 import re
-from urllib.parse import unquote, unquote_plus
+import mysql.connector
+from urllib.parse import unquote
 
 
 def decode_url(url):
@@ -17,24 +18,23 @@ def decode_url(url):
     :return: デコードされたURL
     """
     try:
-        # 二重エンコーディングにも対応
-        decoded = unquote(url)
-        # さらにプラスエンコーディングもデコード
-        decoded = unquote_plus(decoded)
-        # 再度URLデコードを試行（二重エンコーディング対応）
-        if '%' in decoded:
+        # プラス記号をスペースに変換
+        decoded = url.replace('+', ' ')
+        # URLデコードを最大2回実行（二重エンコーディング対応）
+        for _ in range(2):
             decoded = unquote(decoded)
         return decoded
-    except Exception:
+    except (UnicodeDecodeError, ValueError):
         return url  # デコードに失敗した場合は元のURLを返す
 
 
-def detect_attack_type(url, attack_patterns_path):
+def detect_attack_type(url, attack_patterns_path, log_func=None):
     """
     URLから攻撃タイプを検出する（正規表現マッチング）
     URLデコード後の文字列でも検査を行う
     :param url: 検査対象のURL
     :param attack_patterns_path: attack_patterns.jsonのパス
+    :param log_func: ログ出力用関数（省略可）
     :return: 攻撃タイプ（文字列、複数の場合はカンマ区切り）
     """
     try:
@@ -67,12 +67,18 @@ def detect_attack_type(url, attack_patterns_path):
         else:
             return "normal"  # 攻撃パターンが見つからない場合は正常
 
-    except FileNotFoundError:
-        return "unknown"  # ファイルが見つからない場合
+    except (FileNotFoundError, PermissionError):
+        return "unknown"  # ファイルが見つからない場合や読み取り権限がない場合
     except json.JSONDecodeError:
         return "unknown"  # JSON解析エラーの場合
-    except Exception:
-        return "unknown"  # その他のエラーの場合
+    except (IOError, OSError) as e:
+        if log_func:
+            log_func(f"attack_patterns.jsonの読み込みでI/Oエラー: {e}", "WARN")
+        return "unknown"  # ファイルI/Oエラーの場合
+    except (UnicodeError, TypeError) as e:
+        if log_func:
+            log_func(f"attack_patterns.json処理でエラー: {e}", "WARN")
+        return "unknown"  # エンコーディングエラーやタイプエラーの場合
 
 
 def update_if_needed(attack_patterns_path, log_func=None):
@@ -141,8 +147,12 @@ def get_current_version(attack_patterns_path):
         with open(attack_patterns_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             return data.get("version", "unknown")
-    except Exception:
-        return "unknown"
+    except (FileNotFoundError, PermissionError):
+        return "unknown"  # ファイルが見つからない場合や読み取り権限がない場合
+    except json.JSONDecodeError:
+        return "unknown"  # JSON解析エラーの場合
+    except (IOError, OSError):
+        return "unknown"  # ファイルI/Oエラーの場合
 
 
 def validate_attack_patterns_file(attack_patterns_path):
@@ -174,8 +184,12 @@ def validate_attack_patterns_file(attack_patterns_path):
         # 少なくとも1つの攻撃パターンが存在するかチェック
         return pattern_count > 0
 
-    except Exception:
-        return False
+    except (FileNotFoundError, PermissionError):
+        return False  # ファイルが見つからない場合や読み取り権限がない場合
+    except json.JSONDecodeError:
+        return False  # JSON解析エラーの場合
+    except (IOError, OSError):
+        return False  # ファイルI/Oエラーの場合
 
 
 def test_attack_patterns(attack_patterns_path, log_func=None):
@@ -312,6 +326,14 @@ def test_attack_patterns_with_db(attack_patterns_path, db_connection, log_func=N
         log(f"攻撃パターンテスト完了: {added_count}件の新規テストデータを追加しました", "INFO")
         return True
 
+    except mysql.connector.Error as e:
+        log(f"データベース関連のエラーが発生: {e}", "ERROR")
+        db_connection.rollback()
+        return False
+    except (ValueError, TypeError) as e:
+        log(f"データ型エラーが発生: {e}", "ERROR")
+        db_connection.rollback()
+        return False
     except Exception as e:
         log(f"テストデータの書き込み中にエラーが発生: {e}", "ERROR")
         db_connection.rollback()
@@ -344,6 +366,10 @@ def cleanup_test_data(db_connection, log_func=None):
         log(f"テストデータのクリーンアップ完了: {deleted_count}件を削除しました", "INFO")
         return True
 
+    except mysql.connector.Error as e:
+        log(f"データベース関連のエラーが発生: {e}", "ERROR")
+        db_connection.rollback()
+        return False
     except Exception as e:
         log(f"テストデータのクリーンアップ中にエラーが発生: {e}", "ERROR")
         db_connection.rollback()
@@ -452,6 +478,12 @@ def display_test_results_table(db_connection, log_func=None):
 
         return True
 
+    except mysql.connector.Error as e:
+        log(f"データベース関連のエラーが発生: {e}", "ERROR")
+        return False
+    except (ValueError, TypeError) as e:
+        log(f"データ型エラーが発生: {e}", "ERROR")
+        return False
     except Exception as e:
         log(f"テスト結果表示中にエラーが発生: {e}", "ERROR")
         return False
@@ -501,11 +533,27 @@ def run_comprehensive_test(attack_patterns_path, db_connection, log_func=None):
 
         return True
 
-    except Exception as e:
-        log(f"包括的なテスト実行中にエラーが発生: {e}", "ERROR")
+    except mysql.connector.Error as e:
+        log(f"データベース関連のエラーが発生: {e}", "ERROR")
         # エラー時もクリーンアップを試行
         try:
             cleanup_test_data(db_connection, log_func=log_func)
-        except:
+        except (mysql.connector.Error, Exception):
+            # クリーンアップ失敗は無視
+            pass
+        return False
+    except (IOError, OSError) as e:
+        log(f"ファイルI/Oエラーが発生: {e}", "ERROR")
+        return False
+    except (ValueError, TypeError) as e:
+        log(f"データ型エラーが発生: {e}", "ERROR")
+        return False
+    except Exception as e:
+        log(f"予期しないエラーが発生: {e}", "ERROR")
+        # エラー時もクリーンアップを試行
+        try:
+            cleanup_test_data(db_connection, log_func=log_func)
+        except (mysql.connector.Error, Exception):
+            # クリーンアップ失敗は無視
             pass
         return False
