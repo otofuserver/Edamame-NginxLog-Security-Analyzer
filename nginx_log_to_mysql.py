@@ -453,6 +453,69 @@ def tail_log(log_func=None, process_func=None):
 
             # ファイルサイズの変化をチェック
             current_file_size = get_file_size(log_path)
+
+            # ログローテーションの検知（inodeの変化またはファイルサイズの大幅な減少）
+            current_inode = get_inode(log_path)
+            rotation_detected = False
+
+            if current_inode != last_inode_val:
+                log("ログファイルのローテーションを検知しました（inode変更）。監視を再開します。", "INFO")
+                rotation_detected = True
+            elif current_file_size < last_position:
+                log("ログファイルのローテーションを検知しました（ファイルサイズ減少）。監視を再開します。", "INFO")
+                rotation_detected = True
+
+            if rotation_detected:
+                last_inode_val = current_inode
+                last_position = 0
+                last_file_size = 0
+
+                # ローテート後の新しいファイルの内容を読み込み
+                try:
+                    with open(log_path, "r", encoding="utf-8") as f:
+                        new_lines = f.readlines()
+                        if new_lines:
+                            log(f"ローテート後の新しいログファイルから {len(new_lines)}行を読み込み", "INFO")
+
+                            success_count = 0
+                            parse_fail_count = 0
+                            process_fail_count = 0
+                            error_count = 0
+
+                            modsec_pending = {'line': None}
+                            for line in new_lines:
+                                if line.strip():
+                                    try:
+                                        result = process_line(line, modsec_pending)
+                                        processed_lines += 1
+
+                                        if result:
+                                            success_count += 1
+                                        elif result is None:
+                                            parse_fail_count += 1
+                                        else:
+                                            process_fail_count += 1
+
+                                    except Exception as e:
+                                        error_count += 1
+                                        if error_count <= 3:
+                                            log(f"ローテート後ログ処理中にエラー: {e}", "ERROR")
+
+                            log(f"ローテート後処理完了: 成功={success_count}, パース失敗={parse_fail_count}, 処理失敗={process_fail_count}, エラー={error_count}", "INFO")
+
+                        # 新しいファイルの位置を記録
+                        last_position = f.tell()
+
+                except Exception as e:
+                    log(f"ローテート後のファイル読み込みエラー: {e}", "ERROR")
+                    last_position = 0
+
+                # ファイルサイズを更新
+                current_file_size = get_file_size(log_path)
+                last_file_size = current_file_size
+                continue
+
+            # 通常のファイル変更処理
             if current_file_size != last_file_size:
                 log(f"ファイルサイズ変化を検出: {last_file_size} -> {current_file_size} bytes", "DEBUG")
                 last_file_size = current_file_size

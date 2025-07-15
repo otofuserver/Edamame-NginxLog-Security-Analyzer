@@ -1,13 +1,13 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.32
+- **specification.txt version**: v1.0.34
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
 ## 基本情報
 - **アプリ名**: Edamame NginxLog Security Analyzer
-- **バージョン**: v1.0.32
+- **バージョン**: v1.0.33
 - **開発者**: Code Copilot
 - **動作環境**:
   - Python 3.11 (Docker環境: python:3.11-slim)
@@ -129,7 +129,7 @@
 ### `login_history`（ログイン履歴）
 | カラム名         | 型              | 説明                           |
 |------------------|------------------|--------------------------------|
-| id               | INT              | 主キ���、自動採番               |
+| id               | INT              | 主キー、自動採番               |
 | user_id          | INT              | users.id への外部キー           |
 | login_ip         | VARCHAR(45)      | ログイン元IP                   |
 | login_time       | DATETIME         | ログイン日時                   |

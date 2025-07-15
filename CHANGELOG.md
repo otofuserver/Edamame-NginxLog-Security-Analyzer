@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.33] - 2025-07-16
+
+### Fixed
+- ログローテート後のログ取得問題を修正
+  - ログローテーション検知を強化（inode変更とファイルサイズ減少の両方を検知）
+  - ローテート後の新しいログファイルの内容を適切に読み込むよう修正
+  - ファイル位置の適切なリセット処理を追加
+  - ローテート後の処理状況を詳細にログ出力
+
+### Improved
+- ログ監視の信頼性向上
+  - ローテーション検知の精度向上
+  - 処理結果の統計情報表示を追加
+  - エラーハンドリングの強化
+
 ## [1.0.32] - 2025-07-15
 
 ### Changed
@@ -113,7 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - より正確な正規表現マッチングとフォールバック処理を実装
 - テスト機能の大幅改善:
   - display_test_results_table関数: テスト結果を詳細なテーブル形式で表示
-  - run_comprehensive_test関数: 包括的なテスト実行とクリーンアップを自動化
+  - run_comprehensive_test関数: 包括��なテスト実行とクリーンアップを自動化
   - --run-testオプション実行時の自動終了とホスト復帰機能を追加
   - 成功/失敗統計とPASS/FAILステータス表示機能
 
