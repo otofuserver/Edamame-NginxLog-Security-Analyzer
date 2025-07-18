@@ -590,9 +590,14 @@ public class DbSchema {
             pstmt.setString(2, description);
             pstmt.setString(3, logPath);
 
-            pstmt.executeUpdate(); // 戻り値を使用しないため、直接実行
-            log.accept(String.format("サーバー情報を登録/更新しました: %s", serverName), "DEBUG");
-            return true;
+            int affectedRows = pstmt.executeUpdate();
+            if (affectedRows > 0) {
+                log.accept(String.format("サーバー情報を登録/更新しました: %s", serverName), "DEBUG");
+                return true;
+            } else {
+                log.accept(String.format("サーバー情報の登録/更新に失敗しました: %s", serverName), "WARN");
+                return false;
+            }
 
         } catch (SQLException e) {
             log.accept("サーバー情報登録/更新でエラー: " + e.getMessage(), "ERROR");

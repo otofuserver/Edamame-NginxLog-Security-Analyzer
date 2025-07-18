@@ -56,6 +56,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 将来の機能拡張で使用予定のメソッドに@SuppressWarnings("unused")アノテーションを追加
   - dropDeprecatedSettingsColumns、getDatabaseStatistics、getServerListメソッドの警告を抑制
   - 未使用戻り値警告も修正してコード品質を向上
+- **データベース操作の信頼性向上**
+  - registerOrUpdateServerメソッドでexecuteUpdate()の戻り値を適切に処理
+  - SQL実行結果に基づく詳細なログ出力とエラーハンドリングを実装
+  - データベース操作の成功・失敗を正確に判定できるよう改善
 
 ### Removed
 - **単一サーバーモード（フォールバック）の完全廃止**
