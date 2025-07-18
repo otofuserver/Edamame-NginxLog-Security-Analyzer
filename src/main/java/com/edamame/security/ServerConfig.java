@@ -233,24 +233,32 @@ public class ServerConfig {
         try {
             long currentModified = Files.getLastModifiedTime(configFile).toMillis();
             
-            // 初回チェック時は現在の時刻を記録してfalseを返す
+            // 初回チェック時は現在の時刻を記録してfalseを返す（ログ出力なし）
             if (staticLastModified == 0) {
                 staticLastModified = currentModified;
                 return false;
             }
             
-            // ファイルが更新されているかチェック
-            if (currentModified != staticLastModified) {
+            // ファイルが実際に更新されているかチェック
+            if (currentModified > staticLastModified) {
                 logger.accept("サーバー設定ファイルの更新を検知しました", "INFO");
                 staticLastModified = currentModified; // 更新時刻を記録
                 
                 // 新しいインスタンスで設定を再読み込み
                 ServerConfig config = new ServerConfig(configPath, logger);
-                return config.loadServers();
+                boolean loadResult = config.loadServers();
+
+                if (loadResult) {
+                    logger.accept("サーバー設定の再読み込みが完了しました", "INFO");
+                } else {
+                    logger.accept("サーバー設定の再読み込みに失敗しました", "WARN");
+                }
+
+                return loadResult;
             }
             
-            return false; // 更新なし
-            
+            return false; // 更新なし（ログ出力なし）
+
         } catch (IOException e) {
             logger.accept("設定ファイル更新確認エラー: " + e.getMessage(), "WARN");
             return false;

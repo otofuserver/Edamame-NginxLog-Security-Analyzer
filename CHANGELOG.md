@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - access_log, url_registry, modsec_alertsテーブルにserver_nameカラム追加
   - サーバー管理用のserversテーブル新規作成
   - サーバー別のデータ識別とパフォーマンス向上のためのインデックス追加
-- **外部ネットワークアクセス制限の廃���**
+- **外部ネットワークアクセス制限の廃止**
   - バックエンドでのGitHub連携を有効化
   - AttackPattern.updateIfNeeded()の実際のHTTP通信実装
   - より堅牢なエラーハンドリングとログ出力
@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - updateIfNeededメソッドで静的変数による最終更新時刻管理を実装
   - 初回チェック時の誤検知を防止
   - ファイルが実際に更新された場合のみ処理を実行
+- **サーバー設定ファイル更新検知ロジックの改善**
+  - 更新時刻比較を厳密化（!=演算子から>演算子に変更）
+  - 初回チェック時のログ出力を無効化し、誤報を完全に排除
+  - 実際の更新時のみ適切なメッセージを表示
 - **GitHubワークフローエラーの修正**
   - Unix/Linux用gradlewスクリプトファイルの不足を解決
   - CI/CD環境でのビルドプロセス正常化
@@ -108,7 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - log_parser.pyの例外処理警告を完全修正
   - 378行目extract_query_params関数: except Exceptionを(ValueError, AttributeError, TypeError)に変更
   - 403行目normalize_url関数: except Exceptionを(ValueError, AttributeError, TypeError)に変更
-  - 417行目decode_url関数: except Exception as eを(UnicodeDecodeError, ValueError, TypeError)���変更し未使用変数eを削除
+  - 417行目decode_url関数: except Exception as eを(UnicodeDecodeError, ValueError, TypeError)に変更し未使用変数eを削除
   - extract_query_params関数にlog_funcパラメータを追加してlog_func未定義エラーを防止
 
 ### Improved
@@ -278,7 +282,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - より正確な正規表現マッチングとフォールバック処理を実装
 - テスト機能の大幅改善:
   - display_test_results_table関数: テスト結果を詳細なテーブル形式で表示
-  - run_comprehensive_test関数: 包括��なテスト実行とクリーンアップを自動化
+  - run_comprehensive_test関数: 包括的なテスト実行とクリーンアップを自動化
   - --run-testオプション実行時の自動終了とホスト復帰機能を追加
   - 成功/失敗統計とPASS/FAILステータス表示機能
 
