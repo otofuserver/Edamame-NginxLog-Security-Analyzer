@@ -8,7 +8,6 @@ import org.bouncycastle.crypto.params.KeyParameter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.*;
 import java.nio.file.*;
 import java.sql.*;
 import java.time.LocalDateTime;
@@ -244,9 +243,9 @@ public class NginxLogToMysql {
         // 複数サーバー設定の初期化
         serverConfig = ServerConfig.createDefault(NginxLogToMysql::log);
         if (!serverConfig.loadServers()) {
-            log("サーバー設定の読み込みに失敗しました。単一サーバーモードで継続します。", "WARN");
-            // 単一サーバーモードとして従来のLOG_PATHを使用
-            return initializeSingleServerMode();
+            log("サーバー設定の読み込みに失敗しました。", "CRITICAL");
+            log("servers.confファイルを確認してください: " + SERVERS_CONFIG_PATH, "ERROR");
+            return false;
         }
 
         // 複数サーバー監視の初期化
@@ -256,29 +255,6 @@ public class NginxLogToMysql {
         }
 
         log("初期化処理が完了しました", "INFO");
-        return true;
-    }
-
-    /**
-     * 単一サーバーモードの初期化（フォールバック）
-     * @return 初期化成功可否
-     */
-    private static boolean initializeSingleServerMode() {
-        log("単一サーバーモード（従来方式）で初期化中...", "INFO");
-
-        // 従来のLOG_PATHを使用して単一サーバー情報を作成
-        ServerConfig.ServerInfo singleServer = new ServerConfig.ServerInfo("default", LOG_PATH);
-
-        if (!singleServer.logFileExists()) {
-            log("デフォルトログファイルが見つかりません: " + LOG_PATH, "ERROR");
-            return false;
-        }
-
-        // 単一サーバー用のLogMonitorを作成
-        LogMonitor monitor = new LogMonitor(singleServer, NginxLogToMysql::log, NginxLogToMysql::processLogLine);
-        logMonitors.put("default", monitor);
-
-        log("単一サーバーモード初期化完了", "INFO");
         return true;
     }
 
@@ -342,47 +318,6 @@ public class NginxLogToMysql {
             }
         } catch (SQLException e) {
             log("ホワイトリスト設定の読み込みでエラー: " + e.getMessage(), "WARN");
-        }
-    }
-
-    /**
-     * ログファイルを監視してパースする
-     */
-    private static void monitorLogFile() {
-        Path logPath = Paths.get(LOG_PATH);
-
-        // ログファイルの存在チェック
-        if (!Files.exists(logPath)) {
-            log("ログファイルが見つかりません: " + LOG_PATH, "ERROR");
-            return;
-        }
-
-        log("ログファイル監視開始: " + LOG_PATH, "INFO");
-
-        try (BufferedReader reader = Files.newBufferedReader(logPath)) {
-            // ファイルの末尾にシーク（tail -f のような動作）
-            reader.skip(Files.size(logPath));
-
-            String line;
-            while (isRunning.get()) {
-                // 1時間ごとの攻撃パターンファイル更新チェック
-                checkAttackPatternsUpdate();
-
-                line = reader.readLine();
-                if (line != null) {
-                    processLogLine(line);
-                } else {
-                    // 新しい行がない場合は短時間待機
-                    try {
-                        Thread.sleep(100);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-            }
-        } catch (IOException e) {
-            log("ログファイル読み込みエラー: " + e.getMessage(), "ERROR");
         }
     }
 
@@ -672,7 +607,7 @@ public class NginxLogToMysql {
 
             Connection conn = dbConnect();
             if (conn == null) {
-                log("DB接続が���用できません。ログ行をスキップします。", "ERROR");
+                log("DB接続が利用できません。ログ行をスキップします。", "ERROR");
                 return;
             }
 
@@ -835,35 +770,10 @@ public class NginxLogToMysql {
                 System.exit(1);
             }
 
-            // 複数サーバー監視または単一サーバー監視を開始
-            if (logMonitors.size() > 1 || (logMonitors.size() == 1 && !logMonitors.containsKey("default"))) {
-                // 複数サーバー監視モード
-                log("複数サーバー監視モードで開始します", "INFO");
-                displayMonitoringStatistics();
-                startMultiServerMonitoring();
-            } else {
-                // 従来の単一サーバー監視モード
-                log("単一サーバー監視モードで開始します", "INFO");
-                if (logMonitors.containsKey("default")) {
-                    LogMonitor defaultMonitor = logMonitors.get("default");
-                    if (defaultMonitor.startMonitoring()) {
-                        log("デフォルトサーバー監視開始", "INFO");
-
-                        // 単一サーバー用の簡易監視ループ
-                        while (isRunning.get()) {
-                            checkAttackPatternsUpdate();
-                            Thread.sleep(5000);
-                        }
-                    } else {
-                        log("デフォルトサーバー監視開始に失敗しました", "CRITICAL");
-                        System.exit(1);
-                    }
-                } else {
-                    // フォールバック: 従来のmonitorLogFile()を使用
-                    log("従来方式でログファイル監視を開始", "INFO");
-                    monitorLogFile();
-                }
-            }
+            // 複数サーバー監視を開始
+            log("複数サーバー監視モードで開始します", "INFO");
+            displayMonitoringStatistics();
+            startMultiServerMonitoring();
 
         } catch (Exception e) {
             log("予期しないエラーが発生しました: " + e.getMessage(), "CRITICAL");

@@ -262,8 +262,8 @@ public class ModSecHandler {
      * @param logFunc ログ出力関数
      * @return 保存成功可否
      */
-    public static boolean saveModsecAlertsWithServerName(Connection conn, long accessLogId,
-                                                       List<Map<String, String>> alerts,
+    public static boolean saveModsecAlertsWithServerName(Connection conn, long accessLogId, 
+                                                       List<Map<String, String>> alerts, 
                                                        String serverName,
                                                        BiConsumer<String, String> logFunc) {
         if (alerts == null || alerts.isEmpty()) {
@@ -296,7 +296,7 @@ public class ModSecHandler {
             }
 
             if (successCount > 0) {
-                log.accept(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, ア���セスログID: %d)",
+                log.accept(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, ア���セスログID: %d)", 
                     successCount, serverName, accessLogId), "DEBUG");
                 return true;
             } else {

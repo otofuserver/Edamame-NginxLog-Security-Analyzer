@@ -94,7 +94,7 @@ public class AttackPattern {
                         detectedAttacks.add(attackType);
                     }
                 } catch (PatternSyntaxException e) {
-                    // 正規表現エラーの場合は単純な文字列マッチングにフォールバック
+                    // 正規表現エラーの場合は単純な文字列マッチングに代替
                     if (url.toLowerCase().contains(pattern.toLowerCase()) ||
                         decodedUrl.toLowerCase().contains(pattern.toLowerCase())) {
                         detectedAttacks.add(attackType);

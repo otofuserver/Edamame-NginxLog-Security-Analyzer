@@ -464,7 +464,7 @@ public class DbSchema {
             conn.setAutoCommit(false);
 
             try (Statement stmt = conn.createStatement()) {
-
+                
                 // access_logテーブルにserver_nameカラムを追加
                 if (!columnExists(conn, "access_log", "server_name")) {
                     stmt.execute("""
@@ -473,7 +473,7 @@ public class DbSchema {
                         COMMENT 'ログ送信元サーバー名'
                     """);
                     log.accept("access_logテーブルにserver_nameカラムを追加しました", "INFO");
-
+                    
                     // インデックスを追加（パフォーマンス向上のため）
                     stmt.execute("CREATE INDEX idx_access_log_server_name ON access_log(server_name)");
                     log.accept("access_logテーブルのserver_nameにインデックスを作成しました", "INFO");
@@ -489,7 +489,7 @@ public class DbSchema {
                         COMMENT 'URL発見元サーバー名'
                     """);
                     log.accept("url_registryテーブルにserver_nameカラムを追加しました", "INFO");
-
+                    
                     // 複合インデックスを追加（method + full_url + server_nameで一意性確保）
                     stmt.execute("CREATE INDEX idx_url_registry_server ON url_registry(server_name, method, full_url(100))");
                     log.accept("url_registryテーブルのserver_name複合インデックスを作成しました", "INFO");
@@ -505,7 +505,7 @@ public class DbSchema {
                         COMMENT 'ModSecurityアラート発生サーバー名'
                     """);
                     log.accept("modsec_alertsテーブルにserver_nameカラムを追加しました", "INFO");
-
+                    
                     // インデックスを追加
                     stmt.execute("CREATE INDEX idx_modsec_alerts_server_name ON modsec_alerts(server_name)");
                     log.accept("modsec_alertsテーブルのserver_nameにインデックスを作成しました", "INFO");
@@ -531,7 +531,7 @@ public class DbSchema {
 
                 conn.commit();
                 conn.setAutoCommit(originalAutoCommit);
-
+                
                 log.accept("複数サーバー対応スキーマ更新が完了しました", "INFO");
                 return true;
 
