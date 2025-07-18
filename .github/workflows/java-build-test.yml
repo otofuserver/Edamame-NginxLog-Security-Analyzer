@@ -29,7 +29,7 @@ jobs:
           java-version: '21'
 
       - name: Gradleキャッシュ設定
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.gradle/caches
@@ -61,14 +61,28 @@ jobs:
           
           # ファイルが正常にコピーされたことを確認
           ls -la container/*.jar
+          
+          echo "JARファイルのcontainerフォルダ配置が完了しました"
 
       - name: ビルド成果物をアップロード
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: jar-files
           path: |
             container/NginxLogToMysql.jar
             container/SetupSecureConfig.jar
+          retention-days: 30
+
+      - name: ビルド結果の概要表示
+        run: |
+          echo "=== ビルド結果 ==="
+          echo "✅ Java 21コンパイル: 成功"
+          echo "✅ Gradleビルド: 成功" 
+          echo "✅ テスト実行: 成功"
+          echo "✅ JAR配置: 成功"
+          echo ""
+          echo "生成されたJARファイル:"
+          find container -name "*.jar" -exec echo "  - {}" \;
 
   docker-build-test:
     runs-on: ubuntu-latest
