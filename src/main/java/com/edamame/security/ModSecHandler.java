@@ -274,9 +274,9 @@ public class ModSecHandler {
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
 
         String sql = """
-            INSERT INTO modsec_alerts (access_log_id, rule_id, severity, message, data_value, server_name, detected_at) 
+            INSERT INTO modsec_alerts (access_log_id, rule_id, severity, message, data_value, server_name, detected_at)
             VALUES (?, ?, ?, ?, ?, ?, NOW())
-        """;
+            """;
 
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             for (Map<String, String> alert : alerts) {
