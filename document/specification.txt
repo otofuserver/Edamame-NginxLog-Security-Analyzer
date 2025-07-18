@@ -1,7 +1,7 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.34
+- **specification.txt version**: v1.0.36
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -10,10 +10,36 @@
 - **バージョン**: v1.0.33
 - **開発者**: Code Copilot
 - **動作環境**:
-  - Python 3.11 (Docker環境: python:3.11-slim)
+  - Java 21+ (Docker環境: openjdk:21-jdk-slim)
   - MySQL 8.x
   - Linux (Debian/Ubuntuベース)
   - Systemd または Docker コンテナで常駐稼働
+
+## アーキテクチャ変更履歴
+### v1.0.33 - Java版への完全移行
+- **Python版からJava版への移行完了**
+- **ビルドシステム**: Maven → Gradle
+- **削除された旧構成ファイル**:
+  - nginx_log_to_mysql.py (Python版メインアプリケーション)
+  - setup_secure_config.py (Python版セットアップツール)
+  - modules/ (Python版モジュール群)
+  - pom.xml (Maven設定ファイル)
+  - target/ (Mavenビルドディレクトリ)
+  - .venv/ (Python仮想環境)
+
+## 現在のプロジェクト構成
+### Java版ソースコード
+- **メインアプリケーション**: src/main/java/com/edamame/security/NginxLogToMysql.java
+- **セットアップツール**: src/main/java/com/edamame/tools/SetupSecureConfig.java
+- **ビルド設定**: build.gradle
+- **ビルド成果物**: build/libs/
+
+### Docker構成
+- **container/Dockerfile**: Java 21ベース、修正済み（正しいパス指定）
+- **container/docker-compose.yml**: Docker Compose設定
+- **container/setup_secure_config.bat**: Windows用セットアップスクリプト
+- **container/setup_secure_config.sh**: Linux用セットアップスクリプト
+- **container/attack_patterns.json**: 攻撃パターン定義ファイル
 
 ---
 
@@ -36,13 +62,13 @@
 - `/run/secrets/attack_patterns.json` を使って `attack_type`（例: SQLi, XSS, LFI等）を識別
 - ホワイトリストモード有効かつ指定IPからのアクセスなら `is_whitelisted = TRUE` に
 
-### 🧠 4. `attack_patterns.json` に基づく攻撃タイプ識別
+### 🧠 4. `attack_patterns.json` に基づく攻撃タイプ識別・自動更新
 - 起動時に `url_registry` を再スキャンし、`attack_type` を最新に更新
 - パターンは `/run/secrets/attack_patterns.json` にJSON形式で定義
 - **備考:** `attack_patterns.json` には `"version"` キーが含まれるが、これはシグネチャ判定対象外
-- **バージョン管理:** attack_patterns.jsonのバージョンはsettingsテーブルで管理せず、GitHubリポジトリから自動でバージョン確認・更新される
+- **自動更新機能:** 1時間ごとにGitHubリポジトリから最新バージョンを自動チェック・更新
+- **バックアップ機能:** 更新前に自動でローカルファイルをバックアップ
 - **主な攻撃タイプ例:** SQLi, XSS, LFI, RFI, CommandInjection, SSRF, XXE, CSRF, OpenRedirect など
-- **注意:** バックエンドは外部ネットワークへのバージョン確認は行わない。バージョン確認や更新通知はフロントエンド側で実施すること
 
 ---
 
@@ -140,16 +166,20 @@
 
 ## セキュア設定ファイル（暗号化）
 
-- `setup_secure_config.py` を使用して暗号鍵と接続情報を生成・暗号化
+- `SetupSecureConfig.java` を使用して暗号鍵と接続情報を生成・暗号化
 - 生成ファイル：
-  - `secret.key`（Fernet鍵）
+  - `secret.key`（AES-GCM暗号鍵）
   - `db_config.enc`（暗号化されたJSON）
 - デフォルトの読み取り先： `/run/secrets/`
 - **仕様詳細:**
-  - `setup_secure_config.py`は対話式ウィザード形式で動作し、MySQL接続情報（ホスト名・ユーザー名・パスワード・DB名）を環境変数またはユーザー入力から取得する。
+  - `SetupSecureConfig.java`は対話式ウィザード形式で動作し、MySQL接続情報（ホスト名・ユーザー名・パスワード・DB名）を環境変数またはユーザー入力から取得する。
   - 入力された情報はJSON形式で暗号化され、`db_config.enc`として保存される。
   - 暗号鍵は`secret.key`として保存される。両ファイルともパーミッションは600で作成される。
-  - 暗号化・復号にはPython cryptographyパッケージのFernetを使用する。
+  - 暗号化・復号にはBouncyCastleライブラリのAES-GCMを使用する。
+  - 実行方法：
+    - Windows: `setup_secure_config.bat`
+    - Linux/Unix: `./setup_secure_config.sh`
+    - 直接実行: `java -jar SetupSecureConfig-V1.0.jar`
 
 ---
 
@@ -204,26 +234,46 @@ docker compose up -d --build
 docker logs -f nginxlog-LO
 ```
 
-設定ファイル作成：
+設定ファイル作成（Java版）：
 ```bash
-python3 setup_secure_config.py
+# Windows
+setup_secure_config.bat
+
+# Linux/Unix
+./setup_secure_config.sh
+
+# 直接実行
+java -jar build/libs/SetupSecureConfig-V1.0.jar
+```
+
+ビルド方法：
+```bash
+# Gradleビルド
+./gradlew build
+
+# JAR生成確認
+ls build/libs/
 ```
 
 ---
 
 ## 今後の拡張案（予定）
-- APIサーバ化（FastAPIなど）
+- APIサーバ化（Spring Boot REST API等）
 - フロントエンド：React/Next.jsベース管理画面
 - 設定のWeb UI化
 - CSVエクスポート、Slack通知、GeoIP連携
+- マイクロサービス化（Kubernetes対応）
 
 ---
 
 ## コーディング・Lint方針
 
-- Pythonの正規表現で [^\]]+ のような \] エスケープは必要です。
-  Linter（pycodestyle等）のW605警告は # noqa: W605 で除外してください。
-- `MODSEC_RULE_PATTERN` のような [.*?] 形式の正規表現でも、linterのW605警告は # noqa: W605 で除外してください。
-- テストやCIでもこの警告は無視して問題ありません。
-- ワークフロー（python-test.yml）でもpycodestyle実行時に `--ignore=W605` を指定し、W605警告を除外しています。
+- Java 21の最新機能を活用すること
+- Javaコーディング規約に従うこと：
+  - クラス名：PascalCase（例：NginxLogToMysql）
+  - メソッド・変数名：camelCase（例：processLogLine）
+  - 定数：UPPER_SNAKE_CASE（例：MAX_RETRIES）
+- すべてのpublicメソッドにJavadocコメントを付けること
+- コメントは日本語で記載すること
+- エラーハンドリングは適切な例外処理を実装すること
 - **specification.txtを更新した場合は、必ず冒頭のバージョン情報も更新すること。**

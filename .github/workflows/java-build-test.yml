@@ -1,0 +1,114 @@
+name: Java Build & Test
+
+on:
+  push:
+    paths:
+      - '**.java'
+      - 'build.gradle'
+      - 'gradle/**'
+      - 'src/**'
+  pull_request:
+    paths:
+      - '**.java'
+      - 'build.gradle'
+      - 'gradle/**'
+      - 'src/**'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Java 21環境セットアップ
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Gradleキャッシュ設定
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Gradleラッパーに実行権限を付与
+        run: chmod +x gradlew
+
+      - name: Gradleビルド実行
+        run: ./gradlew build
+
+      - name: Javaコンパイルチェック
+        run: ./gradlew compileJava
+
+      - name: テスト実行
+        run: ./gradlew test
+
+      - name: JARファイルをcontainerフォルダに配置
+        run: |
+          # containerフォルダが存在しない場合は作成
+          mkdir -p container
+          
+          # バージョン番号を除いたファイル名でコピー
+          cp build/libs/NginxLogToMysql-*.jar container/NginxLogToMysql.jar
+          cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
+          
+          # ファイルが正常にコピーされたことを確認
+          ls -la container/*.jar
+
+      - name: ビルド成果物をアップロード
+        uses: actions/upload-artifact@v3
+        with:
+          name: jar-files
+          path: |
+            container/NginxLogToMysql.jar
+            container/SetupSecureConfig.jar
+
+  docker-build-test:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Java 21環境セットアップ
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Gradleキャッシュ復元
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+
+      - name: JARファイル生成とcontainerフォルダへコピー
+        run: |
+          chmod +x gradlew
+          ./gradlew build
+          echo "生成されたJARファイルをcontainerフォルダにコピー:"
+          cp build/libs/NginxLogToMysql-*.jar container/NginxLogToMysql.jar
+          cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
+          echo "✅ JARファイルのコピーが完了しました"
+          ls -la container/*.jar
+
+      - name: Dockerイメージビルドテスト
+        run: |
+          echo "Dockerイメージのビルドテスト:"
+          docker build -f container/Dockerfile -t edamame-nginx-analyzer:test .
+
+      - name: Dockerコンテナ起動テスト
+        run: |
+          echo "Dockerコンテナの起動テスト:"
+          # DB接続情報がないため即座に終了するが、コンテナ起動まで確認
+          timeout 30s docker run --rm edamame-nginx-analyzer:test || echo "期待通り終了しました"

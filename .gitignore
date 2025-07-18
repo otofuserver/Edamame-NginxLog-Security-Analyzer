@@ -1,15 +1,67 @@
-# すべて無視
-*
-*.xml
-*.iml
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!gradle/wrapper/gradle-wrapper.properties
 
-# 下記4ファイルだけは無視しない
-!docker-compose.yml
-!Dockerfile
-!nginx_log_to_mysql.py
-!setup_secure_config.py
-!*.md
-!*.json
-# 以下のディレクトリは無視しない
-!.github
-!document
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Container内の自動生成JARファイル
+container/NginxLogToMysql.jar
+container/SetupSecureConfig.jar
+
+# IDE
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+.vscode/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# Runtime
+*.pid
+
+# Database credentials (暗号化済みファイルは除く)
+db_config.enc
+secret.key
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# Package Files
+*.7z
+*.dmg
+*.gz
+*.iso
+*.rar
+*.tar
+*.zip
+
+# virtual machine crash logs
+hs_err_pid*
+
+# Gradle Wrapper
+!gradle/wrapper/gradle-wrapper.jar

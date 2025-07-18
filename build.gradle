@@ -1,0 +1,185 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+}
+
+group = 'com.edamame.security'
+version = '1.0.33'
+
+// プロジェクト情報
+description = 'NGINXログを監視し、セキュリティ攻撃を検知・記録するツール'
+
+// Java設定
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+// メインクラス設定
+application {
+    mainClass = 'com.edamame.security.NginxLogToMysql'
+}
+
+// リポジトリ設定
+repositories {
+    mavenCentral()
+}
+
+// 依存関係のバージョン定義
+ext {
+    mysqlVersion = '8.3.0'
+    jacksonVersion = '2.15.4'  // より安定したバージョンに変更
+    logbackVersion = '1.4.14'
+    junitVersion = '5.10.1'
+    bouncyCastleVersion = '1.77'
+    springSecurityVersion = '6.2.1'
+    // SetupSecureConfig専用バージョン（独立管理）
+    setupConfigVersion = 'V1.0'
+}
+
+dependencies {
+    // MySQL JDBC Driver
+    implementation "com.mysql:mysql-connector-j:${mysqlVersion}"
+
+    // JSON処理（Jackson - Java 21完全対応版）
+    implementation "com.fasterxml.jackson.core:jackson-core:2.17.2"
+    implementation "com.fasterxml.jackson.core:jackson-databind:2.17.2"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:2.17.2"
+    
+    // JSON処理（org.json）
+    implementation "org.json:json:20240303"
+
+    // 暗号化処理
+    implementation "org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}"
+
+    // パスワードハッシュ化用
+    implementation "org.springframework.security:spring-security-crypto:${springSecurityVersion}"
+
+    // ロギング
+    implementation "ch.qos.logback:logback-classic:${logbackVersion}"
+    implementation "ch.qos.logback:logback-core:${logbackVersion}"
+
+    // テスト用依存関係
+    testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+}
+
+// テスト設定
+test {
+    useJUnitPlatform()
+    // テスト実行時のJVM設定
+    jvmArgs '-Dfile.encoding=UTF-8'
+}
+
+// コンパイル設定
+compileJava {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-Xlint:-processing']
+    // Java 21のモジュールシステム対応 - Jackson内部クラスアクセス許可
+    options.forkOptions.jvmArgs += [
+        '--add-opens=java.base/java.lang=ALL-UNNAMED',
+        '--add-opens=java.base/java.util=ALL-UNNAMED'
+    ]
+}
+
+compileTestJava {
+    options.encoding = 'UTF-8'
+}
+
+// JAR作成設定
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'com.edamame.security.NginxLogToMysql',
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version,
+            'Implementation-Vendor': 'Edamame Security'
+        )
+    }
+
+    // 依存関係を含むfat jarの作成
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// Gradle Wrapper設定
+wrapper {
+    gradleVersion = '8.5'
+    distributionType = Wrapper.DistributionType.BIN
+}
+
+// カスタムタスク: セキュア設定セットアップ
+task setupSecureConfig(type: JavaExec) {
+    group = 'application'
+    description = 'セキュアなデータベース設定を作成します'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.edamame.tools.SetupSecureConfig'
+}
+
+// Shadow JARタスクを使用したSetupSecureConfig専用JAR
+tasks.register('setupConfigShadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+    archiveBaseName = 'SetupSecureConfig'
+    archiveVersion = setupConfigVersion
+    destinationDirectory = file("$buildDir/libs")
+
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+
+    manifest {
+        attributes(
+            'Main-Class': 'com.edamame.tools.SetupSecureConfig',
+            'Implementation-Title': 'Edamame SetupSecureConfig',
+            'Implementation-Version': setupConfigVersion,
+            'Implementation-Vendor': 'Edamame Security Team'
+        )
+    }
+
+    // メインアプリケーションのクラスを除外（ツールクラスのみ含める）
+    exclude 'com/edamame/security/**'
+
+    // 不要なファイルを除外
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude '**/junit/**'
+    exclude '**/hamcrest/**'
+}
+
+// Shadow JARタスクを使用したメインアプリケーション専用JAR
+tasks.register('mainAppShadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
+    archiveBaseName = 'NginxLogToMysql'
+    archiveVersion = version
+    destinationDirectory = file("$buildDir/libs")
+
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+
+    manifest {
+        attributes(
+            'Main-Class': 'com.edamame.security.NginxLogToMysql',
+            'Implementation-Title': 'Edamame NginxLog Security Analyzer',
+            'Implementation-Version': version,
+            'Implementation-Vendor': 'Edamame Security Team'
+        )
+    }
+
+    // ツールクラスを除外（メインアプリケーションのみ含める）
+    exclude 'com/edamame/tools/**'
+
+    // 不要なファイルを除外
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude '**/junit/**'
+    exclude '**/hamcrest/**'
+}
+
+// ビルドタスクにShadowJARを含める
+build.dependsOn setupConfigShadowJar, mainAppShadowJar

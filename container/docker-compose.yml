@@ -1,0 +1,38 @@
+services:
+  nginxlog:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nginxlog-LO
+    restart: always
+    volumes:
+      - /var/log/docker/docker-nginx-LO.log:/var/log/nginx/nginx.log:ro
+      - ./attack_patterns.json:/app/config/attack_patterns.json:ro
+    environment:
+      # Java環境変数の設定（デバッグモード有効）
+      - JAVA_OPTS=-Xmx256m -Xms128m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Tokyo
+      - NGINX_LOG_DEBUG=true
+      - LOG_PATH=/var/log/nginx/nginx.log
+      - SECURE_CONFIG_PATH=/run/secrets/db_config_enc
+      - KEY_PATH=/run/secrets/db_secret_key
+      - ATTACK_PATTERNS_PATH=/app/config/attack_patterns.json
+    secrets:
+      - db_config_enc
+      - db_secret_key
+    networks:
+      mysql_network:
+        ipv4_address: 172.18.1.7
+      NLL_network:
+        ipv4_address: 172.18.7.2
+
+secrets:
+  db_config_enc:
+    file: ./db_config.enc
+  db_secret_key:
+    file: ./secret.key
+
+networks:
+  mysql_network:
+    external: true
+  NLL_network:
+    external: true

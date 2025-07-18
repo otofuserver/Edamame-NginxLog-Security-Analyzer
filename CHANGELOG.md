@@ -7,7 +7,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.36] - 2025-07-16
+### Added
+- **攻撃パターンファイル自動更新機能の完全実装**
+  - 1時間ごとのGitHubからの自動バージョンチェック・更新
+  - 更新前の自動バックアップ機能
+  - ネットワークエラー時の適切なハンドリング
+  - AttackPattern.getPatternCount()メソッドの追加
+
+### Changed
+- **外部ネットワークアクセス制限の廃止**
+  - バックエンドでのGitHub連携を有効化
+  - AttackPattern.updateIfNeeded()の実際のHTTP通信実装
+  - より堅牢なエラーハンドリングとログ出力
+
+### Removed
+- 古い外部ネットワークアクセス制限に関するドキュメント記載
+- 実装済みTODOコメントの削除
+
+## [1.0.33] - 2025-07-17
+
+### Changed - 🚀 MAJOR ARCHITECTURE MIGRATION
+- **Python版からJava版への完全移行**
+  - メインアプリケーション: nginx_log_to_mysql.py → NginxLogToMysql.java
+  - セットアップツール: setup_secure_config.py → SetupSecureConfig.java
+  - ビルドシステム: Maven → Gradle
+  - 実行環境: Python 3.11 → Java 21+
+  - 暗号化: Python cryptography → BouncyCastle AES-GCM
+
+### Added
+- **Java版新機能**
+  - ModSecurity処理ロジックの改善（2重計上問題の解決）
+  - データベーススキーマ自動更新機能
+  - バージョン非依存のセットアップスクリプト
+  - Gradle Shadow JARによる独立実行可能なJARファイル生成
+
+### Fixed
+- ModSecurity 2重計上問題を解決
+  - ModSecurity詳細行は一時保存のみ
+  - HTTPリクエスト行のみをアクセスログとして保存
+  - 旧システムのプロセスに従った正しい処理フローを実装
+- modsec_alertsテーブルのカラム不足問題を解決
+  - messageとcreated_atカラムの自動追加機能
+  - 既存テーブル構造の自動更新
+
+### Removed - 🗑️ CLEANUP
+- **削除されたPython版ファイル**:
+  - nginx_log_to_mysql.py
+  - setup_secure_config.py  
+  - modules/ フォルダ
+  - .venv/ フォルダ
+- **削除されたMaven関連ファイル**:
+  - pom.xml
+  - target/ フォルダ
+
+### Technical Details
+- **新しいプロジェクト構成**:
+  - src/main/java/com/edamame/security/ (メインパッケージ)
+  - src/main/java/com/edamame/tools/ (ツールパッケージ)
+  - build.gradle (Gradle設定)
+  - build/libs/ (JAR生成先)
+- **Docker環境更新**:
+  - ベースイメージ: python:3.11-slim → openjdk:21-jdk-slim
+  - JARファイルパス修正: build/libs/から正しくコピー
+- **スクリプト改善**:
+  - setup_secure_config.bat/sh でバージョン自動検索機能追加
+
+---
+
+## Python版変更履歴 (v1.0.32以前)
+
+### [1.0.36] - 2025-07-16
 
 ### Fixed
 - log_parser.pyの例外処理警告を完全修正
@@ -17,7 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - extract_query_params関数にlog_funcパラメータを追加してlog_func未定義エラーを防止
 
 ### Improved
-- エラーハン��リングの具体化
+- エラーハンドリングの具体化
   - URL処理関連の例外を適切な型に分類
   - デバッグ時のエラー情報をより詳細に出力
   - 関数間のログ出力一貫性を向上
@@ -87,7 +156,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Improved
 - ドキュメント構造の明確化
-  - specification.txt: 技術仕様・データベー���構造・機能説明に特化
+  - specification.txt: 技術仕様・データベース構造・機能説明に特化
   - CHANGELOG.md: 開発履歴・変更管理に特化
 - プロジェクト管理の効率化とメンテナンス性向上
 
@@ -96,7 +165,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - プロジェクト直下にCHANGELOG.mdを新規作成
   - Keep a Changelog形式とSemantic Versioningに準拠した詳細な変更履歴管理
-  - specification.txtとの相互補完によるド��ュメント体系の強化
+  - specification.txtとの相互補完によるドキュメント体系の強化
 - 開発者向けガイドラインと貢献ルールを明文化
 
 ### Improved
@@ -122,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - nginx_log_to_mysql.py: PEP8準拠の4スペースインデントに統一してインデントエラーを解消
-- modules/attack_pattern.py: 「ローカル変数 'expected_attacks' は代入の前に参照される��能性があります」警告を解消
+- modules/attack_pattern.py: 「ローカル変数 'expected_attacks' は代入の前に参照される可能性があります」警告を解消
 - 変数の重複定義による警告の完全解消
 
 ### Improved
@@ -161,7 +230,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - modules/log_parser.py: file openエラーなどの処理不要なエラーログを自動スルーする機能を追加
-  - "failed (2: No such file or directory)"など、ファイルアクセスエラーを自動検出してスキップ
+- failed (2: No such file or directory)など、ファイルアクセスエラーを自動検出してスキップ
 
 ### Changed
 - パターンマッチングロジックを修正し、エラーログとアクセスログの処理を明確に分離
@@ -183,14 +252,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - より正確な正規表現マッチングとフォールバック処理を実装
 - テスト機能の大幅改善:
   - display_test_results_table関数: テスト結果を詳細なテーブル形式で表示
-  - run_comprehensive_test関数: 包括的なテスト実行とクリーンアップを自動化
+  - run_comprehensive_test関数: 包括��なテスト実行とクリーンアップを自動化
   - --run-testオプション実行時の自動終了とホスト復帰機能を追加
   - 成功/失敗統計とPASS/FAILステータス表示機能
 
 ### Changed
 - nginx_log_to_mysql.py: URLデコード機能をメイン処理に統合
   - add_registry_entry, add_access_log関数でURLをデコード後に保存
-  - エンコード例: %3Cscript%3E → <script> として保存し可読性を向上
+  - エンコード例: %3Cscript%3E → <script> と���て保存し可読性を向上
 
 ---
 
