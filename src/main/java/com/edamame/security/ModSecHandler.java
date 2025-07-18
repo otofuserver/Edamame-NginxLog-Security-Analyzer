@@ -296,7 +296,7 @@ public class ModSecHandler {
             }
 
             if (successCount > 0) {
-                log.accept(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, ア���セスログID: %d)", 
+                log.accept(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, アクセスログID: %d)",
                     successCount, serverName, accessLogId), "DEBUG");
                 return true;
             } else {
