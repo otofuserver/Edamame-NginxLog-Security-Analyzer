@@ -7,7 +7,7 @@ services:
     restart: always
     volumes:
       - /var/log/docker/docker-nginx-LO.log:/var/log/nginx/nginx.log:ro
-      - ./attack_patterns.json:/app/config/attack_patterns.json:ro
+      - ./config:/app/config:ro
     environment:
       # Java環境変数の設定（デバッグモード有効）
       - JAVA_OPTS=-Xmx256m -Xms128m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Tokyo
@@ -16,6 +16,7 @@ services:
       - SECURE_CONFIG_PATH=/run/secrets/db_config_enc
       - KEY_PATH=/run/secrets/db_secret_key
       - ATTACK_PATTERNS_PATH=/app/config/attack_patterns.json
+      - SERVERS_CONFIG_PATH=/app/config/servers.conf
     secrets:
       - db_config_enc
       - db_secret_key

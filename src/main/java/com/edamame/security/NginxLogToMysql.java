@@ -38,22 +38,29 @@ public class NginxLogToMysql {
     private static final String SECURE_CONFIG_PATH = getEnvOrDefault("SECURE_CONFIG_PATH", "/run/secrets/db_config.enc");
     private static final String KEY_PATH = getEnvOrDefault("KEY_PATH", "/run/secrets/secret.key");
     private static final String ATTACK_PATTERNS_PATH = getEnvOrDefault("ATTACK_PATTERNS_PATH", "/run/secrets/attack_patterns.json");
+    private static final String SERVERS_CONFIG_PATH = getEnvOrDefault("SERVERS_CONFIG_PATH", "/app/config/servers.conf");
 
     // 設定値
     private static final int MAX_RETRIES = Integer.parseInt(getEnvOrDefault("MAX_RETRIES", "5"));
     private static final int RETRY_DELAY = Integer.parseInt(getEnvOrDefault("RETRY_DELAY", "3"));
     private static final int ATTACK_PATTERNS_CHECK_INTERVAL = Integer.parseInt(getEnvOrDefault("ATTACK_PATTERNS_CHECK_INTERVAL", "3600"));
+    private static final int SERVERS_CONFIG_CHECK_INTERVAL = Integer.parseInt(getEnvOrDefault("SERVERS_CONFIG_CHECK_INTERVAL", "300"));
 
     // グローバル変数
     private static Connection dbSession = null;
     private static boolean whitelistMode = false;
     private static String whitelistIp = "";
     private static long lastAttackPatternsCheck = 0;
+    private static long lastServersConfigCheck = 0;
     private static final AtomicBoolean isRunning = new AtomicBoolean(true);
 
     // ModSecurity状態管理用の変数を追加
     private static String pendingModSecLine = null;
     private static boolean hasPendingModSecAlert = false;
+
+    // 複数サーバー監視用
+    private static ServerConfig serverConfig = null;
+    private static final Map<String, LogMonitor> logMonitors = new HashMap<>();
 
     /**
      * 環境変数を取得し、存在しない場合はデフォルト値を返す
@@ -217,6 +224,11 @@ public class NginxLogToMysql {
             log("データベースカラムの確認に失敗しました。", "WARN");
         }
 
+        // 複数サーバー対応スキーマ更新
+        if (!DbSchema.addMultiServerSupport(conn, NginxLogToMysql::log)) {
+            log("複数サーバー対応スキーマ更新に失敗しました。", "WARN");
+        }
+
         // ホワイトリスト設定を読み込み
         loadWhitelistSettings(conn);
 
@@ -229,7 +241,89 @@ public class NginxLogToMysql {
                 AttackPattern.getPatternCount(ATTACK_PATTERNS_PATH) + ")", "INFO");
         }
 
+        // 複数サーバー設定の初期化
+        serverConfig = ServerConfig.createDefault(NginxLogToMysql::log);
+        if (!serverConfig.loadServers()) {
+            log("サーバー設定の読み込みに失敗しました。単一サーバーモードで継続します。", "WARN");
+            // 単一サーバーモードとして従来のLOG_PATHを使用
+            return initializeSingleServerMode();
+        }
+
+        // 複数サーバー監視の初期化
+        if (!initializeMultiServerMonitoring()) {
+            log("複数サーバー監視の初期化に失敗しました。", "CRITICAL");
+            return false;
+        }
+
         log("初期化処理が完了しました", "INFO");
+        return true;
+    }
+
+    /**
+     * 単一サーバーモードの初期化（フォールバック）
+     * @return 初期化成功可否
+     */
+    private static boolean initializeSingleServerMode() {
+        log("単一サーバーモード（従来方式）で初期化中...", "INFO");
+
+        // 従来のLOG_PATHを使用して単一サーバー情報を作成
+        ServerConfig.ServerInfo singleServer = new ServerConfig.ServerInfo("default", LOG_PATH);
+
+        if (!singleServer.logFileExists()) {
+            log("デフォルトログファイルが見つかりません: " + LOG_PATH, "ERROR");
+            return false;
+        }
+
+        // 単一サーバー用のLogMonitorを作成
+        LogMonitor monitor = new LogMonitor(singleServer, NginxLogToMysql::log, NginxLogToMysql::processLogLine);
+        logMonitors.put("default", monitor);
+
+        log("単一サーバーモード初期化完了", "INFO");
+        return true;
+    }
+
+    /**
+     * 複数サーバー監視の初期化
+     * @return 初期化成功可否
+     */
+    private static boolean initializeMultiServerMonitoring() {
+        log("複数サーバー監視を初期化中...", "INFO");
+
+        List<ServerConfig.ServerInfo> servers = serverConfig.getServers();
+        if (servers.isEmpty()) {
+            log("監視対象サーバーが設定されていません", "ERROR");
+            return false;
+        }
+
+        // 設定概要を表示
+        serverConfig.displayConfigSummary();
+
+        // ログファイルの存在確認
+        List<ServerConfig.ServerInfo> missingFiles = serverConfig.validateLogFiles();
+        if (!missingFiles.isEmpty()) {
+            log("一部のログファイルが見つかりません。該当サーバーの監視はスキップされます。", "WARN");
+        }
+
+        // 各サーバー用のLogMonitorを作成
+        int successCount = 0;
+        for (ServerConfig.ServerInfo server : servers) {
+            if (server.logFileExists()) {
+                LogMonitor monitor = new LogMonitor(server, NginxLogToMysql::log, NginxLogToMysql::processEnhancedLogLine);
+                logMonitors.put(server.name(), monitor);
+                successCount++;
+                log("サーバー監視準備完了: " + server.name(), "DEBUG");
+            } else {
+                log("ログファイル不存在のためスキップ: " + server.name() + " → " + server.logPath(), "WARN");
+            }
+        }
+
+        if (successCount == 0) {
+            log("監視可能なサーバーがありません", "CRITICAL");
+            return false;
+        }
+
+        log(String.format("複数サーバー監視初期化完了: %d/%d サーバーが監視可能",
+            successCount, servers.size()), "INFO");
         return true;
     }
 
@@ -329,6 +423,40 @@ public class NginxLogToMysql {
     }
 
     /**
+     * サーバー設定ファイルの定期更新チェック（5分ごと）
+     */
+    private static void checkServersConfigUpdate() {
+        long currentTime = System.currentTimeMillis();
+        long timeSinceLastCheck = currentTime - lastServersConfigCheck;
+
+        // デバッグ情報（初回起動時）
+        if (lastServersConfigCheck == 0) {
+            log("Servers config check initialized. Next check in " + SERVERS_CONFIG_CHECK_INTERVAL + " seconds", "DEBUG");
+            lastServersConfigCheck = currentTime;
+            return;
+        }
+
+        // 5分（SERVERS_CONFIG_CHECK_INTERVAL秒）経過チェック
+        if (timeSinceLastCheck > SERVERS_CONFIG_CHECK_INTERVAL * 1000L) {
+            log("Starting servers config update check...", "INFO");
+
+            try {
+                boolean updated = ServerConfig.updateIfNeeded(SERVERS_CONFIG_PATH, NginxLogToMysql::log);
+                if (updated) {
+                    log("Servers config file updated", "INFO");
+                } else {
+                    log("Servers config file is up to date", "DEBUG");
+                }
+            } catch (Exception e) {
+                log("Error during servers config update check: " + e.getMessage(), "WARN");
+            }
+
+            lastServersConfigCheck = currentTime;
+            log("Servers config check completed. Next check scheduled in " + SERVERS_CONFIG_CHECK_INTERVAL + " seconds", "DEBUG");
+        }
+    }
+
+    /**
      * ログ行を処理してデータベースに保存
      * @param line ログの1行
      */
@@ -405,8 +533,8 @@ public class NginxLogToMysql {
      * @return 保存されたレコードのID（失敗時は-1）
      */
     private static long saveAccessLog(Connection conn, Map<String, Object> logData) {
-        String sql = "INSERT INTO access_log (method, full_url, status_code, ip_address, access_time, blocked_by_modsec) " +
-                    "VALUES (?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO access_log (method, full_url, status_code, ip_address, access_time, blocked_by_modsec, server_name) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
         try (PreparedStatement pstmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             pstmt.setString(1, (String) logData.get("method"));
@@ -415,6 +543,7 @@ public class NginxLogToMysql {
             pstmt.setString(4, (String) logData.get("ip_address"));
             pstmt.setTimestamp(5, Timestamp.valueOf((LocalDateTime) logData.get("access_time")));
             pstmt.setBoolean(6, (Boolean) logData.get("blocked_by_modsec"));
+            pstmt.setString(7, (String) logData.getOrDefault("server_name", "default"));
 
             int affectedRows = pstmt.executeUpdate();
             if (affectedRows > 0) {
@@ -439,12 +568,14 @@ public class NginxLogToMysql {
         String method = (String) logData.get("method");
         String fullUrl = (String) logData.get("full_url");
         String ipAddress = (String) logData.get("ip_address");
+        String serverName = (String) logData.getOrDefault("server_name", "default");
 
-        // 既存URLチェック
-        String checkSql = "SELECT id FROM url_registry WHERE method = ? AND full_url = ?";
+        // 既存URLチェック（同じサーバーからの同じURL）
+        String checkSql = "SELECT id FROM url_registry WHERE method = ? AND full_url = ? AND server_name = ?";
         try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
             checkStmt.setString(1, method);
             checkStmt.setString(2, fullUrl);
+            checkStmt.setString(3, serverName);
             ResultSet rs = checkStmt.executeQuery();
 
             if (rs.next()) {
@@ -462,17 +593,24 @@ public class NginxLogToMysql {
         boolean isWhitelisted = whitelistMode && whitelistIp.equals(ipAddress);
 
         // 新規URL登録
-        String insertSql = "INSERT INTO url_registry (method, full_url, created_at, updated_at, is_whitelisted, attack_type) " +
-                          "VALUES (?, ?, NOW(), NOW(), ?, ?)";
+        String insertSql = "INSERT INTO url_registry (method, full_url, created_at, updated_at, is_whitelisted, attack_type, server_name) " +
+                          "VALUES (?, ?, NOW(), NOW(), ?, ?, ?)";
         try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
             insertStmt.setString(1, method);
             insertStmt.setString(2, fullUrl);
             insertStmt.setBoolean(3, isWhitelisted);
             insertStmt.setString(4, attackType);
+            insertStmt.setString(5, serverName);
 
             int affectedRows = insertStmt.executeUpdate();
             if (affectedRows > 0) {
-                log("新規URL登録: " + method + " " + fullUrl + " (攻撃タイプ: " + attackType + ")", "INFO");
+                log("新規URL登録: " + serverName + " - " + method + " " + fullUrl + " (攻撃タイプ: " + attackType + ")", "INFO");
+
+                // サーバー情報を自動登録/更新
+                Connection dbConn = dbConnect();
+                if (dbConn != null) {
+                    DbSchema.registerServer(dbConn, serverName, "", "自動検出されたサーバー", NginxLogToMysql::log);
+                }
             }
         } catch (SQLException e) {
             log("URL登録エラー: " + e.getMessage(), "ERROR");
@@ -498,6 +636,179 @@ public class NginxLogToMysql {
     }
 
     /**
+     * 拡張ログ行を処理（サーバー名付き）
+     * @param enhancedLine サーバー名付きログ行
+     */
+    private static void processEnhancedLogLine(String enhancedLine) {
+        try {
+            // サーバー名を抽出
+            String serverName = "unknown";
+            String originalLine = enhancedLine;
+
+            if (enhancedLine.startsWith("[SERVER:")) {
+                int endIndex = enhancedLine.indexOf("] ");
+                if (endIndex > 0) {
+                    serverName = enhancedLine.substring(8, endIndex);
+                    originalLine = enhancedLine.substring(endIndex + 2);
+                }
+            }
+
+            // ログ行をパース（HTTPリクエスト行のみ）
+            Map<String, Object> logData = LogParser.parseLogLine(originalLine, NginxLogToMysql::log);
+            if (logData == null) {
+                return; // パースできない行はスキップ
+            }
+
+            // サーバー名をログデータに追加
+            logData.put("server_name", serverName);
+
+            // ModSecurity詳細行の場合は保留として処理
+            if (ModSecHandler.detectModsecBlock(originalLine)) {
+                pendingModSecLine = originalLine;
+                hasPendingModSecAlert = true;
+                log("ModSecurity行として処理済み (" + serverName + "): " + originalLine.substring(0, Math.min(100, originalLine.length())), "DEBUG");
+                return;
+            }
+
+            Connection conn = dbConnect();
+            if (conn == null) {
+                log("DB接続が���用できません。ログ行をスキップします。", "ERROR");
+                return;
+            }
+
+            // 直前にModSecurity: Access denied行があればblocked扱い
+            boolean isModSecBlocked = hasPendingModSecAlert;
+            logData.put("blocked_by_modsec", isModSecBlocked);
+
+            // アクセスログをDBに保存
+            long logId = saveAccessLog(conn, logData);
+            if (logId > 0) {
+                // URL登録処理
+                registerUrl(conn, logData);
+
+                // ModSecurityアラートがあれば保存
+                if (isModSecBlocked && pendingModSecLine != null) {
+                    List<Map<String, String>> alerts = ModSecHandler.parseModsecAlert(pendingModSecLine, NginxLogToMysql::log);
+                    if (ModSecHandler.saveModsecAlertsWithServerName(conn, logId, alerts, serverName, NginxLogToMysql::log)) {
+                        log("ModSecurityアラート保存完了 (" + serverName + ", アクセスログID: " + logId + ")", "DEBUG");
+                    }
+                }
+
+                log("ログ処理完了 (" + serverName + "): " + logData.get("method") + " " + logData.get("full_url") +
+                    " (ID: " + logId + ", Blocked: " + isModSecBlocked + ")", "DEBUG");
+            }
+
+            // 処理完了後、保留中のModSec情報をクリア
+            if (hasPendingModSecAlert) {
+                hasPendingModSecAlert = false;
+                pendingModSecLine = null;
+            }
+
+        } catch (Exception e) {
+            log("拡張ログ行処理エラー: " + e.getMessage(), "ERROR");
+            // エラー時も保留中のModSec情報をクリア
+            if (hasPendingModSecAlert) {
+                hasPendingModSecAlert = false;
+                pendingModSecLine = null;
+            }
+        }
+    }
+
+    /**
+     * 複数サーバー監視のメインループ
+     */
+    private static void startMultiServerMonitoring() {
+        log("複数サーバー監視を開始します...", "INFO");
+
+        // 各LogMonitorを開始
+        int startedCount = 0;
+        for (Map.Entry<String, LogMonitor> entry : logMonitors.entrySet()) {
+            String serverName = entry.getKey();
+            LogMonitor monitor = entry.getValue();
+
+            if (monitor.startMonitoring()) {
+                startedCount++;
+                log("サーバー監視開始: " + serverName, "INFO");
+            } else {
+                log("サーバー監視開始失敗: " + serverName, "ERROR");
+            }
+        }
+
+        log(String.format("監視開始完了: %d/%d サーバー", startedCount, logMonitors.size()), "INFO");
+
+        // メイン監視ループ（定期チェック用）
+        while (isRunning.get()) {
+            try {
+                // 攻撃パターンファイルの定期更新チェック
+                checkAttackPatternsUpdate();
+
+                // サーバー設定ファイルの定期更新チェック
+                checkServersConfigUpdate();
+
+                // 監視状況の確認
+                checkMonitorHealth();
+
+                // 5秒間隔で監視
+                Thread.sleep(5000);
+
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                log("監視ループエラー: " + e.getMessage(), "ERROR");
+            }
+        }
+    }
+
+    /**
+     * LogMonitorの健全性チェック
+     */
+    private static void checkMonitorHealth() {
+        for (Map.Entry<String, LogMonitor> entry : logMonitors.entrySet()) {
+            String serverName = entry.getKey();
+            LogMonitor monitor = entry.getValue();
+
+            if (!monitor.isMonitoring()) {
+                log("サーバー監視が停止しています: " + serverName + " - 再起動を試行", "WARN");
+
+                // 監視の再起動を試行
+                if (monitor.startMonitoring()) {
+                    log("サーバー監視再起動成功: " + serverName, "INFO");
+                } else {
+                    log("サーバー監視再起動失敗: " + serverName, "ERROR");
+                }
+            }
+        }
+    }
+
+    /**
+     * 監視統計情報を表示
+     */
+    private static void displayMonitoringStatistics() {
+        log("=== 監視統計情報 ===", "INFO");
+
+        int activeMonitors = 0;
+        int totalMonitors = logMonitors.size();
+
+        for (Map.Entry<String, LogMonitor> entry : logMonitors.entrySet()) {
+            String serverName = entry.getKey();
+            LogMonitor monitor = entry.getValue();
+
+            if (monitor.isMonitoring()) {
+                activeMonitors++;
+                log("✓ " + serverName + ": 監視中", "INFO");
+            } else {
+                log("✗ " + serverName + ": 停止中", "WARN");
+            }
+
+            log("  " + monitor.getStatistics(), "DEBUG");
+        }
+
+        log(String.format("監視状況: %d/%d サーバーが動作中", activeMonitors, totalMonitors), "INFO");
+        log("==================", "INFO");
+    }
+
+    /**
      * メインメソッド
      * @param args コマンドライン引数
      */
@@ -505,6 +816,16 @@ public class NginxLogToMysql {
         // シャットダウンフックを登録
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             isRunning.set(false);
+
+            // 全LogMonitorを停止
+            log("全サーバー監視を停止中...", "INFO");
+            for (Map.Entry<String, LogMonitor> entry : logMonitors.entrySet()) {
+                String serverName = entry.getKey();
+                LogMonitor monitor = entry.getValue();
+                monitor.stopMonitoring();
+                log("サーバー監視停止: " + serverName, "INFO");
+            }
+
             cleanup();
         }));
 
@@ -514,11 +835,35 @@ public class NginxLogToMysql {
                 System.exit(1);
             }
 
-            // NGINXログ監視を開始
-            log("NGINXログ監視を開始します...", "INFO");
+            // 複数サーバー監視または単一サーバー監視を開始
+            if (logMonitors.size() > 1 || (logMonitors.size() == 1 && !logMonitors.containsKey("default"))) {
+                // 複数サーバー監視モード
+                log("複数サーバー監視モードで開始します", "INFO");
+                displayMonitoringStatistics();
+                startMultiServerMonitoring();
+            } else {
+                // 従来の単一サーバー監視モード
+                log("単一サーバー監視モードで開始します", "INFO");
+                if (logMonitors.containsKey("default")) {
+                    LogMonitor defaultMonitor = logMonitors.get("default");
+                    if (defaultMonitor.startMonitoring()) {
+                        log("デフォルトサーバー監視開始", "INFO");
 
-            // ログファイル監視を開始
-            monitorLogFile();
+                        // 単一サーバー用の簡易監視ループ
+                        while (isRunning.get()) {
+                            checkAttackPatternsUpdate();
+                            Thread.sleep(5000);
+                        }
+                    } else {
+                        log("デフォルトサーバー監視開始に失敗しました", "CRITICAL");
+                        System.exit(1);
+                    }
+                } else {
+                    // フォールバック: 従来のmonitorLogFile()を使用
+                    log("従来方式でログファイル監視を開始", "INFO");
+                    monitorLogFile();
+                }
+            }
 
         } catch (Exception e) {
             log("予期しないエラーが発生しました: " + e.getMessage(), "CRITICAL");

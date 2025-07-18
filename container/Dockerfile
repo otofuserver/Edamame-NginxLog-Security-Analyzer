@@ -38,7 +38,7 @@ RUN mkdir -p /run/secrets /app/config /var/log/nginx \
     && chown -R nginxlog:nginxlog /run/secrets /app/config /var/log/nginx
 
 # 設定ファイルをコピー
-COPY attack_patterns.json /app/config/attack_patterns.json
+COPY config/attack_patterns.json /app/config/attack_patterns.json
 
 # JARファイルをコピー（バージョン番号なしの統一ファイル名）
 COPY ./NginxLogToMysql.jar ./nginxlog-analyzer.jar

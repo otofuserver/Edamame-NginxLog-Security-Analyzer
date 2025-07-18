@@ -252,4 +252,61 @@ public class ModSecHandler {
 
         return stats;
     }
+
+    /**
+     * ModSecurityアラートをサーバー名付きでデータベースに保存
+     * @param conn データベース接続
+     * @param accessLogId 関連するアクセスログID
+     * @param alerts アラート情報のリスト
+     * @param serverName サーバー名
+     * @param logFunc ログ出力関数
+     * @return 保存成功可否
+     */
+    public static boolean saveModsecAlertsWithServerName(Connection conn, long accessLogId,
+                                                       List<Map<String, String>> alerts,
+                                                       String serverName,
+                                                       BiConsumer<String, String> logFunc) {
+        if (alerts == null || alerts.isEmpty()) {
+            return true; // アラートがない場合は成功とみなす
+        }
+
+        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+
+        String sql = """
+            INSERT INTO modsec_alerts (access_log_id, rule_id, severity, message, data_value, server_name, detected_at) 
+            VALUES (?, ?, ?, ?, ?, ?, NOW())
+        """;
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            for (Map<String, String> alert : alerts) {
+                pstmt.setLong(1, accessLogId);
+                pstmt.setString(2, alert.getOrDefault("rule_id", ""));
+                pstmt.setString(3, alert.getOrDefault("severity", ""));
+                pstmt.setString(4, alert.getOrDefault("message", ""));
+                pstmt.setString(5, alert.getOrDefault("data_value", ""));
+                pstmt.setString(6, serverName != null ? serverName : "default");
+                pstmt.addBatch();
+            }
+
+            int[] results = pstmt.executeBatch();
+            int successCount = 0;
+            for (int result : results) {
+                if (result > 0) successCount++;
+            }
+
+            if (successCount > 0) {
+                log.accept(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, ア���セスログID: %d)",
+                    successCount, serverName, accessLogId), "DEBUG");
+                return true;
+            } else {
+                log.accept("ModSecurityアラートの保存で全て失敗しました", "WARN");
+                return false;
+            }
+
+        } catch (SQLException e) {
+            log.accept("ModSecurityアラート保存エラー: " + e.getMessage(), "ERROR");
+            return false;
+        }
+    }
 }

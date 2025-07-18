@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **複数サーバー監視機能の実装**
+  - CSV形式（管理名,ログパス）での複数サーバー設定管理
+  - 各サーバーの独立したログファイル監視（LogMonitorクラス）
+  - サーバー設定ファイル（servers.conf）の5分間隔自動更新チェック
+  - 複数サーバー対応のデータベーススキーマ拡張
 - **攻撃パターンファイル自動更新機能の完全実装**
   - 1時間ごとのGitHubからの自動バージョンチェック・更新
   - 更新前の自動バックアップ機能
@@ -15,10 +20,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - AttackPattern.getPatternCount()メソッドの追加
 
 ### Changed
-- **外部ネットワークアクセス制限の廃止**
+- **データベーススキーマの複数サーバー対応**
+  - access_log, url_registry, modsec_alertsテーブルにserver_nameカラム追加
+  - サーバー管理用のserversテーブル新規作成
+  - サーバー別のデータ識別とパフォーマンス向上のためのインデックス追加
+- **外部ネットワークアクセス制限の廃���**
   - バックエンドでのGitHub連携を有効化
   - AttackPattern.updateIfNeeded()の実際のHTTP通信実装
   - より堅牢なエラーハンドリングとログ出力
+
+### Fixed
+- **複数サーバー環境での重複URL登録問題の解決**
+  - サーバー別のURL一意性確保（method + full_url + server_name）
+  - サーバー情報の自動登録・更新機能
 
 ### Removed
 - 古い外部ネットワークアクセス制限に関するドキュメント記載

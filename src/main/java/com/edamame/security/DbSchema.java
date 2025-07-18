@@ -447,4 +447,148 @@ public class DbSchema {
 
         return stats.toString();
     }
+
+    /**
+     * 複数サーバー対応のためのカラム追加処理
+     * access_log, url_registry, modsec_alertsテーブルにserver_nameカラムを追加
+     * @param conn データベース接続
+     * @param logFunc ログ出力関数
+     * @return 更新成功可否
+     */
+    public static boolean addMultiServerSupport(Connection conn, BiConsumer<String, String> logFunc) {
+        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+
+        try {
+            boolean originalAutoCommit = conn.getAutoCommit();
+            conn.setAutoCommit(false);
+
+            try (Statement stmt = conn.createStatement()) {
+
+                // access_logテーブルにserver_nameカラムを追加
+                if (!columnExists(conn, "access_log", "server_name")) {
+                    stmt.execute("""
+                        ALTER TABLE access_log 
+                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
+                        COMMENT 'ログ送信元サーバー名'
+                    """);
+                    log.accept("access_logテーブルにserver_nameカラムを追加しました", "INFO");
+
+                    // インデックスを追加（パフォーマンス向上のため）
+                    stmt.execute("CREATE INDEX idx_access_log_server_name ON access_log(server_name)");
+                    log.accept("access_logテーブルのserver_nameにインデックスを作成しました", "INFO");
+                } else {
+                    log.accept("access_logテーブルのserver_nameカラムは既に存在します", "DEBUG");
+                }
+
+                // url_registryテーブルにserver_nameカラムを追加
+                if (!columnExists(conn, "url_registry", "server_name")) {
+                    stmt.execute("""
+                        ALTER TABLE url_registry 
+                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
+                        COMMENT 'URL発見元サーバー名'
+                    """);
+                    log.accept("url_registryテーブルにserver_nameカラムを追加しました", "INFO");
+
+                    // 複合インデックスを追加（method + full_url + server_nameで一意性確保）
+                    stmt.execute("CREATE INDEX idx_url_registry_server ON url_registry(server_name, method, full_url(100))");
+                    log.accept("url_registryテーブルのserver_name複合インデックスを作成しました", "INFO");
+                } else {
+                    log.accept("url_registryテーブルのserver_nameカラムは既に存在します", "DEBUG");
+                }
+
+                // modsec_alertsテーブルにserver_nameカラムを追加
+                if (!columnExists(conn, "modsec_alerts", "server_name")) {
+                    stmt.execute("""
+                        ALTER TABLE modsec_alerts 
+                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
+                        COMMENT 'ModSecurityアラート発生サーバー名'
+                    """);
+                    log.accept("modsec_alertsテーブルにserver_nameカラムを追加しました", "INFO");
+
+                    // インデックスを追加
+                    stmt.execute("CREATE INDEX idx_modsec_alerts_server_name ON modsec_alerts(server_name)");
+                    log.accept("modsec_alertsテーブルのserver_nameにインデックスを作成しました", "INFO");
+                } else {
+                    log.accept("modsec_alertsテーブルのserver_nameカラムは既に存在します", "DEBUG");
+                }
+
+                // servers管理テーブルを作成（サーバー情報の一元管理用）
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS servers (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        server_name VARCHAR(100) NOT NULL UNIQUE COMMENT 'サーバー管理名',
+                        log_path VARCHAR(500) NOT NULL COMMENT 'ログファイルパス',
+                        description TEXT COMMENT 'サーバー説明',
+                        is_active BOOLEAN DEFAULT TRUE COMMENT '監視有効フラグ',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '登録日時',
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
+                        last_activity_at DATETIME COMMENT '最終ログ受信日時'
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci 
+                    COMMENT='監視対象サーバー管理テーブル'
+                """);
+                log.accept("serversテーブルを作成または確認しました", "INFO");
+
+                conn.commit();
+                conn.setAutoCommit(originalAutoCommit);
+
+                log.accept("複数サーバー対応スキーマ更新が完了しました", "INFO");
+                return true;
+
+            } catch (SQLException e) {
+                conn.rollback();
+                conn.setAutoCommit(originalAutoCommit);
+                log.accept("複数サーバー対応スキーマ更新に失敗しました: " + e.getMessage(), "ERROR");
+                return false;
+            }
+
+        } catch (SQLException e) {
+            log.accept("複数サーバー対応スキーマ更新でエラーが発生しました: " + e.getMessage(), "ERROR");
+            return false;
+        }
+    }
+
+    /**
+     * サーバー情報をserversテーブルに登録または更新
+     * @param conn データベース接続
+     * @param serverName サーバー名
+     * @param logPath ログファイルパス
+     * @param description サーバー説明（任意）
+     * @param logFunc ログ出力関数
+     * @return 登録成功可否
+     */
+    public static boolean registerServer(Connection conn, String serverName, String logPath, String description, BiConsumer<String, String> logFunc) {
+        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+
+        String sql = """
+            INSERT INTO servers (server_name, log_path, description, last_activity_at) 
+            VALUES (?, ?, ?, NOW()) 
+            ON DUPLICATE KEY UPDATE 
+                log_path = VALUES(log_path),
+                description = VALUES(description),
+                is_active = TRUE,
+                updated_at = CURRENT_TIMESTAMP,
+                last_activity_at = NOW()
+        """;
+
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, serverName);
+            pstmt.setString(2, logPath);
+            pstmt.setString(3, description != null ? description : "");
+
+            int affectedRows = pstmt.executeUpdate();
+            if (affectedRows > 0) {
+                log.accept("サーバー情報を登録/更新しました: " + serverName + " → " + logPath, "INFO");
+                return true;
+            } else {
+                log.accept("サーバー情報の登録/更新に失敗しました: " + serverName, "WARN");
+                return false;
+            }
+
+        } catch (SQLException e) {
+            log.accept("サーバー情報登録エラー: " + e.getMessage(), "ERROR");
+            return false;
+        }
+    }
 }
