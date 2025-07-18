@@ -89,6 +89,7 @@ public class ServerConfig {
             servers.clear();
             List<String> lines = Files.readAllLines(configFile);
             int lineNumber = 0;
+            Set<String> serverNames = new HashSet<>(); // 重複チェック用
 
             for (String line : lines) {
                 lineNumber++;
@@ -110,9 +111,19 @@ public class ServerConfig {
                 String name = parts[0].trim();
                 String logPath = parts[1].trim();
 
+                // 管理名の重複チェック
+                if (serverNames.contains(name)) {
+                    logger.accept(String.format("致命的エラー: サーバー管理名が重複しています - '%s' (%d行目)",
+                        name, lineNumber), "ERROR");
+                    logger.accept("各サーバーには一意な管理名を設定してください", "ERROR");
+                    logger.accept("設定ファイル: " + configPath, "ERROR");
+                    return false; // 重複エラーで終了
+                }
+
                 ServerInfo server = new ServerInfo(name, logPath);
                 if (server.isValid()) {
                     servers.add(server);
+                    serverNames.add(name); // 重複チェック用セットに追加
                     logger.accept(String.format("サーバー設定を読み込み: %s → %s",
                         name, logPath), "DEBUG");
                 } else {
