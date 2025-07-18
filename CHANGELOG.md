@@ -37,6 +37,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - updateIfNeededメソッドで静的変数による最終更新時刻管理を実装
   - 初回チェック時の誤検知を防止
   - ファイルが実際に更新された場合のみ処理を実行
+- **GitHubワークフローエラーの修正**
+  - Unix/Linux用gradlewスクリプトファイルの不足を解決
+  - CI/CD環境でのビルドプロセス正常化
 
 ### Removed
 - **単一サーバーモード（フォールバック）の完全廃止**
