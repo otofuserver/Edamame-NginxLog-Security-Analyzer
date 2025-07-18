@@ -544,7 +544,7 @@ public class NginxLogToMysql {
                 // サーバー情報を自動登録/更新
                 Connection dbConn = dbConnect();
                 if (dbConn != null) {
-                    DbSchema.registerServer(dbConn, serverName, "", "自動検出されたサーバー", NginxLogToMysql::log);
+                    DbSchema.registerOrUpdateServer(dbConn, serverName, "自動検出されたサーバー", "", NginxLogToMysql::log);
                 }
             }
         } catch (SQLException e) {

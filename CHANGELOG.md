@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - access_log, url_registry, modsec_alertsテーブルにserver_nameカラム追加
   - サーバー管理用のserversテーブル新規作成
   - サーバー別のデータ識別とパフォーマンス向上のためのインデックス追加
+- **テーブル作成時のserver_nameカラム統合**
+  - 新規テーブル作成時からserver_nameカラムを含む構造で作成
+  - specification.txt仕様に完全準拠したテーブル構造を実装
+  - url_registry、access_log、modsec_alertsの初期構造を複数サーバー対応に統一
 - **外部ネットワークアクセス制限の廃止**
   - バックエンドでのGitHub連携を有効化
   - AttackPattern.updateIfNeeded()の実際のHTTP通信実装
@@ -44,6 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHubワークフローエラーの修正**
   - Unix/Linux用gradlewスクリプトファイルの不足を解決
   - CI/CD環境でのビルドプロセス正常化
+- **コンパイル警告の完全解消**
+  - DbSchema.javaのテキストブロック末尾空白警告を修正
+  - ModSecHandler.javaのtext-blocks警告を修正
+  - NginxLogToMysql.javaのメソッド呼び出しエラーを修正（registerServer → registerOrUpdateServer）
+- **未使用メソッド警告の対応**
+  - 将来の機能拡張で使用予定のメソッドに@SuppressWarnings("unused")アノテーションを追加
+  - dropDeprecatedSettingsColumns、getDatabaseStatistics、getServerListメソッドの警告を抑制
+  - 未使用戻り値警告も修正してコード品質を向上
 
 ### Removed
 - **単一サーバーモード（フォールバック）の完全廃止**

@@ -65,12 +65,15 @@ public class DbSchema {
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS url_registry (
                         id INT AUTO_INCREMENT PRIMARY KEY,
+                        server_name VARCHAR(100) NOT NULL DEFAULT 'default' COMMENT 'URL発見元サーバー名',
                         method VARCHAR(10) NOT NULL,
                         full_url TEXT NOT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                         is_whitelisted BOOLEAN DEFAULT FALSE,
-                        attack_type VARCHAR(50) DEFAULT 'none'
+                        attack_type VARCHAR(50) DEFAULT 'none',
+                        user_final_threat BOOLEAN DEFAULT NULL,
+                        user_threat_note TEXT
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
                 log.accept("url_registryテーブルを作成または確認しました", "INFO");
@@ -79,6 +82,7 @@ public class DbSchema {
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS access_log (
                         id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                        server_name VARCHAR(100) NOT NULL DEFAULT 'default' COMMENT 'ログ送信元サーバー名',
                         method VARCHAR(10) NOT NULL,
                         full_url TEXT NOT NULL,
                         status_code INT NOT NULL,
@@ -94,12 +98,14 @@ public class DbSchema {
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS modsec_alerts (
                         id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                        server_name VARCHAR(100) NOT NULL DEFAULT 'default' COMMENT 'アラート発生元サーバー名',
                         access_log_id BIGINT NOT NULL,
                         rule_id VARCHAR(20),
                         severity VARCHAR(20),
                         message TEXT,
                         data_value TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         FOREIGN KEY (access_log_id) REFERENCES access_log(id) ON DELETE CASCADE
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
@@ -397,6 +403,7 @@ public class DbSchema {
      * @param logFunc ログ出力用関数（省略可）
      * @return 削除処理成功可否
      */
+    @SuppressWarnings("unused")
     public static boolean dropDeprecatedSettingsColumns(Connection conn, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
@@ -431,6 +438,7 @@ public class DbSchema {
      * @param conn データベース接続
      * @return 統計情報の文字列
      */
+    @SuppressWarnings("unused")
     public static String getDatabaseStatistics(Connection conn) {
         StringBuilder stats = new StringBuilder();
 
@@ -453,11 +461,12 @@ public class DbSchema {
     }
 
     /**
-     * 複数サーバー対応のためのカラム追加処理
-     * access_log, url_registry, modsec_alertsテーブルにserver_nameカラムを追加
-     * @param conn データベース接続
-     * @param logFunc ログ出力関数
-     * @return 更新成功可否
+     * 複数サーバー対応のデータベーススキーマ拡張
+     * access_log, url_registry, modsec_alertsテーブルにserver_nameカラムを追加し、
+     * サーバー管理用のserversテーブルを作成する
+     * @param conn MySQLコネクション
+     * @param logFunc ログ出力用関数（省略可）
+     * @return スキーマ拡張成功可否
      */
     public static boolean addMultiServerSupport(Connection conn, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
@@ -468,154 +477,125 @@ public class DbSchema {
             conn.setAutoCommit(false);
 
             try (Statement stmt = conn.createStatement()) {
-                
+
                 // access_logテーブルにserver_nameカラムを追加
                 if (!columnExists(conn, "access_log", "server_name")) {
                     stmt.execute("""
-                        ALTER TABLE access_log 
-                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
+                        ALTER TABLE access_log
+                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default'
                         COMMENT 'ログ送信元サーバー名'
-                    """);
+                        """);
                     log.accept("access_logテーブルにserver_nameカラムを追加しました", "INFO");
-                    
+
                     // インデックスを追加（パフォーマンス向上のため）
-                    stmt.execute("CREATE INDEX idx_access_log_server_name ON access_log(server_name)");
-                    log.accept("access_logテーブルのserver_nameにインデックスを作成しました", "INFO");
-                } else {
-                    log.accept("access_logテーブルのserver_nameカラムは既に存在します", "DEBUG");
+                    stmt.execute("""
+                        CREATE INDEX idx_access_log_server_name ON access_log(server_name)
+                        """);
+                    log.accept("access_logテーブルにserver_nameインデックスを追加しました", "INFO");
                 }
 
                 // url_registryテーブルにserver_nameカラムを追加
                 if (!columnExists(conn, "url_registry", "server_name")) {
                     stmt.execute("""
-                        ALTER TABLE url_registry 
-                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
+                        ALTER TABLE url_registry
+                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default'
                         COMMENT 'URL発見元サーバー名'
-                    """);
+                        """);
                     log.accept("url_registryテーブルにserver_nameカラムを追加しました", "INFO");
-                    
-                    // 複合インデックスを追加（method + full_url + server_nameで一意性確保）
-                    stmt.execute("CREATE INDEX idx_url_registry_server ON url_registry(server_name, method, full_url(100))");
-                    log.accept("url_registryテーブルのserver_name複合インデックスを作成しました", "INFO");
-                } else {
-                    log.accept("url_registryテーブルのserver_nameカラムは既に存在します", "DEBUG");
+
+                    // 複合インデックスを追加（method + full_url + server_nameの一意性確保）
+                    stmt.execute("""
+                        CREATE UNIQUE INDEX idx_url_registry_unique_server ON url_registry(method, full_url(500), server_name)
+                        """);
+                    log.accept("url_registryテーブルに複合インデックスを追加しました", "INFO");
                 }
 
                 // modsec_alertsテーブルにserver_nameカラムを追加
                 if (!columnExists(conn, "modsec_alerts", "server_name")) {
                     stmt.execute("""
-                        ALTER TABLE modsec_alerts 
-                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
+                        ALTER TABLE modsec_alerts
+                        ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default'
                         COMMENT 'アラート発生元サーバー名'
-                    """);
+                        """);
                     log.accept("modsec_alertsテーブルにserver_nameカラムを追加しました", "INFO");
-                    
-                    // インデックスを追加（検索パフォーマンス向上のため）
-                    stmt.execute("CREATE INDEX idx_modsec_alerts_server_name ON modsec_alerts(server_name)");
-                    log.accept("modsec_alertsテーブルのserver_nameにインデックスを作成しました", "INFO");
-                } else {
-                    log.accept("modsec_alertsテーブルのserver_nameカラムは既に存在します", "DEBUG");
+
+                    // ��ンデックスを追加
+                    stmt.execute("""
+                        CREATE INDEX idx_modsec_alerts_server_name ON modsec_alerts(server_name)
+                        """);
+                    log.accept("modsec_alertsテーブルにserver_nameインデックスを追加しました", "INFO");
                 }
 
-                // serversテーブルを作成（サーバー管理用）
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS servers (
-                        id INT AUTO_INCREMENT PRIMARY KEY,
-                        server_name VARCHAR(100) NOT NULL UNIQUE,
-                        server_description TEXT,
-                        log_path VARCHAR(500),
-                        is_active BOOLEAN DEFAULT TRUE,
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-                        last_log_received DATETIME NULL,
-                        INDEX idx_servers_name (server_name),
-                        INDEX idx_servers_active (is_active)
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-                    COMMENT='サーバー管理テーブル'
-                """);
-                log.accept("serversテーブルを作成または確認しました", "INFO");
+                // serversテーブルを作成（存在しない場合）
+                if (!tableExists(conn, "servers")) {
+                    stmt.execute("""
+                        CREATE TABLE servers (
+                            id INT AUTO_INCREMENT PRIMARY KEY,
+                            server_name VARCHAR(100) UNIQUE NOT NULL COMMENT 'サーバー名（ユニーク）',
+                            server_description TEXT COMMENT 'サーバーの説明',
+                            log_path VARCHAR(500) COMMENT 'ログファイルパス',
+                            is_active BOOLEAN DEFAULT TRUE COMMENT '有効フラグ',
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
+                            last_log_received DATETIME COMMENT '最終ログ受信日時'
+                        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                        """);
+                    log.accept("serversテーブルを作成しました", "INFO");
+                }
 
-                // コミット
                 conn.commit();
                 conn.setAutoCommit(originalAutoCommit);
 
-                log.accept("複数サーバー対応スキーマの更新が完了しました", "INFO");
+                log.accept("複数サーバー対応のスキーマ拡張が完了しました", "INFO");
                 return true;
 
             } catch (SQLException e) {
-                // エラー時はロールバック
                 conn.rollback();
                 conn.setAutoCommit(originalAutoCommit);
-                log.accept("複数サーバー対応スキーマ更新でエラー: " + e.getMessage(), "ERROR");
                 throw e;
             }
 
         } catch (SQLException e) {
-            log.accept("複数サーバー対応スキーマ更新で致命的エラー: " + e.getMessage(), "CRITICAL");
+            log.accept("複数サーバー対応スキーマ拡張でエラー: " + e.getMessage(), "ERROR");
             return false;
         }
     }
 
     /**
-     * サーバー情報を登録または更新
+     * サーバー情報をデータベースに登録または更新
      * @param conn データベース接続
      * @param serverName サーバー名
+     * @param description サーバーの説明
      * @param logPath ログファイルパス
-     * @param description サーバー説明
      * @param logFunc ログ出力関数
      * @return 登録/更新成功可否
      */
-    public static boolean registerServer(Connection conn, String serverName, String logPath, String description, BiConsumer<String, String> logFunc) {
+    public static boolean registerOrUpdateServer(Connection conn, String serverName, String description,
+                                               String logPath, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
 
-        // サーバー名の妥当性チェック
-        if (serverName == null || serverName.trim().isEmpty()) {
-            log.accept("サーバー名が空です", "ERROR");
-            return false;
-        }
+        String sql = """
+            INSERT INTO servers (server_name, server_description, log_path, last_log_received)
+            VALUES (?, ?, ?, NOW())
+            ON DUPLICATE KEY UPDATE
+                server_description = VALUES(server_description),
+                log_path = VALUES(log_path),
+                updated_at = NOW(),
+                last_log_received = NOW()
+            """;
 
-        try {
-            // 既存のサーバー情報を確認
-            String checkSql = "SELECT id, log_path, server_description FROM servers WHERE server_name = ?";
-            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
-                checkStmt.setString(1, serverName);
-                ResultSet rs = checkStmt.executeQuery();
+        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, serverName);
+            pstmt.setString(2, description);
+            pstmt.setString(3, logPath);
 
-                if (rs.next()) {
-                    // 既存のサーバー情報を更新
-                    String updateSql = """
-                        UPDATE servers 
-                        SET log_path = ?, server_description = ?, last_log_received = NOW(), updated_at = NOW() 
-                        WHERE server_name = ?
-                    """;
-                    try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-                        updateStmt.setString(1, logPath);
-                        updateStmt.setString(2, description);
-                        updateStmt.setString(3, serverName);
-                        updateStmt.executeUpdate();
-                        log.accept("サーバー情報を更新しました: " + serverName, "DEBUG");
-                    }
-                } else {
-                    // 新規サーバー情報を登録
-                    String insertSql = """
-                        INSERT INTO servers (server_name, log_path, server_description, last_log_received) 
-                        VALUES (?, ?, ?, NOW())
-                    """;
-                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                        insertStmt.setString(1, serverName);
-                        insertStmt.setString(2, logPath);
-                        insertStmt.setString(3, description);
-                        insertStmt.executeUpdate();
-                        log.accept("新規サーバーを登録しました: " + serverName, "INFO");
-                    }
-                }
-            }
-
+            pstmt.executeUpdate(); // 戻り値を使用しないため、直接実行
+            log.accept(String.format("サーバー情報を登録/更新しました: %s", serverName), "DEBUG");
             return true;
 
         } catch (SQLException e) {
-            log.accept("サーバー登録でエラー: " + e.getMessage(), "ERROR");
+            log.accept("サーバー情報登録/更新でエラー: " + e.getMessage(), "ERROR");
             return false;
         }
     }
@@ -626,6 +606,7 @@ public class DbSchema {
      * @param logFunc ログ出力関数
      * @return サーバー情報のリスト
      */
+    @SuppressWarnings("unused")
     public static List<Map<String, Object>> getServerList(Connection conn, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
@@ -634,15 +615,15 @@ public class DbSchema {
 
         try {
             String sql = """
-                SELECT server_name, server_description, log_path, is_active, 
-                       created_at, updated_at, last_log_received 
-                FROM servers 
+                SELECT server_name, server_description, log_path, is_active,
+                       created_at, updated_at, last_log_received
+                FROM servers
                 ORDER BY server_name
-            """;
-            
+                """;
+
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 ResultSet rs = pstmt.executeQuery();
-                
+
                 while (rs.next()) {
                     Map<String, Object> server = new HashMap<>();
                     server.put("server_name", rs.getString("server_name"));
@@ -661,5 +642,20 @@ public class DbSchema {
         }
 
         return servers;
+    }
+
+    /**
+     * テーブルが存在するかチェック
+     * @param conn データベース接続
+     * @param tableName テーブル名
+     * @return テーブルが存在する場合true
+     * @throws SQLException SQL例外
+     */
+    private static boolean tableExists(Connection conn, String tableName) throws SQLException {
+        try (PreparedStatement pstmt = conn.prepareStatement("SHOW TABLES LIKE ?")) {
+            pstmt.setString(1, tableName);
+            ResultSet rs = pstmt.executeQuery();
+            return rs.next();
+        }
     }
 }
