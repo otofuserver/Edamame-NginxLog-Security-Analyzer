@@ -1,7 +1,7 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.36
+- **specification.txt version**: v1.0.40
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -16,6 +16,15 @@
   - Systemd または Docker コンテナで常駐稼働
 
 ## アーキテクチャ変更履歴
+### v1.0.37 - 複数サーバー監視への完全移行
+- **単一サーバーモード（フォールバック）の完全廃止**
+- **複数サーバー監視のみに統一**：servers.confファイルによる設定管理
+- **サーバー設定ファイル更新検知の誤報修正**：静的変数による正確な更新時刻管理
+- **削除されたメソッド**：
+  - monitorLogFile() (単一サーバー監視用)
+  - processLogLine() (従来のログ処理)
+- **コードクリーンアップ**：未使用インポートの削除、「フォールバック」表現の統一
+
 ### v1.0.33 - Java版への完全移行
 - **Python版からJava版への移行完了**
 - **ビルドシステム**: Maven → Gradle
@@ -77,13 +86,15 @@
 ### `access_log`
 | カラム名         | 型              | 説明                       |
 |------------------|------------------|----------------------------|
-| id               | INT              | 主キー、自動採番         |
+| id               | BIGINT           | 主キー、自動採番         |
 | method           | VARCHAR(10)      | HTTPメソッド              |
 | full_url         | TEXT             | アクセスURL（クエリ含む） |
 | status_code      | INT              | HTTPステータスコード      |
 | ip_address       | VARCHAR(45)      | クライアントIP            |
 | access_time      | DATETIME         | アクセス日時（ログから抽出）|
 | blocked_by_modsec| BOOLEAN          | ModSecurityブロック有無    |
+| created_at       | DATETIME         | レコード作成日時          |
+| server_name      | VARCHAR(100)     | ログ送信元サーバー名      |
 
 ### `url_registry`
 | カラム名         | 型              | 説明                                 |
@@ -91,46 +102,59 @@
 | id               | INT              | 主キー、自動採番                   |
 | method           | VARCHAR(10)      | HTTPメソッド                        |
 | full_url         | TEXT             | アクセスURL                         |
-| created_at       | DATETIME         | 登録日時（ログから抽出）            |
-| updated_at       | DATETIME         | 最終更新日時（ログから抽出）        |
+| created_at       | DATETIME         | 登録日時（自動設定）               |
+| updated_at       | DATETIME         | 最終更新日時（自動更新）           |
 | is_whitelisted   | BOOLEAN          | ホワイトリスト対象か               |
-| description      | TEXT             | クライアントによる説明入力欄       |
-| attack_type      | VARCHAR(255)     | 識別された攻撃タイプ（複数可）     |
+| attack_type      | VARCHAR(50)      | 識別された攻撃タイプ               |
 | user_final_threat| BOOLEAN          | ユーザーの脅威最終判断             |
 | user_threat_note | TEXT             | 脅威判断に対するメモ欄             |
+| server_name      | VARCHAR(100)     | URL発見元サーバー名               |
 
 ### `modsec_alerts`
 | カラム名         | 型              | 説明                                  |
 |------------------|------------------|---------------------------------------|
-| id               | INT              | 主キー、自動採番                    |
-| access_log_id    | INT              | `access_log.id` への外部キー         |
+| id               | BIGINT           | 主キー、自動採番                    |
+| access_log_id    | BIGINT           | `access_log.id` への外部キー         |
 | rule_id          | VARCHAR(20)      | ModSecurityルールID                  |
-| msg              | TEXT             | アラートメッセージ                   |
-| data             | TEXT             | 詳細情報                             |
-| severity         | VARCHAR(10)      | 深刻度                               |
+| severity         | VARCHAR(20)      | 深刻度                               |
+| message          | TEXT             | アラートメッセージ                   |
+| data_value       | TEXT             | 詳細情報                             |
+| created_at       | DATETIME         | レコード作成日時                     |
+| detected_at      | DATETIME         | 検知日時                             |
+| server_name      | VARCHAR(100)     | アラート発生元サーバー名             |
+
+### `servers`（サーバー管理）
+| カラム名           | 型              | 説明                           |
+|--------------------|------------------|--------------------------------|
+| id                 | INT              | 主キー、自動採番               |
+| server_name        | VARCHAR(100)     | サーバー名（ユニーク）         |
+| server_description | TEXT             | サーバーの説明                 |
+| log_path          | VARCHAR(500)     | ログファイルパス               |
+| is_active         | BOOLEAN          | 有効フラグ                     |
+| created_at        | DATETIME         | 作成日時                       |
+| updated_at        | DATETIME         | 最終更新日時                   |
+| last_log_received | DATETIME         | 最終ログ受信日時               |
 
 ### `settings`
 | カラム名              | 型              | 説明                           |
 |------------------------|------------------|----------------------------------|
 | id                     | INT              | 固定値: 1（単一レコード管理）   |
 | whitelist_mode         | BOOLEAN          | ホワイトリスト有効フラグ       |
-| whitelist_ip           | VARCHAR(45)      | 登録用のIPアドレス       |
+| whitelist_ip           | VARCHAR(45)      | 登録用のIPアドレス            |
 | backend_version        | VARCHAR(50)      | バックエンドバージョン情報     |
 | frontend_version       | VARCHAR(50)      | フロントエンドバージョン情報   |
-| attack_patterns_version| VARCHAR(50)      | attack_patterns.jsonバージョン |
 
 ### `users`（フロントエンド認証用）
 | カラム名         | 型              | 説明                           |
 |------------------|------------------|--------------------------------|
 | id               | INT              | 主キー、自動採番               |
-| username         | VARCHAR(64)      | ユーザー名（ユニーク）         |
-| password_hash    | VARCHAR(255)     | パスワード（ハッシュ化）       |
-| email            | VARCHAR(255)     | メールアドレス（ユニーク）     |
-| is_active        | BOOLEAN          | 有効フラグ                     |
+| username         | VARCHAR(50)      | ユーザー名（ユニーク）         |
+| password_hash    | VARCHAR(255)     | パスワード（BCryptハッシュ化） |
 | role_id          | INT              | ロールID（rolesテーブルへの外部キー） |
 | created_at       | DATETIME         | 作成日時                       |
 | updated_at       | DATETIME         | 最終更新日時                   |
-| last_login_at    | DATETIME         | 最終ログイン日時               |
+| last_login       | DATETIME         | 最終ログイン日時               |
+| is_active        | BOOLEAN          | 有効フラグ                     |
 
 #### 🆕 初期ユーザー自動追加仕様
 - usersテーブル新規作成時、初期ユーザー（admin/admin123, admin@example.com, is_active=True）を自動追加する。
@@ -155,12 +179,12 @@
 ### `login_history`（ログイン履歴）
 | カラム名         | 型              | 説明                           |
 |------------------|------------------|--------------------------------|
-| id               | INT              | 主キー、自動採番               |
+| id               | BIGINT           | 主キー、自動採番               |
 | user_id          | INT              | users.id への外部キー           |
-| login_ip         | VARCHAR(45)      | ログイン元IP                   |
 | login_time       | DATETIME         | ログイン日時                   |
-| success          | BOOLEAN          | 成功/失敗フラグ                |
+| ip_address       | VARCHAR(45)      | ログイン元IP                   |
 | user_agent       | TEXT             | ユーザーエージェント           |
+| success          | BOOLEAN          | 成功/失敗フラグ                |
 
 ---
 

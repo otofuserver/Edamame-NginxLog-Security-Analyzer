@@ -43,7 +43,7 @@ public class ServerConfig {
 
     private static final String DEFAULT_CONFIG_PATH = "/app/config/servers.conf";
     private static long staticLastModified = 0; // 静的メソッド用の最終更新時刻管理
-
+    
     private final String configPath;
     private final BiConsumer<String, String> logger;
     private final List<ServerInfo> servers = new ArrayList<>();
@@ -225,32 +225,32 @@ public class ServerConfig {
      */
     public static boolean updateIfNeeded(String configPath, BiConsumer<String, String> logger) {
         Path configFile = Paths.get(configPath != null ? configPath : DEFAULT_CONFIG_PATH);
-
+        
         if (!Files.exists(configFile)) {
             return false;
         }
 
         try {
             long currentModified = Files.getLastModifiedTime(configFile).toMillis();
-
+            
             // 初回チェック時は現在の時刻を記録してfalseを返す
             if (staticLastModified == 0) {
                 staticLastModified = currentModified;
                 return false;
             }
-
+            
             // ファイルが更新されているかチェック
             if (currentModified != staticLastModified) {
                 logger.accept("サーバー設定ファイルの更新を検知しました", "INFO");
                 staticLastModified = currentModified; // 更新時刻を記録
-
+                
                 // 新しいインスタンスで設定を再読み込み
                 ServerConfig config = new ServerConfig(configPath, logger);
                 return config.loadServers();
             }
-
+            
             return false; // 更新なし
-
+            
         } catch (IOException e) {
             logger.accept("設定ファイル更新確認エラー: " + e.getMessage(), "WARN");
             return false;

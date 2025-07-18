@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **複数サーバー監視機能の実装**
+- **複数サーバー監視機能の完全実装**
   - CSV形式（管理名,ログパス）での複数サーバー設定管理
   - 各サーバーの独立したログファイル監視（LogMonitorクラス）
   - サーバー設定ファイル（servers.conf）の5分間隔自動更新チェック
@@ -33,8 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **複数サーバー環境での重複URL登録問題の解決**
   - サーバー別のURL一意性確保（method + full_url + server_name）
   - サーバー情報の自動登録・更新機能
+- **サーバー設定ファイル更新検知の誤報を修正**
+  - updateIfNeededメソッドで静的変数による最終更新時刻管理を実装
+  - 初回チェック時の誤検知を防止
+  - ファイルが実際に更新された場合のみ処理を実行
 
 ### Removed
+- **単一サーバーモード（フォールバック）の完全廃止**
+  - 複数サーバー監視のみに統一
+  - 使用されなくなったmonitorLogFile()とprocessLogLine()メソッドを削除
+  - 未使用インポート（java.io.*）のクリーンアップ
+  - コメント内の「フォールバック」表現を「代替」に統一
 - 古い外部ネットワークアクセス制限に関するドキュメント記載
 - 実装済みTODOコメントの削除
 

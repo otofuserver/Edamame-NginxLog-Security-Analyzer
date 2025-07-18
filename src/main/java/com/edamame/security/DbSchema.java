@@ -3,6 +3,10 @@ package com.edamame.security;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.function.BiConsumer;
 
 /**
@@ -502,93 +506,160 @@ public class DbSchema {
                     stmt.execute("""
                         ALTER TABLE modsec_alerts 
                         ADD COLUMN server_name VARCHAR(100) NOT NULL DEFAULT 'default' 
-                        COMMENT 'ModSecurityアラート発生サーバー名'
+                        COMMENT 'アラート発生元サーバー名'
                     """);
                     log.accept("modsec_alertsテーブルにserver_nameカラムを追加しました", "INFO");
                     
-                    // インデックスを追加
+                    // インデックスを追加（検索パフォーマンス向上のため）
                     stmt.execute("CREATE INDEX idx_modsec_alerts_server_name ON modsec_alerts(server_name)");
                     log.accept("modsec_alertsテーブルのserver_nameにインデックスを作成しました", "INFO");
                 } else {
                     log.accept("modsec_alertsテーブルのserver_nameカラムは既に存在します", "DEBUG");
                 }
 
-                // servers管理テーブルを作成（サーバー情報の一元管理用）
+                // serversテーブルを作成（サーバー管理用）
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS servers (
                         id INT AUTO_INCREMENT PRIMARY KEY,
-                        server_name VARCHAR(100) NOT NULL UNIQUE COMMENT 'サーバー管理名',
-                        log_path VARCHAR(500) NOT NULL COMMENT 'ログファイルパス',
-                        description TEXT COMMENT 'サーバー説明',
-                        is_active BOOLEAN DEFAULT TRUE COMMENT '監視有効フラグ',
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '登録日時',
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
-                        last_activity_at DATETIME COMMENT '最終ログ受信日時'
-                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci 
-                    COMMENT='監視対象サーバー管理テーブル'
+                        server_name VARCHAR(100) NOT NULL UNIQUE,
+                        server_description TEXT,
+                        log_path VARCHAR(500),
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        last_log_received DATETIME NULL,
+                        INDEX idx_servers_name (server_name),
+                        INDEX idx_servers_active (is_active)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                    COMMENT='サーバー管理テーブル'
                 """);
                 log.accept("serversテーブルを作成または確認しました", "INFO");
 
+                // コミット
                 conn.commit();
                 conn.setAutoCommit(originalAutoCommit);
-                
-                log.accept("複数サーバー対応スキーマ更新が完了しました", "INFO");
+
+                log.accept("複数サーバー対応スキーマの更新が完了しました", "INFO");
                 return true;
 
             } catch (SQLException e) {
+                // エラー時はロールバック
                 conn.rollback();
                 conn.setAutoCommit(originalAutoCommit);
-                log.accept("複数サーバー対応スキーマ更新に失敗しました: " + e.getMessage(), "ERROR");
-                return false;
+                log.accept("複数サーバー対応スキーマ更新でエラー: " + e.getMessage(), "ERROR");
+                throw e;
             }
 
         } catch (SQLException e) {
-            log.accept("複数サーバー対応スキーマ更新でエラーが発生しました: " + e.getMessage(), "ERROR");
+            log.accept("複数サーバー対応スキーマ更新で致命的エラー: " + e.getMessage(), "CRITICAL");
             return false;
         }
     }
 
     /**
-     * サーバー情報をserversテーブルに登録または更新
+     * サーバー情報を登録または更新
      * @param conn データベース接続
      * @param serverName サーバー名
      * @param logPath ログファイルパス
-     * @param description サーバー説明（任意）
+     * @param description サーバー説明
      * @param logFunc ログ出力関数
-     * @return 登録成功可否
+     * @return 登録/更新成功可否
      */
     public static boolean registerServer(Connection conn, String serverName, String logPath, String description, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
 
-        String sql = """
-            INSERT INTO servers (server_name, log_path, description, last_activity_at) 
-            VALUES (?, ?, ?, NOW()) 
-            ON DUPLICATE KEY UPDATE 
-                log_path = VALUES(log_path),
-                description = VALUES(description),
-                is_active = TRUE,
-                updated_at = CURRENT_TIMESTAMP,
-                last_activity_at = NOW()
-        """;
+        // サーバー名の妥当性チェック
+        if (serverName == null || serverName.trim().isEmpty()) {
+            log.accept("サーバー名が空です", "ERROR");
+            return false;
+        }
 
-        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, serverName);
-            pstmt.setString(2, logPath);
-            pstmt.setString(3, description != null ? description : "");
+        try {
+            // 既存のサーバー情報を確認
+            String checkSql = "SELECT id, log_path, server_description FROM servers WHERE server_name = ?";
+            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
+                checkStmt.setString(1, serverName);
+                ResultSet rs = checkStmt.executeQuery();
 
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.accept("サーバー情報を登録/更新しました: " + serverName + " → " + logPath, "INFO");
-                return true;
-            } else {
-                log.accept("サーバー情報の登録/更新に失敗しました: " + serverName, "WARN");
-                return false;
+                if (rs.next()) {
+                    // 既存のサーバー情報を更新
+                    String updateSql = """
+                        UPDATE servers 
+                        SET log_path = ?, server_description = ?, last_log_received = NOW(), updated_at = NOW() 
+                        WHERE server_name = ?
+                    """;
+                    try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                        updateStmt.setString(1, logPath);
+                        updateStmt.setString(2, description);
+                        updateStmt.setString(3, serverName);
+                        updateStmt.executeUpdate();
+                        log.accept("サーバー情報を更新しました: " + serverName, "DEBUG");
+                    }
+                } else {
+                    // 新規サーバー情報を登録
+                    String insertSql = """
+                        INSERT INTO servers (server_name, log_path, server_description, last_log_received) 
+                        VALUES (?, ?, ?, NOW())
+                    """;
+                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                        insertStmt.setString(1, serverName);
+                        insertStmt.setString(2, logPath);
+                        insertStmt.setString(3, description);
+                        insertStmt.executeUpdate();
+                        log.accept("新規サーバーを登録しました: " + serverName, "INFO");
+                    }
+                }
+            }
+
+            return true;
+
+        } catch (SQLException e) {
+            log.accept("サーバー登録でエラー: " + e.getMessage(), "ERROR");
+            return false;
+        }
+    }
+
+    /**
+     * 登録されているサーバー一覧を取得
+     * @param conn データベース接続
+     * @param logFunc ログ出力関数
+     * @return サーバー情報のリスト
+     */
+    public static List<Map<String, Object>> getServerList(Connection conn, BiConsumer<String, String> logFunc) {
+        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+
+        List<Map<String, Object>> servers = new ArrayList<>();
+
+        try {
+            String sql = """
+                SELECT server_name, server_description, log_path, is_active, 
+                       created_at, updated_at, last_log_received 
+                FROM servers 
+                ORDER BY server_name
+            """;
+            
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                ResultSet rs = pstmt.executeQuery();
+                
+                while (rs.next()) {
+                    Map<String, Object> server = new HashMap<>();
+                    server.put("server_name", rs.getString("server_name"));
+                    server.put("server_description", rs.getString("server_description"));
+                    server.put("log_path", rs.getString("log_path"));
+                    server.put("is_active", rs.getBoolean("is_active"));
+                    server.put("created_at", rs.getTimestamp("created_at"));
+                    server.put("updated_at", rs.getTimestamp("updated_at"));
+                    server.put("last_log_received", rs.getTimestamp("last_log_received"));
+                    servers.add(server);
+                }
             }
 
         } catch (SQLException e) {
-            log.accept("サーバー情報登録エラー: " + e.getMessage(), "ERROR");
-            return false;
+            log.accept("サーバー一覧取得でエラー: " + e.getMessage(), "ERROR");
         }
+
+        return servers;
     }
 }

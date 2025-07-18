@@ -32,7 +32,7 @@ import java.util.regex.PatternSyntaxException;
  */
 public class AttackPattern {
 
-    private static final String GITHUB_URL = "https://raw.githubusercontent.com/otofuserver/Edamame-NginxLog-Security-Analyzer/master/attack_patterns.json";
+    private static final String GITHUB_URL = "https://github.com/otofuserver/Edamame-NginxLog-Security-Analyzer/blob/master/container/attack_patterns.json";
 
     /**
      * URLをデコードする（%エンコーディング -> 通常文字）
