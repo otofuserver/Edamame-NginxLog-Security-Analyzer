@@ -37,15 +37,13 @@ WORKDIR /app
 RUN mkdir -p /run/secrets /app/config /var/log/nginx \
     && chown -R nginxlog:nginxlog /run/secrets /app/config /var/log/nginx
 
-# 設定ファイルをコピー
-COPY config/attack_patterns.json /app/config/attack_patterns.json
 
 # JARファイルをコピー（バージョン番号なしの統一ファイル名）
 COPY ./NginxLogToMysql.jar ./nginxlog-analyzer.jar
 COPY ./SetupSecureConfig.jar ./setup-config.jar
 
 # 実行権限の設定
-RUN chown nginxlog:nginxlog /app/*.jar /app/config/*
+RUN chown nginxlog:nginxlog /app/*.jar
 
 # ユーザーを nginxlog に切り替え
 USER nginxlog

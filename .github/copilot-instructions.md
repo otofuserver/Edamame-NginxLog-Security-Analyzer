@@ -54,7 +54,8 @@ Edamame NginxLog Security Analyzerは、NGINXのアクセスログを監視し�
 - **`container/docker-compose.yml`**: Docker Compose設定
 - **`container/setup_secure_config.bat`**: Windows用セットアップスクリプト
 - **`container/setup_secure_config.sh`**: Linux用セットアップスクリプト
-- **`container/attack_patterns.json`**: 攻撃パターン定義ファイル
+- **`container/config/attack_patterns.json`**: 攻撃パターン定義ファイル
+- **`container/config/servers.conf`**: 複数サーバー設定ファイル
 
 ## 開発時の注意事項
 

@@ -37,7 +37,7 @@ public class NginxLogToMysql {
     private static final String LOG_PATH = getEnvOrDefault("LOG_PATH", "/var/log/nginx/nginx.log");
     private static final String SECURE_CONFIG_PATH = getEnvOrDefault("SECURE_CONFIG_PATH", "/run/secrets/db_config.enc");
     private static final String KEY_PATH = getEnvOrDefault("KEY_PATH", "/run/secrets/secret.key");
-    private static final String ATTACK_PATTERNS_PATH = getEnvOrDefault("ATTACK_PATTERNS_PATH", "/run/secrets/attack_patterns.json");
+    private static final String ATTACK_PATTERNS_PATH = getEnvOrDefault("ATTACK_PATTERNS_PATH", "/app/config/attack_patterns.json");
     private static final String SERVERS_CONFIG_PATH = getEnvOrDefault("SERVERS_CONFIG_PATH", "/app/config/servers.conf");
 
     // 設定値
