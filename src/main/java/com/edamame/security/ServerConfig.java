@@ -247,18 +247,18 @@ public class ServerConfig {
                 // 新しいインスタンスで設定を再読み込み
                 ServerConfig config = new ServerConfig(configPath, logger);
                 boolean loadResult = config.loadServers();
-
+                
                 if (loadResult) {
                     logger.accept("サーバー設定の再読み込みが完了しました", "INFO");
                 } else {
                     logger.accept("サーバー設定の再読み込みに失敗しました", "WARN");
                 }
-
+                
                 return loadResult;
             }
             
             return false; // 更新なし（ログ出力なし）
-
+            
         } catch (IOException e) {
             logger.accept("設定ファイル更新確認エラー: " + e.getMessage(), "WARN");
             return false;

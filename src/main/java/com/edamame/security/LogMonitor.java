@@ -118,7 +118,10 @@ public class LogMonitor {
 
         try (BufferedReader reader = Files.newBufferedReader(logPath)) {
             // ファイルの末尾にシーク（tail -f のような動作）
-            reader.skip(lastFileSize);
+            long skipped = reader.skip(lastFileSize);
+            if (skipped != lastFileSize) {
+                logger.accept("ファイルシーク警告 (" + serverInfo.name() + "): 期待値=" + lastFileSize + ", 実際=" + skipped, "WARN");
+            }
 
             String line;
             while (isRunning.get()) {
@@ -134,8 +137,8 @@ public class LogMonitor {
                         // ログ行を処理（サーバー名を含めて処理）
                         processLogLineWithServerInfo(line);
                     } else {
-                        // 新しい行がない場合は短時間待機
-                        Thread.sleep(100);
+                        // 新しい行がない場合は短時間待機（ビジーウェイト回避のため適切な間隔）
+                        Thread.sleep(500);
                     }
 
                 } catch (InterruptedException e) {
@@ -143,9 +146,9 @@ public class LogMonitor {
                     break;
                 } catch (IOException e) {
                     logger.accept("ログ読み込みエラー (" + serverInfo.name() + "): " + e.getMessage(), "ERROR");
-                    // エラー時は1秒待機してリトライ
+                    // エラー時は適切な間隔で待機してリトライ
                     try {
-                        Thread.sleep(1000);
+                        Thread.sleep(2000);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         break;
@@ -171,7 +174,7 @@ public class LogMonitor {
     /**
      * ファイルローテーションを検知
      * @param logPath ログファイルパス
-     * @return ローテーション検知結果
+     * @return ローテーションが発生したかどうか
      */
     private boolean checkFileRotation(Path logPath) {
         try {
@@ -189,8 +192,18 @@ public class LogMonitor {
                 return true;
             }
 
-            // ファイルサイズと更新時刻を更新
-            lastFileSize = currentSize;
+            // ファイルの更新時刻が大幅に変わった場合（新しいファイルに置き換えられた可能性）
+            // 1秒以上の差がある場合、かつファイルサイズが0またはlastFileSizeより小さい場合
+            if (Math.abs(currentModified - lastModified) > 1000 && currentSize <= lastFileSize) {
+                lastFileSize = currentSize;
+                lastModified = currentModified;
+                return true;
+            }
+
+            // ファイルサイズと更新時刻を更新（サイズが変わった場合のみ）
+            if (currentSize != lastFileSize) {
+                lastFileSize = currentSize;
+            }
             lastModified = currentModified;
 
             return false;
@@ -224,7 +237,7 @@ public class LogMonitor {
         return String.format("LogMonitor[%s] - Running: %s, Thread: %s, FileSize: %d",
             serverInfo.name(),
             isRunning.get(),
-            monitorThread != null ? monitorThread.isAlive() : false,
+            monitorThread != null && monitorThread.isAlive(),
             lastFileSize);
     }
 
