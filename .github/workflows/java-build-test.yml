@@ -16,6 +16,11 @@ on:
       - 'gradle/**'
       - 'src/**'
 
+# GitHubリリース作成のための権限設定
+permissions:
+  contents: write
+  discussions: write
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
@@ -77,10 +82,15 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build-and-test
+    permissions:
+      contents: write
+      discussions: write
 
     steps:
       - name: リポジトリをチェックアウト
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 全履歴を取得
 
       - name: Java 21環境セットアップ
         uses: actions/setup-java@v4
@@ -111,8 +121,8 @@ jobs:
 
       - name: リリース用zipファイル作成
         run: |
-          # タグ名からバージョン番号を抽出（v1.0.33 → 1.0.33）
-          VERSION=${GITHUB_REF#refs/tags/v}
+          # タグ名からバージョン番号を抽出（v1.0.0 → 1.0.0）
+          VERSION=${GITHUB_REF_NAME#v}
           echo "リリースバージョン: $VERSION"
           
           # リリース用ディレクトリを作成
@@ -123,8 +133,8 @@ jobs:
           
           # README.mdとライセンスファイルも含める
           cp README.md release/edamame-nginx-analyzer-$VERSION/
-          cp LICENSE release/edamame-nginx-analyzer-$VERSION/
-          cp CHANGELOG.md release/edamame-nginx-analyzer-$VERSION/
+          cp LICENSE release/edamame-nginx-analyzer-$VERSION/ 2>/dev/null || echo "LICENSE file not found, skipping"
+          cp CHANGELOG.md release/edamame-nginx-analyzer-$VERSION/ 2>/dev/null || echo "CHANGELOG.md file not found, skipping"
           
           # リリース用zipファイルを作成
           cd release
@@ -132,12 +142,15 @@ jobs:
           
           echo "✅ リリースパッケージ作成完了: edamame-nginx-analyzer-$VERSION.zip"
           ls -la *.zip
+          
+          # 環境変数として設定
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "RELEASE_FILE=edamame-nginx-analyzer-$VERSION.zip" >> $GITHUB_ENV
 
       - name: リリースノート生成
         id: release_notes
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          VERSION=${{ env.VERSION }}
           
           # CHANGELOGからリリースノートを抽出
           if [ -f CHANGELOG.md ]; then
@@ -150,59 +163,53 @@ jobs:
             RELEASE_NOTES="Version $VERSION のリリースです。"
           fi
           
-          # GitHubの特殊文字をエスケープ
-          RELEASE_NOTES="${RELEASE_NOTES//'%'/'%25'}"
-          RELEASE_NOTES="${RELEASE_NOTES//$'\n'/'%0A'}"
-          RELEASE_NOTES="${RELEASE_NOTES//$'\r'/'%0D'}"
+          # マルチライン文字列をファイルに保存
+          cat > release_notes.md << 'EOF'
+          # Edamame NginxLog Security Analyzer ${{ env.VERSION }}
           
-          echo "RELEASE_NOTES=$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          ${{ env.VERSION }}版のリリースです。
+          
+          ## 📦 パッケージ内容
+          - **NginxLogToMysql.jar**: メインアプリケーション
+          - **SetupSecureConfig.jar**: セキュア設定ファイル作成ツール
+          - **Dockerfile**: Docker環境用設定
+          - **docker-compose.yml**: Docker Compose設定
+          - **config/**: 設定ファイル（attack_patterns.json, servers.conf）
+          - **setup_secure_config.sh/.bat**: セットアップスクリプト
+          
+          ## 🚀 使用方法
+          1. zipファイルをダウンロードして展開
+          2. `setup_secure_config.sh`（Linux）または `setup_secure_config.bat`（Windows）を実行
+          3. `docker-compose up -d`でアプリケーション起動
+          
+          ## 📋 システム要件
+          - Java 21+
+          - MySQL 8.x
+          - Docker & Docker Compose（コンテナ使用時）
+          
+          ## 📝 変更履歴
+          EOF
+          
+          # CHANGELOG.mdの内容を追加
+          if [ -f CHANGELOG.md ]; then
+            awk '/^## \['"$VERSION"'\]/ {flag=1; next} /^## \[/ && flag {exit} flag' CHANGELOG.md >> release_notes.md
+          fi
 
-      - name: GitHubリリース作成
-        uses: actions/create-release@v1
-        id: create_release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: GitHubリリース作成（新API使用）
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_name }}
-          release_name: Edamame NginxLog Security Analyzer ${{ steps.release_notes.outputs.VERSION }}
-          body: |
-            # Edamame NginxLog Security Analyzer ${{ steps.release_notes.outputs.VERSION }}
-            
-            ${{ steps.release_notes.outputs.RELEASE_NOTES }}
-            
-            ## 📦 パッケージ内容
-            - **NginxLogToMysql.jar**: メインアプリケーション
-            - **SetupSecureConfig.jar**: セキュア設定ファイル作成ツール
-            - **Dockerfile**: Docker環境用設定
-            - **docker-compose.yml**: Docker Compose設定
-            - **config/**: 設定ファイル（attack_patterns.json, servers.conf）
-            - **setup_secure_config.sh/.bat**: セットアップスクリプト
-            
-            ## 🚀 使用方法
-            1. zipファイルをダウンロードして展開
-            2. `setup_secure_config.sh`（Linux）または `setup_secure_config.bat`（Windows）を実行
-            3. `docker-compose up -d`でアプリケーション起動
-            
-            ## 📋 システム要件
-            - Java 21+
-            - MySQL 8.x
-            - Docker & Docker Compose（コンテナ使用時）
+          name: Edamame NginxLog Security Analyzer ${{ env.VERSION }}
+          body_path: release_notes.md
+          files: release/${{ env.RELEASE_FILE }}
           draft: false
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
-
-      - name: リリースアセット（zipファイル）をアップロード
-        uses: actions/upload-release-asset@v1
+          generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: release/edamame-nginx-analyzer-${{ steps.release_notes.outputs.VERSION }}.zip
-          asset_name: edamame-nginx-analyzer-${{ steps.release_notes.outputs.VERSION }}.zip
-          asset_content_type: application/zip
 
       - name: リリース完了通知
         run: |
-          VERSION=${{ steps.release_notes.outputs.VERSION }}
-          echo "🎉 リリース完了: Edamame NginxLog Security Analyzer $VERSION"
-          echo "📦 リリースURL: ${{ steps.create_release.outputs.html_url }}"
-          echo "💾 ダウンロードURL: ${{ steps.create_release.outputs.upload_url }}"
+          echo "🎉 リリース完了: Edamame NginxLog Security Analyzer ${{ env.VERSION }}"
+          echo "📦 リリースURL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+          echo "💾 ダウンロードファイル: ${{ env.RELEASE_FILE }}"
