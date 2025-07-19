@@ -38,7 +38,7 @@ RUN mkdir -p /run/secrets /app/config /var/log/nginx \
     && chown -R nginxlog:nginxlog /run/secrets /app/config /var/log/nginx
 
 
-# JARファイルをコピー（バージョン番号なしの統一ファイル名）
+# JARファイルをコピー（containerフォルダからコピー）
 COPY ./NginxLogToMysql.jar ./nginxlog-analyzer.jar
 COPY ./SetupSecureConfig.jar ./setup-config.jar
 

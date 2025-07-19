@@ -55,14 +55,25 @@ jobs:
           # containerフォルダが存在しない場合は作成
           mkdir -p container
           
+          # ビルド成果物の確認
+          echo "=== ビルド成果物確認 ==="
+          find build/libs -name "*.jar" -type f
+          
           # バージョン番号を除いたファイル名でコピー
+          echo "=== JARファイルコピー開始 ==="
           cp build/libs/NginxLogToMysql-*.jar container/NginxLogToMysql.jar
           cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
           
-          # ファイルが正常にコピーされたことを確認
-          ls -la container/*.jar
+          # コピー結果の確認
+          echo "=== コピー結果確認 ==="
+          ls -la container/
           
-          echo "JARファイルのcontainerフォルダ配置が完了しました"
+          # JARファイルの詳細情報表示
+          echo "=== JARファイル詳細情報 ==="
+          file container/*.jar
+          du -h container/*.jar
+          
+          echo "✅ JARファイルのcontainerフォルダ配置が完了しました"
 
       - name: ビルド成果物をアップロード
         uses: actions/upload-artifact@v4
