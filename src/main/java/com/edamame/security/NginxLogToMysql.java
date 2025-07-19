@@ -25,7 +25,7 @@ public class NginxLogToMysql {
 
     // アプリケーション定数
     private static final String APP_NAME = "Edamame NginxLog Security Analyzer";
-    private static final String APP_VERSION = "v1.0.33";
+    private static final String APP_VERSION = "v1.0.0";
     private static final String APP_AUTHOR = "Developed by Code Copilot";
 
     // パス設定（複数サーバー対応のためLOG_PATHは servers.conf から読み取り）

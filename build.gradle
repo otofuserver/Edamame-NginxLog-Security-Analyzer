@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'com.edamame.security'
-version = '1.0.33'
+version = '1.0.0'
 
 // プロジェクト情報
 description = 'NGINXログを監視し、セキュリティ攻撃を検知・記録するツール'
