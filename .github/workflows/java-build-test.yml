@@ -7,6 +7,8 @@ on:
       - 'build.gradle'
       - 'gradle/**'
       - 'src/**'
+    tags:
+      - 'v*'  # vで始まるタグがプッシュされた時
   pull_request:
     paths:
       - '**.java'
@@ -50,73 +52,6 @@ jobs:
       - name: テスト実行
         run: ./gradlew test
 
-      - name: JARファイルをcontainerフォルダに配置
-        run: |
-          # containerフォルダが存在しない場合は作成
-          mkdir -p container
-          
-          # ビルド成果物の確認
-          echo "=== ビルド成果物確認 ==="
-          find build/libs -name "*.jar" -type f
-          
-          # バージョン番号を除いたファイル名でコピー
-          echo "=== JARファイルコピー開始 ==="
-          cp build/libs/NginxLogToMysql-*.jar container/NginxLogToMysql.jar
-          cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
-          
-          # コピー結果の確認
-          echo "=== コピー結果確認 ==="
-          ls -la container/
-          
-          # JARファイルの詳細情報表示
-          echo "=== JARファイル詳細情報 ==="
-          file container/*.jar
-          du -h container/*.jar
-          
-          echo "✅ JARファイルのcontainerフォルダ配置が完了しました"
-
-      - name: ビルド成果物をアップロード
-        uses: actions/upload-artifact@v4
-        with:
-          name: jar-files
-          path: |
-            container/NginxLogToMysql.jar
-            container/SetupSecureConfig.jar
-          retention-days: 30
-
-      - name: ビルド結果の概要表示
-        run: |
-          echo "=== ビルド結果 ==="
-          echo "✅ Java 21コンパイル: 成功"
-          echo "✅ Gradleビルド: 成功" 
-          echo "✅ テスト実行: 成功"
-          echo "✅ JAR配置: 成功"
-          echo ""
-          echo "生成されたJARファイル:"
-          find container -name "*.jar" -exec echo "  - {}" \;
-
-  docker-build-test:
-    runs-on: ubuntu-latest
-    needs: build-and-test
-
-    steps:
-      - name: リポジトリをチェックアウト
-        uses: actions/checkout@v4
-
-      - name: Java 21環境セットアップ
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Gradleキャッシュ復元
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-
       - name: JARファイル生成とcontainerフォルダへコピーその後Dockerイメージビルドテスト
         run: |
           chmod +x gradlew
@@ -136,3 +71,138 @@ jobs:
           echo "Dockerコンテナの起動テスト:"
           # DB接続情報がないため即座に終了するが、コンテナ起動まで確認
           timeout 30s docker run --rm edamame-nginx-analyzer:test || echo "期待通り終了しました"
+
+  # タグプッシュ時のリリース作成ジョブ
+  release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-test
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Java 21環境セットアップ
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Gradleキャッシュ設定
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: JARファイル生成とcontainerフォルダ準備
+        run: |
+          chmod +x gradlew
+          ./gradlew build
+          echo "生成されたJARファイルをcontainerフォルダにコピー:"
+          cp build/libs/NginxLogToMysql-*.jar container/NginxLogToMysql.jar
+          cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
+          echo "✅ JARファイルのコピーが完了しました"
+          echo "containerフォルダの内容確認:"
+          ls -la container/
+
+      - name: リリース用zipファイル作成
+        run: |
+          # タグ名からバージョン番号を抽出（v1.0.33 → 1.0.33）
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "リリースバージョン: $VERSION"
+          
+          # リリース用ディレクトリを作成
+          mkdir -p release/edamame-nginx-analyzer-$VERSION
+          
+          # containerフォルダの内容をすべてコピー
+          cp -r container/* release/edamame-nginx-analyzer-$VERSION/
+          
+          # README.mdとライセンスファイルも含める
+          cp README.md release/edamame-nginx-analyzer-$VERSION/
+          cp LICENSE release/edamame-nginx-analyzer-$VERSION/
+          cp CHANGELOG.md release/edamame-nginx-analyzer-$VERSION/
+          
+          # リリース用zipファイルを作成
+          cd release
+          zip -r edamame-nginx-analyzer-$VERSION.zip edamame-nginx-analyzer-$VERSION/
+          
+          echo "✅ リリースパッケージ作成完了: edamame-nginx-analyzer-$VERSION.zip"
+          ls -la *.zip
+
+      - name: リリースノート生成
+        id: release_notes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          
+          # CHANGELOGからリリースノートを抽出
+          if [ -f CHANGELOG.md ]; then
+            # 最新バージョンの変更内容を抽出
+            RELEASE_NOTES=$(awk '/^## \['"$VERSION"'\]/ {flag=1; next} /^## \[/ && flag {exit} flag' CHANGELOG.md)
+            if [ -z "$RELEASE_NOTES" ]; then
+              RELEASE_NOTES="Version $VERSION のリリースです。詳細な変更内容はCHANGELOG.mdをご確認ください。"
+            fi
+          else
+            RELEASE_NOTES="Version $VERSION のリリースです。"
+          fi
+          
+          # GitHubの特殊文字をエスケープ
+          RELEASE_NOTES="${RELEASE_NOTES//'%'/'%25'}"
+          RELEASE_NOTES="${RELEASE_NOTES//$'\n'/'%0A'}"
+          RELEASE_NOTES="${RELEASE_NOTES//$'\r'/'%0D'}"
+          
+          echo "RELEASE_NOTES=$RELEASE_NOTES" >> $GITHUB_OUTPUT
+
+      - name: GitHubリリース作成
+        uses: actions/create-release@v1
+        id: create_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Edamame NginxLog Security Analyzer ${{ steps.release_notes.outputs.VERSION }}
+          body: |
+            # Edamame NginxLog Security Analyzer ${{ steps.release_notes.outputs.VERSION }}
+            
+            ${{ steps.release_notes.outputs.RELEASE_NOTES }}
+            
+            ## 📦 パッケージ内容
+            - **NginxLogToMysql.jar**: メインアプリケーション
+            - **SetupSecureConfig.jar**: セキュア設定ファイル作成ツール
+            - **Dockerfile**: Docker環境用設定
+            - **docker-compose.yml**: Docker Compose設定
+            - **config/**: 設定ファイル（attack_patterns.json, servers.conf）
+            - **setup_secure_config.sh/.bat**: セットアップスクリプト
+            
+            ## 🚀 使用方法
+            1. zipファイルをダウンロードして展開
+            2. `setup_secure_config.sh`（Linux）または `setup_secure_config.bat`（Windows）を実行
+            3. `docker-compose up -d`でアプリケーション起動
+            
+            ## 📋 システム要件
+            - Java 21+
+            - MySQL 8.x
+            - Docker & Docker Compose（コンテナ使用時）
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+
+      - name: リリースアセット（zipファイル）をアップロード
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: release/edamame-nginx-analyzer-${{ steps.release_notes.outputs.VERSION }}.zip
+          asset_name: edamame-nginx-analyzer-${{ steps.release_notes.outputs.VERSION }}.zip
+          asset_content_type: application/zip
+
+      - name: リリース完了通知
+        run: |
+          VERSION=${{ steps.release_notes.outputs.VERSION }}
+          echo "🎉 リリース完了: Edamame NginxLog Security Analyzer $VERSION"
+          echo "📦 リリースURL: ${{ steps.create_release.outputs.html_url }}"
+          echo "💾 ダウンロードURL: ${{ steps.create_release.outputs.upload_url }}"
