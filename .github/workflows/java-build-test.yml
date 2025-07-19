@@ -127,9 +127,9 @@ jobs:
           echo "✅ JARファイルのコピーが完了しました"
           cd container
           echo "containerフォルダの内容確認:"
-          ls -la *.jar
+          ls -la
           echo "Dockerイメージのビルドテスト:"
-          docker build -f container/Dockerfile -t edamame-nginx-analyzer:test .
+          docker build -f Dockerfile -t edamame-nginx-analyzer:test .
 
       - name: Dockerコンテナ起動テスト
         run: |
