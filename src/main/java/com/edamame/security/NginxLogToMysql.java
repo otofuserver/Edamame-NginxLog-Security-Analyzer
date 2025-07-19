@@ -5,8 +5,6 @@ import org.bouncycastle.crypto.engines.AESEngine;
 import org.bouncycastle.crypto.modes.GCMBlockCipher;
 import org.bouncycastle.crypto.params.AEADParameters;
 import org.bouncycastle.crypto.params.KeyParameter;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.nio.file.*;
 import java.sql.*;
@@ -24,8 +22,6 @@ import java.nio.charset.StandardCharsets;
  * ログの監視とDB保存を担当
  */
 public class NginxLogToMysql {
-
-    private static final Logger logger = LoggerFactory.getLogger(NginxLogToMysql.class);
 
     // アプリケーション定数
     private static final String APP_NAME = "Edamame NginxLog Security Analyzer";
