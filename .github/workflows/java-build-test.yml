@@ -125,7 +125,9 @@ jobs:
           cp build/libs/NginxLogToMysql-*.jar container/NginxLogToMysql.jar
           cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
           echo "✅ JARファイルのコピーが完了しました"
-          ls -la container/*.jar
+          cd container
+          echo "containerフォルダの内容確認:"
+          ls -la *.jar
           echo "Dockerイメージのビルドテスト:"
           docker build -f container/Dockerfile -t edamame-nginx-analyzer:test .
 

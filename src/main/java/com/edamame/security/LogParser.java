@@ -79,22 +79,22 @@ public class LogParser {
      * @param ipStr IPアドレス文字列
      * @return 有効なIPアドレスの場合true
      */
-    private static boolean isValidIp(String ipStr) {
+    private static boolean isInvalidIp(String ipStr) {
         // IPv4アドレスのチェック
         Matcher ipv4Matcher = IPV4_PATTERN.matcher(ipStr);
         if (ipv4Matcher.matches()) {
             for (int i = 1; i <= 4; i++) {
                 int octet = Integer.parseInt(ipv4Matcher.group(i));
                 if (octet < 0 || octet > 255) {
-                    return false; // 無効な場合false
+                    return true; // 無効な場合true
                 }
             }
-            return true; // 有効な場合true
+            return false; // 有効な場合false
         }
 
         // IPv6アドレスのチェック（簡易版）
-        return IPV6_PATTERN.matcher(ipStr).matches() &&
-               (ipStr.contains("::") || ipStr.chars().filter(ch -> ch == ':').count() >= 2);
+        return !(IPV6_PATTERN.matcher(ipStr).matches() &&
+                (ipStr.contains("::") || ipStr.chars().filter(ch -> ch == ':').count() >= 2));
     }
 
     /**
@@ -187,7 +187,7 @@ public class LogParser {
                 ipAddress = matcher.group(1);
                 String requestLine = matcher.group(2);
 
-                if (!isValidIp(ipAddress)) {
+                if (isInvalidIp(ipAddress)) {
                     log.accept("無効なIPアドレスを検出（エラーログ）: '" + ipAddress + "' (行: " +
                              truncateLog(originalLine, 50) + ")", "WARN");
                     return null;
@@ -210,7 +210,7 @@ public class LogParser {
             case 1: // syslog形式のnginxアクセスログ
             case 2: // message repeated形式
                 ipAddress = matcher.group(1);
-                if (!isValidIp(ipAddress)) {
+                if (isInvalidIp(ipAddress)) {
                     log.accept("無効なIPアドレスを検出: '" + ipAddress + "'", "WARN");
                     return null;
                 }
@@ -229,7 +229,7 @@ public class LogParser {
 
             default: // その他のパターン
                 ipAddress = matcher.group(1);
-                if (!isValidIp(ipAddress)) {
+                if (isInvalidIp(ipAddress)) {
                     log.accept("無効なIPアドレスを検出: '" + ipAddress + "'", "WARN");
                     return null;
                 }
