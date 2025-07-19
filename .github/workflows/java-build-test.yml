@@ -117,7 +117,7 @@ jobs:
             ~/.gradle/wrapper
           key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
 
-      - name: JARファイル生成とcontainerフォルダへコピー
+      - name: JARファイル生成とcontainerフォルダへコピーその後Dockerイメージビルドテスト
         run: |
           chmod +x gradlew
           ./gradlew build
@@ -126,9 +126,6 @@ jobs:
           cp build/libs/SetupSecureConfig-*.jar container/SetupSecureConfig.jar
           echo "✅ JARファイルのコピーが完了しました"
           ls -la container/*.jar
-
-      - name: Dockerイメージビルドテスト
-        run: |
           echo "Dockerイメージのビルドテスト:"
           docker build -f container/Dockerfile -t edamame-nginx-analyzer:test .
 

@@ -185,28 +185,23 @@ public class LogMonitor {
             long currentSize = Files.size(logPath);
             long currentModified = Files.getLastModifiedTime(logPath).toMillis();
 
+            boolean rotationDetected = false;
+
             // ファイルサイズが小さくなった場合（ローテーション）
             if (currentSize < lastFileSize) {
-                lastFileSize = currentSize;
-                lastModified = currentModified;
-                return true;
+                rotationDetected = true;
             }
-
             // ファイルの更新時刻が大幅に変わった場合（新しいファイルに置き換えられた可能性）
             // 1秒以上の差がある場合、かつファイルサイズが0またはlastFileSizeより小さい場合
-            if (Math.abs(currentModified - lastModified) > 1000 && currentSize <= lastFileSize) {
-                lastFileSize = currentSize;
-                lastModified = currentModified;
-                return true;
+            else if (Math.abs(currentModified - lastModified) > 1000 && currentSize <= lastFileSize) {
+                rotationDetected = true;
             }
 
-            // ファイルサイズと更新時刻を更新（サイズが変わった場合のみ）
-            if (currentSize != lastFileSize) {
-                lastFileSize = currentSize;
-            }
+            // ファイルサイズと更新時刻を更新
+            lastFileSize = currentSize;
             lastModified = currentModified;
 
-            return false;
+            return rotationDetected;
 
         } catch (IOException e) {
             logger.accept("ファイルローテーション検知エラー (" + serverInfo.name() + "): " + e.getMessage(), "WARN");
