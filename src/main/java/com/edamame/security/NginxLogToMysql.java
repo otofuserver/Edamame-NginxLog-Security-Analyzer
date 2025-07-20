@@ -33,6 +33,7 @@ public class NginxLogToMysql {
     private static final String KEY_PATH = getEnvOrDefault("KEY_PATH", "/run/secrets/secret.key");
     private static final String ATTACK_PATTERNS_PATH = getEnvOrDefault("ATTACK_PATTERNS_PATH", "/app/config/attack_patterns.json");
     private static final String SERVERS_CONFIG_PATH = getEnvOrDefault("SERVERS_CONFIG_PATH", "/app/config/servers.conf");
+    private static final String ALERTS_OUTPUT_PATH = getEnvOrDefault("ALERTS_OUTPUT_PATH", "/app/alerts");
 
     // 設定値
     private static final int MAX_RETRIES = Integer.parseInt(getEnvOrDefault("MAX_RETRIES", "5"));
@@ -536,6 +537,11 @@ public class NginxLogToMysql {
             if (affectedRows > 0) {
                 log("新規URL登録: " + serverName + " - " + method + " " + fullUrl + " (攻撃タイプ: " + attackType + ")", "INFO");
 
+                // 攻撃が検知された場合、セキュリティアラートを出力
+                if (!"CLEAN".equals(attackType) && !"UNKNOWN".equals(attackType)) {
+                    outputSecurityAlert(attackType, ipAddress, serverName, fullUrl);
+                }
+
                 // サーバー情報を自動登録/更新
                 Connection dbConn = dbConnect();
                 if (dbConn != null) {
@@ -736,6 +742,78 @@ public class NginxLogToMysql {
 
         log(String.format("監視状況: %d/%d サーバーが動作中", activeMonitors, totalMonitors), "INFO");
         log("==================", "INFO");
+    }
+
+    /**
+     * セキュリティアラートをファイルに出力（ホスト側スクリプトとの連携用）
+     * @param attackType 攻撃タイプ
+     * @param ipAddress 攻撃元IPアドレス
+     * @param serverName サーバー名
+     * @param url アクセスされたURL
+     */
+    private static void outputSecurityAlert(String attackType, String ipAddress, String serverName, String url) {
+        try {
+            // アラート出力ディレクトリの作成
+            Path alertsDir = Paths.get(ALERTS_OUTPUT_PATH);
+            if (!Files.exists(alertsDir)) {
+                Files.createDirectories(alertsDir);
+            }
+
+            // ブロック対象IPリストファイル
+            Path blockedIpsFile = alertsDir.resolve("blocked_ips.txt");
+
+            // 攻撃詳細ログファイル
+            Path attackLogFile = alertsDir.resolve("attack_details.log");
+
+            // IPアドレスをブロックリストに追加（重複チェック付き）
+            boolean ipExists = false;
+            if (Files.exists(blockedIpsFile)) {
+                List<String> existingIps = Files.readAllLines(blockedIpsFile);
+                ipExists = existingIps.contains(ipAddress);
+            }
+
+            if (!ipExists) {
+                Files.write(blockedIpsFile, (ipAddress + System.lineSeparator()).getBytes(),
+                           StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                log("IPアドレスをブロックリストに追加: " + ipAddress, "ALERT");
+            }
+
+            // 攻撃詳細をログファイルに記録
+            String alertMessage = String.format("[%s] SERVER:%s ATTACK:%s IP:%s URL:%s%n",
+                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
+                serverName, attackType, ipAddress, url);
+
+            Files.write(attackLogFile, alertMessage.getBytes(),
+                       StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+
+            // 緊急アラート用ファイル（高危険度攻撃の場合）
+            if (isHighRiskAttack(attackType)) {
+                Path emergencyAlertFile = alertsDir.resolve("emergency_alerts.txt");
+                String emergencyMessage = String.format("EMERGENCY: %s from %s on %s%n",
+                    attackType, ipAddress, serverName);
+                Files.write(emergencyAlertFile, emergencyMessage.getBytes(),
+                           StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                log("緊急アラート発行: " + attackType + " from " + ipAddress, "EMERGENCY");
+            }
+
+        } catch (Exception e) {
+            log("セキュリティアラート出力エラー: " + e.getMessage(), "ERROR");
+        }
+    }
+
+    /**
+     * 高リスク攻撃の判定
+     * @param attackType 攻撃タイプ
+     * @return 高リスク攻撃の場合true
+     */
+    private static boolean isHighRiskAttack(String attackType) {
+        return attackType != null && (
+            attackType.contains("SQL_INJECTION") ||
+            attackType.contains("XSS") ||
+            attackType.contains("RCE") ||
+            attackType.contains("LFI") ||
+            attackType.contains("SHELL_INJECTION")
+        );
     }
 
     /**
