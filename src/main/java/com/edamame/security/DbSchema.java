@@ -141,6 +141,67 @@ public class DbSchema {
                 """);
                 log.accept("login_historyテーブルを作成または確認しました", "INFO");
 
+                // action_toolsテーブル（操作ツール管理）
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS action_tools (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        tool_name VARCHAR(50) NOT NULL COMMENT '操作ツール名 (mail, iptables, cloudflare)',
+                        tool_type ENUM('mail', 'iptables', 'cloudflare', 'webhook', 'custom') NOT NULL COMMENT 'ツールタイプ',
+                        is_enabled BOOLEAN DEFAULT TRUE COMMENT 'ツール有効化フラグ',
+                        config_json JSON COMMENT 'ツール固有設定 (JSON形式)',
+                        description TEXT COMMENT 'ツールの説明',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        UNIQUE KEY unique_tool_name (tool_name)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+                log.accept("action_toolsテーブルを作成または確認しました", "INFO");
+
+                // action_rulesテーブル（アクション実行ルール管理）
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS action_rules (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        rule_name VARCHAR(100) NOT NULL COMMENT 'ルール名',
+                        target_server VARCHAR(100) DEFAULT '*' COMMENT '対象サーバー名 (* = 全サーバー)',
+                        condition_type ENUM('attack_detected', 'ip_frequency', 'status_code', 'custom') NOT NULL COMMENT '実行条件タイプ',
+                        condition_params JSON COMMENT '条件パラメータ (JSON形式)',
+                        action_tool_id INT NOT NULL COMMENT '実行する操作ツールID',
+                        action_params JSON COMMENT 'アクション固有パラメータ (JSON形式)',
+                        is_enabled BOOLEAN DEFAULT TRUE COMMENT 'ルール有効化フラグ',
+                        priority INT DEFAULT 100 COMMENT 'ルール優先度 (数値が小さいほど高優先)',
+                        last_executed DATETIME NULL COMMENT '最終実行日時',
+                        execution_count INT DEFAULT 0 COMMENT '実行回数',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        FOREIGN KEY (action_tool_id) REFERENCES action_tools(id) ON DELETE CASCADE,
+                        INDEX idx_target_server (target_server),
+                        INDEX idx_condition_type (condition_type),
+                        INDEX idx_enabled (is_enabled),
+                        INDEX idx_priority (priority)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+                log.accept("action_rulesテーブルを作成または確認しました", "INFO");
+
+                // action_execution_logテーブル（アクション実行履歴）
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS action_execution_log (
+                        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                        rule_id INT NOT NULL COMMENT '実行されたルールID',
+                        server_name VARCHAR(100) NOT NULL COMMENT 'アクション実行対象サーバー',
+                        trigger_event JSON COMMENT 'トリガーとなったイベント情報',
+                        execution_status ENUM('success', 'failed', 'skipped') NOT NULL COMMENT '実行ステータス',
+                        execution_result TEXT COMMENT '実行結果・エラーメッセージ',
+                        execution_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '実行日時',
+                        processing_duration_ms INT DEFAULT 0 COMMENT '処���時間（ミリ秒）',
+                        FOREIGN KEY (rule_id) REFERENCES action_rules(id) ON DELETE CASCADE,
+                        INDEX idx_rule_id (rule_id),
+                        INDEX idx_server_name (server_name),
+                        INDEX idx_execution_time (execution_time),
+                        INDEX idx_execution_status (execution_status)
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+                log.accept("action_execution_logテーブルを作成または確認しました", "INFO");
+
                 // 手動コミット
                 conn.commit();
 
@@ -262,6 +323,92 @@ public class DbSchema {
                     insertStmt.setInt(3, adminRoleId);
                     insertStmt.executeUpdate();
                     log.accept("初期ユーザー(admin)を管理者ロールで作成しました", "INFO");
+                }
+            }
+        }
+
+        // action_toolsテーブルが空なら初期アクションツールを追加
+        try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_tools")) {
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next() && rs.getInt(1) == 0) {
+                // 初期アクションツールの定義
+                String[][] initialTools = {
+                    {
+                        "mail_alert",
+                        "mail",
+                        "true",
+                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[SECURITY ALERT] {attack_type} detected from {ip_address}\",\"body_template\":\"Security Alert\\n\\nServer: {server_name}\\nAttack Type: {attack_type}\\nSource IP: {ip_address}\\nURL: {url}\\nTime: {timestamp}\"}",
+                        "メール通知ツール - セキュリティアラートをメールで送信"
+                    },
+                    {
+                        "iptables_block",
+                        "iptables",
+                        "false",
+                        "{\"action\":\"DROP\",\"chain\":\"INPUT\",\"comment\":\"Blocked by Edamame Security Analyzer\",\"timeout_minutes\":60}",
+                        "iptables連携ツール - 攻撃元IPをファイアウォールでブロック"
+                    },
+                    {
+                        "cloudflare_block",
+                        "cloudflare",
+                        "false",
+                        "{\"api_token\":\"\",\"zone_id\":\"\",\"block_mode\":\"challenge\",\"notes\":\"Blocked by Edamame Security Analyzer\"}",
+                        "Cloudflare連携ツール - 攻撃元IPをCloudflareでブロック"
+                    },
+                    {
+                        "webhook_notify",
+                        "webhook",
+                        "false",
+                        "{\"url\":\"\",\"method\":\"POST\",\"headers\":{\"Content-Type\":\"application/json\"},\"payload_template\":\"{\\\"server\\\":\\\"{server_name}\\\",\\\"attack_type\\\":\\\"{attack_type}\\\",\\\"ip_address\\\":\\\"{ip_address}\\\",\\\"url\\\":\\\"{url}\\\",\\\"timestamp\\\":\\\"{timestamp}\\\"}\"}",
+                        "Webhook通知ツール - カスタムWebhookエンドポイントに通知"
+                    }
+                };
+
+                try (PreparedStatement insertStmt = conn.prepareStatement(
+                    "INSERT INTO action_tools (tool_name, tool_type, is_enabled, config_json, description) VALUES (?, ?, ?, ?, ?)")) {
+                    for (String[] tool : initialTools) {
+                        insertStmt.setString(1, tool[0]);
+                        insertStmt.setString(2, tool[1]);
+                        insertStmt.setBoolean(3, Boolean.parseBoolean(tool[2]));
+                        insertStmt.setString(4, tool[3]);
+                        insertStmt.setString(5, tool[4]);
+                        insertStmt.addBatch();
+                    }
+                    insertStmt.executeBatch();
+                    log.accept("初期アクションツール（mail_alert, iptables_block, cloudflare_block, webhook_notify）を作成しました", "INFO");
+                }
+            }
+        }
+
+        // action_rulesテーブルが空��ら初期ルールを追加
+        try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_rules")) {
+            ResultSet rs = pstmt.executeQuery();
+            if (rs.next() && rs.getInt(1) == 0) {
+                // mail_alertツールのIDを取得
+                int mailToolId = 0;
+                try (PreparedStatement toolStmt = conn.prepareStatement("SELECT id FROM action_tools WHERE tool_name = 'mail_alert'")) {
+                    ResultSet toolRs = toolStmt.executeQuery();
+                    if (toolRs.next()) {
+                        mailToolId = toolRs.getInt("id");
+                    }
+                }
+
+                if (mailToolId > 0) {
+                    // 初期ルールの定義（攻撃検知時のメール通知）
+                    try (PreparedStatement insertStmt = conn.prepareStatement(
+                        "INSERT INTO action_rules (rule_name, target_server, condition_type, condition_params, action_tool_id, action_params, is_enabled, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+
+                        insertStmt.setString(1, "攻撃検知時メール通知");
+                        insertStmt.setString(2, "*");
+                        insertStmt.setString(3, "attack_detected");
+                        insertStmt.setString(4, "{\"attack_types\":[\"SQL_INJECTION\",\"XSS\",\"COMMAND_INJECTION\",\"LFI\",\"RFI\",\"XXE\"]}");
+                        insertStmt.setInt(5, mailToolId);
+                        insertStmt.setString(6, "{\"severity\":\"high\",\"immediate\":true}");
+                        insertStmt.setBoolean(7, true);
+                        insertStmt.setInt(8, 10);
+
+                        insertStmt.executeUpdate();
+                        log.accept("初期アクションルール（攻撃検知時メール通知）を作成しました", "INFO");
+                    }
                 }
             }
         }

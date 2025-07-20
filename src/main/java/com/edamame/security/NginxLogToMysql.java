@@ -56,6 +56,9 @@ public class NginxLogToMysql {
     private static ServerConfig serverConfig = null;
     private static final Map<String, LogMonitor> logMonitors = new HashMap<>();
 
+    // アクション実行エンジン
+    private static ActionEngine actionEngine = null;
+
     /**
      * 環境変数を取得し、存在しない場合はデフォルト値を返す
      * @param envVar 環境変数名
@@ -248,6 +251,10 @@ public class NginxLogToMysql {
             log("複数サーバー監視の初期化に失敗しました。", "CRITICAL");
             return false;
         }
+
+        // ActionEngineの初期化
+        actionEngine = new ActionEngine(conn, NginxLogToMysql::log);
+        log("ActionEngine初期化完了", "INFO");
 
         log("初期化処理が完了しました", "INFO");
         return true;
@@ -745,15 +752,26 @@ public class NginxLogToMysql {
 
     /**
      * セキュリティアラートの出力処理
-     * 攻撃検知時のログ出力のみ実行（ファイル出力は削除）
+     * 攻撃検知時のログ出力とActionEngine連携
      * @param attackType 攻撃タイプ
      * @param ipAddress 攻撃元IPアドレス
      * @param serverName サーバー名
      * @param url アクセスされたURL
      */
     private static void outputSecurityAlert(String attackType, String ipAddress, String serverName, String url) {
-        // ログ出力のみ実行（ホスト側連携のためのファイル出力は削除）
+        // ログ出力
         log("セキュリティアラート検知: " + attackType + " | IP: " + ipAddress + " | サーバー: " + serverName + " | URL: " + url, "ALERT");
+
+        // ActionEngineによるアクション実行
+        if (actionEngine != null) {
+            try {
+                actionEngine.executeActionsOnAttackDetected(serverName, attackType, ipAddress, url, LocalDateTime.now());
+            } catch (Exception e) {
+                log("アクション実行エラー: " + e.getMessage(), "ERROR");
+            }
+        } else {
+            log("ActionEngineが初期化されていません", "WARN");
+        }
     }
 
 
