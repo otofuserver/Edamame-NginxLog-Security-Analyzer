@@ -163,7 +163,7 @@ public class DbSchema {
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         rule_name VARCHAR(100) NOT NULL COMMENT 'ルール名',
                         target_server VARCHAR(100) DEFAULT '*' COMMENT '対象サーバー名 (* = 全サーバー)',
-                        condition_type ENUM('attack_detected', 'ip_frequency', 'status_code', 'custom') NOT NULL COMMENT '実行条件タイプ',
+                        condition_type ENUM('attack_detected', 'ip_frequency', 'status_code', 'scheduled_report', 'custom') NOT NULL COMMENT '実行条件タイプ',
                         condition_params JSON COMMENT '条件パラメータ (JSON形式)',
                         action_tool_id INT NOT NULL COMMENT '実行する操作ツールID',
                         action_params JSON COMMENT 'アクション固有パラメータ (JSON形式)',
@@ -192,7 +192,7 @@ public class DbSchema {
                         execution_status ENUM('success', 'failed', 'skipped') NOT NULL COMMENT '実行ステータス',
                         execution_result TEXT COMMENT '実行結果・エラーメッセージ',
                         execution_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '実行日時',
-                        processing_duration_ms INT DEFAULT 0 COMMENT '処���時間（ミリ秒）',
+                        processing_duration_ms INT DEFAULT 0 COMMENT '処��時間（ミリ秒）',
                         FOREIGN KEY (rule_id) REFERENCES action_rules(id) ON DELETE CASCADE,
                         INDEX idx_rule_id (rule_id),
                         INDEX idx_server_name (server_name),
@@ -360,6 +360,27 @@ public class DbSchema {
                         "false",
                         "{\"url\":\"\",\"method\":\"POST\",\"headers\":{\"Content-Type\":\"application/json\"},\"payload_template\":\"{\\\"server\\\":\\\"{server_name}\\\",\\\"attack_type\\\":\\\"{attack_type}\\\",\\\"ip_address\\\":\\\"{ip_address}\\\",\\\"url\\\":\\\"{url}\\\",\\\"timestamp\\\":\\\"{timestamp}\\\"}\"}",
                         "Webhook通知ツール - カスタムWebhookエンドポイントに通知"
+                    },
+                    {
+                        "daily_report_mail",
+                        "mail",
+                        "false",
+                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[日次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"日次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL���見数: {new_urls}\"}",
+                        "日次レポートメール送信ツール"
+                    },
+                    {
+                        "weekly_report_mail",
+                        "mail",
+                        "false",
+                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[週次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"週次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
+                        "週次レポートメール送信ツール"
+                    },
+                    {
+                        "monthly_report_mail",
+                        "mail",
+                        "false",
+                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[月次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"月次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
+                        "月次レポートメール送信ツール"
                     }
                 };
 
@@ -379,7 +400,7 @@ public class DbSchema {
             }
         }
 
-        // action_rulesテーブルが空��ら初期ルールを追加
+        // action_rulesテーブルが空なら初期ルールを追加
         try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_rules")) {
             ResultSet rs = pstmt.executeQuery();
             if (rs.next() && rs.getInt(1) == 0) {

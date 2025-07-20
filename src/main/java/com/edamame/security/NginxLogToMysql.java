@@ -59,6 +59,9 @@ public class NginxLogToMysql {
     // アクション実行エンジン
     private static ActionEngine actionEngine = null;
 
+    // 定時レポートマネージャー
+    private static ScheduledReportManager reportManager = null;
+
     /**
      * 環境変数を取得し、存在しない場合はデフォルト値を返す
      * @param envVar 環境変数名
@@ -255,6 +258,11 @@ public class NginxLogToMysql {
         // ActionEngineの初期化
         actionEngine = new ActionEngine(conn, NginxLogToMysql::log);
         log("ActionEngine初期化完了", "INFO");
+
+        // 定時レポートマネージャーの初期化
+        reportManager = new ScheduledReportManager(actionEngine, NginxLogToMysql::log);
+        reportManager.startScheduledReports();
+        log("ScheduledReportManager初期化・開始完了", "INFO");
 
         log("初期化処理が完了しました", "INFO");
         return true;
@@ -791,6 +799,11 @@ public class NginxLogToMysql {
                 LogMonitor monitor = entry.getValue();
                 monitor.stopMonitoring();
                 log("サーバー監視停止: " + serverName, "INFO");
+            }
+
+            // 定時レポートマネージャーを停止
+            if (reportManager != null) {
+                reportManager.shutdown();
             }
 
             cleanup();

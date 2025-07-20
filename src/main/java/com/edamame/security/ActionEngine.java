@@ -68,6 +68,37 @@ public class ActionEngine {
     }
 
     /**
+     * 定時統計メール送信処理
+     * @param serverName サーバー名（"*"で全サーバー）
+     * @param reportType レポートタイプ（daily, weekly, monthly）
+     */
+    public void executeScheduledReport(String serverName, String reportType) {
+        try {
+            // 統計レポート条件に該当するアクションルールを取得
+            List<ActionRule> rules = getMatchingRules(serverName, "scheduled_report", Map.of(
+                "report_type", reportType,
+                "timestamp", LocalDateTime.now().toString()
+            ));
+
+            if (rules.isEmpty()) {
+                logFunction.accept("定時レポート送���に対応するアクションルールが見つかりません: " + reportType, "DEBUG");
+                return;
+            }
+
+            // 統計データを収集
+            Map<String, Object> statisticsData = collectStatisticsData(serverName, reportType);
+
+            // 優先度順でルールを実行
+            for (ActionRule rule : rules) {
+                executeRule(rule, statisticsData);
+            }
+
+        } catch (Exception e) {
+            logFunction.accept("定時レポート送信でエラー: " + e.getMessage(), "ERROR");
+        }
+    }
+
+    /**
      * 条件に一致するアクションルールを取得
      * @param serverName サーバー名
      * @param conditionType 条件タイプ
@@ -197,7 +228,7 @@ public class ActionEngine {
      */
     private boolean isCustomConditionMatching(JSONObject conditionJson, Map<String, Object> eventData) {
         // 将来実装予定
-        logFunction.accept("カスタム条件は未実装です", "DEBUG");
+        logFunction.accept("カスタ���条件は未実装です", "DEBUG");
         return false;
     }
 
@@ -352,6 +383,256 @@ public class ActionEngine {
         } catch (SQLException e) {
             logFunction.accept("アクション実行ログ記録エラー: " + e.getMessage(), "ERROR");
         }
+    }
+
+    /**
+     * 統計データを収集
+     * @param targetServer 対象サーバー
+     * @param reportType レポートタイプ
+     * @return 統計データ
+     */
+    private Map<String, Object> collectStatisticsData(String targetServer, String reportType) {
+        Map<String, Object> statistics = new HashMap<>();
+
+        try {
+            // 期間を計算
+            LocalDateTime endTime = LocalDateTime.now();
+            LocalDateTime startTime = switch (reportType) {
+                case "daily" -> endTime.minusDays(1);
+                case "weekly" -> endTime.minusDays(7);
+                case "monthly" -> endTime.minusMonths(1);
+                default -> endTime.minusDays(1);
+            };
+
+            statistics.put("report_type", reportType);
+            statistics.put("start_time", startTime.toString());
+            statistics.put("end_time", endTime.toString());
+            statistics.put("server_name", targetServer);
+
+            // アクセス数統計
+            statistics.putAll(getAccessStatistics(targetServer, startTime, endTime));
+
+            // 攻撃統計
+            statistics.putAll(getAttackStatistics(targetServer, startTime, endTime));
+
+            // ModSecurity統計
+            statistics.putAll(getModSecurityStatistics(targetServer, startTime, endTime));
+
+            // URL統計
+            statistics.putAll(getUrlStatistics(targetServer, startTime, endTime));
+
+        } catch (Exception e) {
+            logFunction.accept("統計データ収集エラー: " + e.getMessage(), "ERROR");
+            statistics.put("error", "統計データ収集に失敗しました: " + e.getMessage());
+        }
+
+        return statistics;
+    }
+
+    /**
+     * アクセス数統計を取得
+     */
+    private Map<String, Object> getAccessStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
+        Map<String, Object> stats = new HashMap<>();
+
+        try {
+            String serverCondition = "*".equals(targetServer) ? "" : " AND server_name = ?";
+
+            // 総アクセス数
+            String totalSql = """
+                SELECT COUNT(*) as total_access
+                FROM access_log 
+                WHERE access_time BETWEEN ? AND ?
+                """ + serverCondition;
+
+            try (PreparedStatement pstmt = dbConnection.prepareStatement(totalSql)) {
+                pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
+                pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
+                if (!"*".equals(targetServer)) {
+                    pstmt.setString(3, targetServer);
+                }
+
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    stats.put("total_access", rs.getInt("total_access"));
+                }
+            }
+
+            // ステータスコード別統計
+            String statusSql = """
+                SELECT status_code, COUNT(*) as count
+                FROM access_log 
+                WHERE access_time BETWEEN ? AND ?
+                """ + serverCondition + """
+                GROUP BY status_code
+                ORDER BY count DESC
+                """;
+
+            try (PreparedStatement pstmt = dbConnection.prepareStatement(statusSql)) {
+                pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
+                pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
+                if (!"*".equals(targetServer)) {
+                    pstmt.setString(3, targetServer);
+                }
+
+                ResultSet rs = pstmt.executeQuery();
+                Map<String, Integer> statusCodes = new HashMap<>();
+                while (rs.next()) {
+                    statusCodes.put(String.valueOf(rs.getInt("status_code")), rs.getInt("count"));
+                }
+                stats.put("status_codes", statusCodes);
+            }
+
+        } catch (SQLException e) {
+            logFunction.accept("アクセス統計取得エラー: " + e.getMessage(), "ERROR");
+        }
+
+        return stats;
+    }
+
+    /**
+     * 攻撃統計を取得
+     */
+    private Map<String, Object> getAttackStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
+        Map<String, Object> stats = new HashMap<>();
+
+        try {
+            String serverCondition = "*".equals(targetServer) ? "" : " AND server_name = ?";
+
+            // 攻撃タイプ別統計
+            String attackSql = """
+                SELECT attack_type, COUNT(*) as count
+                FROM url_registry 
+                WHERE created_at BETWEEN ? AND ?
+                  AND attack_type NOT IN ('CLEAN', 'UNKNOWN')
+                """ + serverCondition + """
+                GROUP BY attack_type
+                ORDER BY count DESC
+                """;
+
+            try (PreparedStatement pstmt = dbConnection.prepareStatement(attackSql)) {
+                pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
+                pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
+                if (!"*".equals(targetServer)) {
+                    pstmt.setString(3, targetServer);
+                }
+
+                ResultSet rs = pstmt.executeQuery();
+                Map<String, Integer> attackTypes = new HashMap<>();
+                int totalAttacks = 0;
+                while (rs.next()) {
+                    int count = rs.getInt("count");
+                    attackTypes.put(rs.getString("attack_type"), count);
+                    totalAttacks += count;
+                }
+                stats.put("attack_types", attackTypes);
+                stats.put("total_attacks", totalAttacks);
+            }
+
+        } catch (SQLException e) {
+            logFunction.accept("攻撃統計取得エラー: " + e.getMessage(), "ERROR");
+        }
+
+        return stats;
+    }
+
+    /**
+     * ModSecurity統計を取得
+     */
+    private Map<String, Object> getModSecurityStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
+        Map<String, Object> stats = new HashMap<>();
+
+        try {
+            String serverCondition = "*".equals(targetServer) ? "" : " AND server_name = ?";
+
+            // ModSecurityブロック数
+            String blockSql = """
+                SELECT COUNT(*) as blocked_count
+                FROM access_log 
+                WHERE access_time BETWEEN ? AND ?
+                  AND blocked_by_modsec = TRUE
+                """ + serverCondition;
+
+            try (PreparedStatement pstmt = dbConnection.prepareStatement(blockSql)) {
+                pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
+                pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
+                if (!"*".equals(targetServer)) {
+                    pstmt.setString(3, targetServer);
+                }
+
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    stats.put("modsec_blocked", rs.getInt("blocked_count"));
+                }
+            }
+
+            // ModSecurityルール別統計
+            String ruleSql = """
+                SELECT rule_id, COUNT(*) as count
+                FROM modsec_alerts 
+                WHERE created_at BETWEEN ? AND ?
+                """ + serverCondition + """
+                GROUP BY rule_id
+                ORDER BY count DESC
+                LIMIT 10
+                """;
+
+            try (PreparedStatement pstmt = dbConnection.prepareStatement(ruleSql)) {
+                pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
+                pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
+                if (!"*".equals(targetServer)) {
+                    pstmt.setString(3, targetServer);
+                }
+
+                ResultSet rs = pstmt.executeQuery();
+                Map<String, Integer> topRules = new HashMap<>();
+                while (rs.next()) {
+                    topRules.put(rs.getString("rule_id"), rs.getInt("count"));
+                }
+                stats.put("top_modsec_rules", topRules);
+            }
+
+        } catch (SQLException e) {
+            logFunction.accept("ModSecurity統計取得エラー: " + e.getMessage(), "ERROR");
+        }
+
+        return stats;
+    }
+
+    /**
+     * URL統計を取得
+     */
+    private Map<String, Object> getUrlStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
+        Map<String, Object> stats = new HashMap<>();
+
+        try {
+            String serverCondition = "*".equals(targetServer) ? "" : " AND server_name = ?";
+
+            // 新規URL発見数
+            String newUrlSql = """
+                SELECT COUNT(*) as new_urls
+                FROM url_registry 
+                WHERE created_at BETWEEN ? AND ?
+                """ + serverCondition;
+
+            try (PreparedStatement pstmt = dbConnection.prepareStatement(newUrlSql)) {
+                pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
+                pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
+                if (!"*".equals(targetServer)) {
+                    pstmt.setString(3, targetServer);
+                }
+
+                ResultSet rs = pstmt.executeQuery();
+                if (rs.next()) {
+                    stats.put("new_urls", rs.getInt("new_urls"));
+                }
+            }
+
+        } catch (SQLException e) {
+            logFunction.accept("URL統計取得エラー: " + e.getMessage(), "ERROR");
+        }
+
+        return stats;
     }
 
     /**
