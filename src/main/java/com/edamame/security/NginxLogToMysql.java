@@ -759,11 +759,8 @@ public class NginxLogToMysql {
                 Files.createDirectories(alertsDir);
             }
 
-            // ブロック対象IPリストファイル
+            // ブロック対象IPリストファイルのみ出力
             Path blockedIpsFile = alertsDir.resolve("blocked_ips.txt");
-
-            // 攻撃詳細ログファイル
-            Path attackLogFile = alertsDir.resolve("attack_details.log");
 
             // IPアドレスをブロックリストに追加（重複チェック付き）
             boolean ipExists = false;
@@ -775,25 +772,7 @@ public class NginxLogToMysql {
             if (!ipExists) {
                 Files.write(blockedIpsFile, (ipAddress + System.lineSeparator()).getBytes(),
                            StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                log("IPアドレスをブロックリストに追加: " + ipAddress, "ALERT");
-            }
-
-            // 攻撃詳細をログファイルに記録
-            String alertMessage = String.format("[%s] SERVER:%s ATTACK:%s IP:%s URL:%s%n",
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")),
-                serverName, attackType, ipAddress, url);
-
-            Files.write(attackLogFile, alertMessage.getBytes(),
-                       StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-
-            // 緊急アラート用ファイル（高危険度攻撃の場合）
-            if (isHighRiskAttack(attackType)) {
-                Path emergencyAlertFile = alertsDir.resolve("emergency_alerts.txt");
-                String emergencyMessage = String.format("EMERGENCY: %s from %s on %s%n",
-                    attackType, ipAddress, serverName);
-                Files.write(emergencyAlertFile, emergencyMessage.getBytes(),
-                           StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                log("緊急アラート発行: " + attackType + " from " + ipAddress, "EMERGENCY");
+                log("IPアドレスをブロックリストに追加: " + ipAddress + " (攻撃タイプ: " + attackType + ")", "ALERT");
             }
 
         } catch (Exception e) {
@@ -801,20 +780,6 @@ public class NginxLogToMysql {
         }
     }
 
-    /**
-     * 高リスク攻撃の判定
-     * @param attackType 攻撃タイプ
-     * @return 高リスク攻撃の場合true
-     */
-    private static boolean isHighRiskAttack(String attackType) {
-        return attackType != null && (
-            attackType.contains("SQL_INJECTION") ||
-            attackType.contains("XSS") ||
-            attackType.contains("RCE") ||
-            attackType.contains("LFI") ||
-            attackType.contains("SHELL_INJECTION")
-        );
-    }
 
     /**
      * メインメソッド

@@ -8,6 +8,7 @@ services:
     volumes:
       - /var/log/docker/docker-nginx-LO.log:/var/log/nginx/nginx.log:ro
       - ./config:/app/config:ro
+      - ./alerts:/app/alerts  # アラートファイル出力用ボリューム
     environment:
       # Java環境変数の設定（デバッグモード有効）
       - JAVA_OPTS=-Xmx256m -Xms128m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Tokyo
@@ -17,6 +18,7 @@ services:
       - KEY_PATH=/run/secrets/db_secret_key
       - ATTACK_PATTERNS_PATH=/app/config/attack_patterns.json
       - SERVERS_CONFIG_PATH=/app/config/servers.conf
+      - ALERTS_OUTPUT_PATH=/app/alerts  # アラートファイル出力パス
     secrets:
       - db_config_enc
       - db_secret_key
