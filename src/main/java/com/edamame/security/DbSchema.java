@@ -1,6 +1,6 @@
 package com.edamame.security;
 
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import com.edamame.web.security.BCryptPasswordEncoder;
 
 import java.sql.*;
 import java.util.ArrayList;

@@ -154,6 +154,9 @@ public class DashboardController {
             username = "Unknown";
         }
 
+        // ユーザー名の頭文字を生成（アバター用）
+        String userInitial = generateUserInitial(username);
+
         String template = webConfig.getTemplate("dashboard");
 
         // 基本情報を置換（XSS対策適用）
@@ -163,7 +166,8 @@ public class DashboardController {
             .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml("v1.0.0"))
             .replace("{{CURRENT_TIME}}", WebSecurityUtils.escapeHtml(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
             .replace("{{SERVER_STATUS}}", WebSecurityUtils.escapeHtml(dataService.isConnectionValid() ? "稼働中" : "エラー"))
-            .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username));
+            .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username))
+            .replace("{{CURRENT_USER_INITIAL}}", WebSecurityUtils.escapeHtml(userInitial));
 
         // 統計情報を置換（XSS対策適用）
         html = html
@@ -195,6 +199,39 @@ public class DashboardController {
         }
 
         return html;
+    }
+
+    /**
+     * ユーザー名からアバター用の頭文字を生成
+     * @param username ユーザー名
+     * @return 頭文字（1-2文字）
+     */
+    private String generateUserInitial(String username) {
+        if (username == null || username.trim().isEmpty()) {
+            return "?";
+        }
+
+        String trimmed = username.trim().toUpperCase();
+
+        // 日本語の場合は最初の1文字
+        if (trimmed.matches(".*[ひらがなカタカナ漢字].*")) {
+            return trimmed.substring(0, 1);
+        }
+
+        // 英語の場合は最初の1-2文字
+        if (trimmed.length() == 1) {
+            return trimmed;
+        } else if (trimmed.length() >= 2) {
+            // スペースが含まれている場合は名前と姓の頭文字
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length >= 2) {
+                return parts[0].substring(0, 1) + parts[1].substring(0, 1);
+            } else {
+                return trimmed.substring(0, Math.min(2, trimmed.length()));
+            }
+        }
+
+        return trimmed;
     }
 
     /**

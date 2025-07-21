@@ -60,8 +60,8 @@ dependencies {
     // 暗号化処理
     implementation "org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}"
 
-    // パスワードハッシュ化用
-    implementation "org.springframework.security:spring-security-crypto:${springSecurityVersion}"
+    // パスワードハッシュ化用（独自実装のBCryptPasswordEncoderを使用するためコメントアウト）
+    // implementation "org.springframework.security:spring-security-crypto:${springSecurityVersion}"
 
     // ロギング
     implementation "ch.qos.logback:logback-classic:${logbackVersion}"

@@ -4,6 +4,7 @@ import com.edamame.web.controller.DashboardController;
 import com.edamame.web.controller.ApiController;
 import com.edamame.web.controller.StaticResourceController;
 import com.edamame.web.controller.LoginController;
+import com.edamame.web.controller.LogoutController;
 import com.edamame.web.service.DataService;
 import com.edamame.web.config.WebConfig;
 import com.edamame.web.security.AuthenticationService;
@@ -117,10 +118,9 @@ public class WebApplication {
         LoginController loginController = new LoginController(authService, logFunction);
         server.createContext("/login", loginController);
 
-        // ログアウトコントローラー（認証不要、セッション削除処理のため）
-        // TODO: LogoutControllerクラスを作成後に有効化
-        // LogoutController logoutController = new LogoutController(authService, logFunction);
-        // server.createContext("/logout", logoutController);
+        // ログアウトコントローラー（認証不要、セッション��除処理のため）
+        LogoutController logoutController = new LogoutController(authService, logFunction);
+        server.createContext("/logout", logoutController);
 
         // 静的リソースコントローラー（認証不要）
         StaticResourceController staticController = new StaticResourceController(webConfig, logFunction);

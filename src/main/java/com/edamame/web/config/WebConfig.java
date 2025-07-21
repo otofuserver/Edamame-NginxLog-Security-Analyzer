@@ -92,6 +92,8 @@ public class WebConfig {
                         height: 100vh;
                         overflow-y: auto;
                         box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+                        display: flex;
+                        flex-direction: column;
                     }
                     
                     .sidebar-header {
@@ -113,6 +115,7 @@ public class WebConfig {
                     
                     .sidebar-menu {
                         padding: 20px 0;
+                        flex: 1;
                     }
                     
                     .menu-item {
@@ -133,6 +136,77 @@ public class WebConfig {
                         margin-right: 10px;
                         width: 20px;
                         display: inline-block;
+                    }
+                    
+                    /* ユーザー情報セクション */
+                    .user-section {
+                        margin-top: auto;
+                        padding: 20px;
+                        border-top: 1px solid rgba(255,255,255,0.1);
+                        background: rgba(0,0,0,0.2);
+                    }
+                    
+                    .user-info {
+                        display: flex;
+                        align-items: center;
+                        margin-bottom: 15px;
+                        padding: 10px;
+                        background: rgba(255,255,255,0.05);
+                        border-radius: 6px;
+                    }
+                    
+                    .user-avatar {
+                        width: 40px;
+                        height: 40px;
+                        background: linear-gradient(135deg, #3498db, #2980b9);
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-right: 10px;
+                        font-weight: bold;
+                        font-size: 1.2em;
+                    }
+                    
+                    .user-details {
+                        flex: 1;
+                    }
+                    
+                    .user-name {
+                        font-weight: bold;
+                        font-size: 0.95em;
+                        margin-bottom: 2px;
+                    }
+                    
+                    .user-role {
+                        font-size: 0.8em;
+                        opacity: 0.7;
+                    }
+                    
+                    .logout-btn {
+                        width: 100%;
+                        padding: 10px 15px;
+                        background: linear-gradient(135deg, #e74c3c, #c0392b);
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        font-size: 0.9em;
+                        font-weight: bold;
+                        cursor: pointer;
+                        transition: all 0.3s;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                    }
+                    
+                    .logout-btn:hover {
+                        background: linear-gradient(135deg, #c0392b, #a93226);
+                        transform: translateY(-1px);
+                        box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);
+                    }
+                    
+                    .logout-icon {
+                        margin-right: 8px;
                     }
                     
                     /* メインコンテンツエリア */
@@ -252,7 +326,7 @@ public class WebConfig {
                         padding: 20px;
                     }
                     
-                    /* アラート一覧 */
+                    /* アラート一�� */
                     .alert-item {
                         border: 1px solid #e9ecef;
                         border-radius: 6px;
@@ -290,6 +364,91 @@ public class WebConfig {
                     
                     .alert-content {
                         color: #2c3e50;
+                    }
+                    
+                    /* モーダルダイアログスタイル */
+                    .modal-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        width: 100%;
+                        height: 100%;
+                        background: rgba(0, 0, 0, 0.5);
+                        display: none;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 1000;
+                    }
+                    
+                    .modal-content {
+                        background: white;
+                        padding: 30px;
+                        border-radius: 10px;
+                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                        text-align: center;
+                        max-width: 400px;
+                        width: 90%;
+                        animation: modalSlideIn 0.3s ease-out;
+                    }
+                    
+                    @keyframes modalSlideIn {
+                        from {
+                            opacity: 0;
+                            transform: translateY(-50px);
+                        }
+                        to {
+                            opacity: 1;
+                            transform: translateY(0);
+                        }
+                    }
+                    
+                    .modal-title {
+                        font-size: 1.3em;
+                        font-weight: bold;
+                        color: #2c3e50;
+                        margin-bottom: 15px;
+                    }
+                    
+                    .modal-message {
+                        color: #7f8c8d;
+                        margin-bottom: 25px;
+                        line-height: 1.5;
+                    }
+                    
+                    .modal-buttons {
+                        display: flex;
+                        gap: 10px;
+                        justify-content: center;
+                    }
+                    
+                    .modal-btn {
+                        padding: 10px 20px;
+                        border: none;
+                        border-radius: 6px;
+                        font-weight: bold;
+                        cursor: pointer;
+                        transition: all 0.3s;
+                        min-width: 100px;
+                    }
+                    
+                    .modal-btn-confirm {
+                        background: linear-gradient(135deg, #e74c3c, #c0392b);
+                        color: white;
+                    }
+                    
+                    .modal-btn-confirm:hover {
+                        background: linear-gradient(135deg, #c0392b, #a93226);
+                        transform: translateY(-1px);
+                    }
+                    
+                    .modal-btn-cancel {
+                        background: #95a5a6;
+                        color: white;
+                    }
+                    
+                    .modal-btn-cancel:hover {
+                        background: #7f8c8d;
+                        transform: translateY(-1px);
                     }
                     
                     /* レスポンシブ対応 */
@@ -333,96 +492,155 @@ public class WebConfig {
             <body>
                 <div class="layout-container">
                     <!-- 左側メニューフレーム -->
-                    <nav class="sidebar">
+                    <div class="sidebar">
                         <div class="sidebar-header">
-                            <div class="sidebar-logo">🛡️ {{APP_TITLE}}</div>
-                            <div class="sidebar-status">ステータス: {{SERVER_STATUS}}</div>
+                            <div class="sidebar-logo">🌱 Edamame</div>
+                            <div class="sidebar-status">Security Dashboard</div>
                         </div>
+                        
                         <div class="sidebar-menu">
                             <a href="/dashboard" class="menu-item active">
                                 <span class="menu-icon">📊</span>ダッシュボード
                             </a>
-                            <a href="/servers" class="menu-item">
+                            <a href="/api/servers" class="menu-item">
                                 <span class="menu-icon">🖥️</span>サーバー管理
                             </a>
-                            <a href="/alerts" class="menu-item">
-                                <span class="menu-icon">🚨</span>アラート履歴
+                            <a href="/api/alerts" class="menu-item">
+                                <span class="menu-icon">🚨</span>アラート
                             </a>
-                            <a href="/analysis" class="menu-item">
-                                <span class="menu-icon">📈</span>分析レポート
+                            <a href="/api/reports" class="menu-item">
+                                <span class="menu-icon">📈</span>レポート
                             </a>
-                            <a href="/settings" class="menu-item">
+                            <a href="/api/settings" class="menu-item">
                                 <span class="menu-icon">⚙️</span>設定
                             </a>
                         </div>
-                    </nav>
+                        
+                        <!-- ユーザー情報とログアウトボタン -->
+                        <div class="user-section">
+                            <div class="user-info">
+                                <div class="user-avatar">{{CURRENT_USER_INITIAL}}</div>
+                                <div class="user-details">
+                                    <div class="user-name">{{CURRENT_USER}}</div>
+                                    <div class="user-role">管理者</div>
+                                </div>
+                            </div>
+                            <button class="logout-btn" onclick="confirmLogout()">
+                                <span class="logout-icon">🚪</span>ログアウト
+                            </button>
+                        </div>
+                    </div>
                     
                     <!-- メインコンテンツエリア -->
-                    <main class="main-content">
+                    <div class="main-content">
                         <!-- ヘッダー -->
-                        <header class="header">
-                            <h1 class="header-title">セキュリティダッシュボード</h1>
-                            <div class="header-info">{{CURRENT_TIME}}</div>
-                        </header>
-                        
-                        <!-- サーバーごとの統計セクション -->
-                        <section class="server-stats-section">
-                            <div class="section-header">
-                                📊 サーバー別統計（今日）
+                        <div class="header">
+                            <div>
+                                <div class="header-title">{{APP_TITLE}}</div>
+                                <div class="header-info">{{APP_DESCRIPTION}} | 最終更新: {{CURRENT_TIME}}</div>
                             </div>
+                            <div class="header-info">サーバー状態: {{SERVER_STATUS}}</div>
+                        </div>
+                        
+                        <!-- サーバー統計セクション -->
+                        <div class="server-stats-section">
+                            <div class="section-header">📊 サーバー統計</div>
                             <div class="server-stats-grid">
                                 {{SERVER_STATS}}
                             </div>
-                        </section>
+                        </div>
                         
-                        <!-- 最新アラート -->
-                        <section class="content-section">
-                            <div class="section-header">
-                                🚨 最新セキュリティアラート
+                        <!-- 他のセクション -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+                            <!-- 最新アラート -->
+                            <div class="content-section">
+                                <div class="section-header">🚨 最新アラート</div>
+                                <div class="section-content">
+                                    {{RECENT_ALERTS}}
+                                </div>
                             </div>
-                            <div class="section-content">
-                                {{RECENT_ALERTS}}
+                            
+                            <!-- サーバー一覧 -->
+                            <div class="content-section">
+                                <div class="section-header">🖥️ サーバー一覧</div>
+                                <div class="section-content">
+                                    {{SERVER_LIST}}
+                                </div>
                             </div>
-                        </section>
+                        </div>
                         
                         <!-- 攻撃タイプ統計 -->
-                        <section class="content-section">
-                            <div class="section-header">
-                                📈 攻撃タイプ別統計
-                            </div>
+                        <div class="content-section">
+                            <div class="section-header">🎯 攻撃タイプ統計（今日）</div>
                             <div class="section-content">
                                 {{ATTACK_TYPES}}
                             </div>
-                        </section>
-                    </main>
+                        </div>
+                    </div>
                 </div>
                 
-                {{#AUTO_REFRESH}}
-                <div class="auto-refresh-indicator">
-                    自動更新: {{REFRESH_INTERVAL}}秒間隔
+                <!-- ログアウト確認モーダル -->
+                <div id="logoutModal" class="modal-overlay">
+                    <div class="modal-content">
+                        <div class="modal-title">ログアウト確認</div>
+                        <div class="modal-message">
+                            本当にログアウトしますか？<br>
+                            未保存の変更がある場合は失われます。
+                        </div>
+                        <div class="modal-buttons">
+                            <button class="modal-btn modal-btn-confirm" onclick="executeLogout()">
+                                ログアウト
+                            </button>
+                            <button class="modal-btn modal-btn-cancel" onclick="cancelLogout()">
+                                キャンセル
+                            </button>
+                        </div>
+                    </div>
                 </div>
+                
                 <script>
-                    function startAutoRefresh(interval) {
-                        setInterval(() => {
-                            window.location.reload();
-                        }, interval);
+                    // ログアウト確認ダイアログ
+                    function confirmLogout() {
+                        const modal = document.getElementById('logoutModal');
+                        modal.style.display = 'flex';
+                        document.body.style.overflow = 'hidden';
                     }
-                    startAutoRefresh({{REFRESH_INTERVAL}} * 1000);
-                </script>
-                {{/AUTO_REFRESH}}
-                
-                <script>
-                    // モバイル対応のサイドバートグル
-                    document.addEventListener('DOMContentLoaded', function() {
-                        if (window.innerWidth <= 768) {
-                            const sidebar = document.querySelector('.sidebar');
-                            const toggleBtn = document.createElement('button');
-                            toggleBtn.innerHTML = '☰';
-                            toggleBtn.style.cssText = 'position:fixed;top:20px;left:20px;z-index:1001;background:#3498db;color:white;border:none;padding:10px;border-radius:4px;';
-                            toggleBtn.onclick = () => sidebar.classList.toggle('open');
-                            document.body.appendChild(toggleBtn);
+                    
+                    function cancelLogout() {
+                        const modal = document.getElementById('logoutModal');
+                        modal.style.display = 'none';
+                        document.body.style.overflow = 'auto';
+                    }
+                    
+                    function executeLogout() {
+                        // ログアウト処理を実行
+                        const form = document.createElement('form');
+                        form.method = 'POST';
+                        form.action = '/logout';
+                        document.body.appendChild(form);
+                        form.submit();
+                    }
+                    
+                    // モーダル外クリックで閉じる
+                    document.getElementById('logoutModal').addEventListener('click', function(e) {
+                        if (e.target === this) {
+                            cancelLogout();
                         }
                     });
+                    
+                    // ESCキーでモーダルを閉じる
+                    document.addEventListener('keydown', function(e) {
+                        if (e.key === 'Escape') {
+                            cancelLogout();
+                        }
+                    });
+                    
+                    {{#AUTO_REFRESH}}
+                    // 自動更新
+                    setInterval(function() {
+                        location.reload();
+                    }, {{REFRESH_INTERVAL}} * 1000);
+                    {{/AUTO_REFRESH}}
                 </script>
             </body>
             </html>
