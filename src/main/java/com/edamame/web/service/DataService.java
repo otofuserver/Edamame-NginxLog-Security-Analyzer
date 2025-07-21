@@ -49,6 +49,9 @@ public class DataService {
             // ModSecurityブロック数（今日）
             stats.put("modsecBlocks", getModSecBlocksToday());
 
+            // サーバーごとの統計データ
+            stats.put("serverStats", getServerStats());
+
             // アクティブサーバー数
             stats.put("activeServers", getActiveServerCount());
 
@@ -213,6 +216,57 @@ public class DataService {
         }
 
         return servers;
+    }
+
+    /**
+     * サーバーごとの統計データを取得
+     * @return サーバー統計のリスト
+     */
+    public List<Map<String, Object>> getServerStats() {
+        List<Map<String, Object>> serverStats = new ArrayList<>();
+
+        String sql = """
+            SELECT 
+                s.server_name,
+                s.server_description,
+                s.is_active,
+                s.last_log_received,
+                COUNT(al.id) as total_access,
+                COUNT(CASE WHEN ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal') THEN 1 END) as attack_count,
+                COUNT(CASE WHEN al.blocked_by_modsec = TRUE THEN 1 END) as modsec_blocks
+            FROM servers s
+            LEFT JOIN access_log al ON s.server_name COLLATE utf8mb4_unicode_ci = al.server_name COLLATE utf8mb4_unicode_ci 
+                AND DATE(al.access_time) = CURDATE()
+            LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url 
+                AND al.server_name = ur.server_name
+            GROUP BY s.id, s.server_name, s.server_description, s.is_active, s.last_log_received
+            ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
+            """;
+
+        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
+            ResultSet rs = pstmt.executeQuery();
+
+            while (rs.next()) {
+                Map<String, Object> serverStat = new HashMap<>();
+                serverStat.put("serverName", rs.getString("server_name"));
+                serverStat.put("serverDescription", rs.getString("server_description"));
+                serverStat.put("isActive", rs.getBoolean("is_active"));
+                serverStat.put("lastLogReceived", formatDateTime(rs.getTimestamp("last_log_received")));
+                serverStat.put("totalAccess", rs.getInt("total_access"));
+                serverStat.put("attackCount", rs.getInt("attack_count"));
+                serverStat.put("modsecBlocks", rs.getInt("modsec_blocks"));
+                serverStat.put("status", determineServerStatus(rs.getBoolean("is_active"), rs.getTimestamp("last_log_received")));
+
+                serverStats.add(serverStat);
+            }
+
+            logFunction.accept("サーバー統計データ取得完了: " + serverStats.size() + "台", "DEBUG");
+
+        } catch (SQLException e) {
+            logFunction.accept("サーバー統計データ取得エラー: " + e.getMessage(), "ERROR");
+        }
+
+        return serverStats;
     }
 
     /**

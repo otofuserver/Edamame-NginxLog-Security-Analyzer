@@ -153,6 +153,9 @@ public class DashboardController {
             .replace("{{MODSEC_BLOCKS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("modsecBlocks"))))
             .replace("{{ACTIVE_SERVERS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("activeServers"))));
 
+        // サーバーごとの統計表示を生成（XSS対策適用）
+        html = html.replace("{{SERVER_STATS}}", generateSecureServerStatsHtml(data.get("serverStats")));
+
         // 最新アラート部分を生成（XSS対策適用）
         html = html.replace("{{RECENT_ALERTS}}", generateSecureAlertsHtml(data.get("recentAlerts")));
 
@@ -304,6 +307,58 @@ public class DashboardController {
                         <span class="attack-count">%s</span>
                     </div>
                     """, type, description, WebSecurityUtils.escapeHtml(String.valueOf(count))));
+            }
+        }
+
+        return html.toString();
+    }
+
+    /**
+     * サーバーごとの統計表示HTMLを生成（XSS対策適用）
+     * @param serverStatsData サーバー統計データ
+     * @return 生成されたHTML
+     */
+    @SuppressWarnings("unchecked")
+    private String generateSecureServerStatsHtml(Object serverStatsData) {
+        if (!(serverStatsData instanceof List<?> serverStats) || serverStats.isEmpty()) {
+            return "<div class='server-stat-item'>今日のサーバー統計はありません</div>";
+        }
+
+        StringBuilder html = new StringBuilder();
+        for (Object serverStatObj : serverStats) {
+            if (serverStatObj instanceof Map<?, ?> serverStat) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> serverStatMap = (Map<String, Object>) serverStat;
+
+                String serverName = WebSecurityUtils.sanitizeInput((String) serverStatMap.getOrDefault("serverName", "unknown"));
+                Object totalAccess = serverStatMap.getOrDefault("totalAccess", 0);
+                Object attackCount = serverStatMap.getOrDefault("attackCount", 0);
+                Object modsecBlocks = serverStatMap.getOrDefault("modsecBlocks", 0);
+
+                html.append(String.format("""
+                    <div class="server-stat-item">
+                        <div class="server-stat-header">
+                            <strong>%s</strong>
+                        </div>
+                        <div class="server-stat-content">
+                            <div class="stat-value-item stat-access">
+                                <span class="stat-number">%s</span>
+                                <div class="stat-label">総アクセス</div>
+                            </div>
+                            <div class="stat-value-item stat-attack">
+                                <span class="stat-number">%s</span>
+                                <div class="stat-label">攻撃検知</div>
+                            </div>
+                            <div class="stat-value-item stat-block">
+                                <span class="stat-number">%s</span>
+                                <div class="stat-label">ModSecブロック</div>
+                            </div>
+                        </div>
+                    </div>
+                    """, serverName,
+                    WebSecurityUtils.escapeHtml(formatNumber(totalAccess)),
+                    WebSecurityUtils.escapeHtml(formatNumber(attackCount)),
+                    WebSecurityUtils.escapeHtml(formatNumber(modsecBlocks))));
             }
         }
 
