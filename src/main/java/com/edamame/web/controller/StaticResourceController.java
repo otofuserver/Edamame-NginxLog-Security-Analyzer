@@ -176,7 +176,7 @@ public class StaticResourceController {
     }
 
     /**
-     * パスからリソース名を抽出（セキュア版）
+     * パスからリソース名を抽出（セキュア版���
      * @param path リクエストパス
      * @return リソース名
      */
@@ -185,11 +185,10 @@ public class StaticResourceController {
             return null;
         }
 
-        // パスをサニタイズ
-        String sanitizedPath = WebSecurityUtils.sanitizeInput(path);
+        logFunction.accept("リクエストパス: " + path, "DEBUG");
 
-        // パストラバーサル攻撃を防ぐ
-        if (sanitizedPath.contains("..") || sanitizedPath.contains("\\")) {
+        // パストラバーサル攻撃を防ぐ（サニタイズ前にチェック）
+        if (path.contains("../") || path.contains("..\\") || path.contains("%2e%2e")) {
             logFunction.accept("パストラバーサル攻撃の疑いがあるパス: " + path, "SECURITY");
             return null;
         }
@@ -197,11 +196,19 @@ public class StaticResourceController {
         // /css/dashboard.css -> dashboard.css
         // /js/dashboard.js -> dashboard.js
         // /static/xxx.xxx -> xxx.xxx
-        String[] segments = sanitizedPath.split("/");
+        String[] segments = path.split("/");
         if (segments.length >= 2) {
             String filename = segments[segments.length - 1]; // 最後のセグメント
-            return WebSecurityUtils.sanitizeFilename(filename);
+
+            // ファイル名のみをサニタイズ（パス全体ではなく）
+            String sanitizedFilename = filename.replaceAll("[^a-zA-Z0-9._-]", "");
+
+            logFunction.accept("抽出されたファイル名: " + filename + " -> サニタイズ後: " + sanitizedFilename, "DEBUG");
+
+            return sanitizedFilename.isEmpty() ? null : sanitizedFilename;
         }
+
+        logFunction.accept("ファイル名の抽出に失敗: " + path, "WARN");
         return null;
     }
 
@@ -224,13 +231,48 @@ public class StaticResourceController {
         String content = webConfig.getStaticResource(sanitizedResourceName);
 
         if (content != null && !content.isEmpty()) {
+            logFunction.accept("静的リソース取得成功: " + sanitizedResourceName + " (長さ: " + content.length() + ")", "DEBUG");
             return content;
         }
 
-        // 標準的なリソースの場合はデフォルトを返す
-        return switch (sanitizedResourceName) {
-            case "dashboard.css" -> webConfig.getStaticResource("dashboard.css");
-            case "dashboard.js" -> webConfig.getStaticResource("dashboard.js");
+        // デフォルトコンテンツを生成
+        logFunction.accept("WebConfigからリソースが見つからないため、デフォルトを生成: " + sanitizedResourceName, "WARN");
+        return generateDefaultResource(sanitizedResourceName);
+    }
+
+    /**
+     * デフォルトリソースを生成
+     * @param resourceName リソース名
+     * @return デフォルトコンテンツ
+     */
+    private String generateDefaultResource(String resourceName) {
+        return switch (resourceName) {
+            case "dashboard.css" -> """
+                /* Edamame Security Dashboard - Default CSS */
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
+                .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+                .header { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+                .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
+                .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); text-align: center; }
+                .stat-value { font-size: 2em; font-weight: bold; color: #2c3e50; }
+                .alert-item { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #3498db; }
+                .server-item { background: white; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+                """;
+            case "dashboard.js" -> """
+                // Edamame Security Dashboard - Default JavaScript
+                console.log('Edamame Security Dashboard loaded');
+                
+                function startAutoRefresh(interval) {
+                    setInterval(() => {
+                        location.reload();
+                    }, interval);
+                }
+                
+                document.addEventListener('DOMContentLoaded', function() {
+                    console.log('Dashboard initialized');
+                });
+                """;
             default -> null;
         };
     }
