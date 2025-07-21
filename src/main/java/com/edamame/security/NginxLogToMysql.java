@@ -1,5 +1,6 @@
 package com.edamame.security;
 
+import com.edamame.web.WebApplication;
 import org.json.JSONObject;
 import org.bouncycastle.crypto.engines.AESEngine;
 import org.bouncycastle.crypto.modes.GCMBlockCipher;
@@ -34,6 +35,10 @@ public class NginxLogToMysql {
     private static final String ATTACK_PATTERNS_PATH = getEnvOrDefault("ATTACK_PATTERNS_PATH", "/app/config/attack_patterns.json");
     private static final String SERVERS_CONFIG_PATH = getEnvOrDefault("SERVERS_CONFIG_PATH", "/app/config/servers.conf");
 
+    // Web設定
+    private static final boolean ENABLE_WEB_FRONTEND = Boolean.parseBoolean(getEnvOrDefault("ENABLE_WEB_FRONTEND", "true"));
+    private static final int WEB_PORT = Integer.parseInt(getEnvOrDefault("WEB_PORT", "8080"));
+
     // 設定値
     private static final int MAX_RETRIES = Integer.parseInt(getEnvOrDefault("MAX_RETRIES", "5"));
     private static final int RETRY_DELAY = Integer.parseInt(getEnvOrDefault("RETRY_DELAY", "3"));
@@ -61,6 +66,10 @@ public class NginxLogToMysql {
 
     // 定時レポートマネージャー
     private static ScheduledReportManager reportManager = null;
+
+    // Webフロントエンド
+    private static WebApplication webApplication = null;
+    private static Thread webThread = null;
 
     /**
      * 環境変数を取得し、存在しない場合はデフォルト値を返す
@@ -264,8 +273,72 @@ public class NginxLogToMysql {
         reportManager.startScheduledReports();
         log("ScheduledReportManager初期化・開始完了", "INFO");
 
+        // Webフロントエンドの初期化（オ��ション）
+        if (ENABLE_WEB_FRONTEND) {
+            if (!initializeWebFrontend(conn)) {
+                log("Webフロントエンドの初期化に失敗しました。バックエンドのみで続行します。", "WARN");
+            }
+        } else {
+            log("Webフロントエンドは無効に設定されています", "INFO");
+        }
+
         log("初期化処理が完了しました", "INFO");
         return true;
+    }
+
+    /**
+     * Webフロントエンドを初期化
+     * @param conn データベース接続
+     * @return 初期化成功可否
+     */
+    private static boolean initializeWebFrontend(Connection conn) {
+        try {
+            log("Webフロントエンド初期化中...", "INFO");
+
+            // WebApplicationインスタンスを作成
+            webApplication = new WebApplication(conn, NginxLogToMysql::log);
+
+            // 初期化
+            if (!webApplication.initialize()) {
+                log("WebApplication初期化に失敗しました", "ERROR");
+                return false;
+            }
+
+            // 別スレッドでWebサーバーを開始
+            webThread = new Thread(() -> {
+                try {
+                    if (webApplication.start()) {
+                        log("Webフロントエンド開始完了 - ポート: " + WEB_PORT, "INFO");
+
+                        // Webスレッドはサーバーの稼働を維持
+                        while (isRunning.get()) {
+                            try {
+                                Thread.sleep(5000); // 5秒間隔でチェック
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                break;
+                            }
+                        }
+                    } else {
+                        log("Webサーバー開始に失敗しました", "ERROR");
+                    }
+                } catch (Exception e) {
+                    log("Webフロントエンドスレッドでエラー: " + e.getMessage(), "ERROR");
+                }
+            }, "WebFrontendThread");
+
+            webThread.setDaemon(true); // デーモンスレッドに設定
+            webThread.start();
+
+            log("Webフロントエンドスレッド開始完了", "INFO");
+            log("ダッシュボードURL: http://localhost:" + WEB_PORT + "/dashboard", "INFO");
+
+            return true;
+
+        } catch (Exception e) {
+            log("Webフロントエンド初期化エラー: " + e.getMessage(), "ERROR");
+            return false;
+        }
     }
 
     /**
@@ -573,6 +646,27 @@ public class NginxLogToMysql {
     private static void cleanup() {
         log("アプリケーションをシャットダウン中...", "INFO");
 
+        // Webフロントエンドを停止
+        if (webApplication != null) {
+            try {
+                webApplication.stop();
+                log("Webフロントエンド停止完了", "INFO");
+            } catch (Exception e) {
+                log("Webフロントエンド停止中にエラー: " + e.getMessage(), "WARN");
+            }
+        }
+
+        // Webスレッドの終了を待機
+        if (webThread != null && webThread.isAlive()) {
+            try {
+                webThread.join(5000); // 最大5秒待機
+                log("Webスレッド終了完了", "INFO");
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log("Webスレッド終了待機中に割り込まれました", "WARN");
+            }
+        }
+
         if (dbSession != null) {
             try {
                 dbSession.close();
@@ -817,6 +911,9 @@ public class NginxLogToMysql {
 
             // 複数サーバー監視を開始
             log("複数サーバー監視モードで開始します", "INFO");
+            if (ENABLE_WEB_FRONTEND) {
+                log("Webダッシュボード: http://localhost:" + WEB_PORT + "/dashboard", "INFO");
+            }
             displayMonitoringStatistics();
             startMultiServerMonitoring();
 

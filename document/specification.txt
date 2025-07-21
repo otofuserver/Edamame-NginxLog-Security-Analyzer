@@ -1,7 +1,7 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.40
+- **specification.txt version**: v1.0.41
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -301,3 +301,106 @@ ls build/libs/
 - コメントは日本語で記載すること
 - エラーハンドリングは適切な例外処理を実装すること
 - **specification.txtを更新した場合は、必ず冒頭のバージョン情報も更新すること。**
+
+---
+
+## アクション実行システム（ActionEngine）
+
+### `action_tools`（アクション実行ツール管理）
+| カラム名         | 型              | 説明                           |
+|------------------|------------------|--------------------------------|
+| id               | INT              | 主キー、自動採番               |
+| tool_name        | VARCHAR(50)      | 操作ツール名（ユニーク）       |
+| tool_type        | ENUM             | ツールタイプ（mail, iptables, cloudflare, webhook, custom） |
+| is_enabled       | BOOLEAN          | ツール有効化フラグ             |
+| config_json      | JSON             | ツール固有設定（JSON形式）     |
+| description      | TEXT             | ツールの説明                   |
+| created_at       | DATETIME         | 作成日時                       |
+| updated_at       | DATETIME         | 最終更新日時                   |
+
+### `action_rules`（アクション実行ルール管理）
+| カラム名         | 型              | 説明                           |
+|------------------|------------------|--------------------------------|
+| id               | INT              | 主キー、自動採番               |
+| rule_name        | VARCHAR(100)     | ルール名                       |
+| target_server    | VARCHAR(100)     | 対象サーバー名（*=全サーバー） |
+| condition_type   | ENUM             | 実行条件タイプ（attack_detected, ip_frequency, status_code, scheduled_report, custom） |
+| condition_params | JSON             | 条件パラメータ（JSON形式）     |
+| action_tool_id   | INT              | 実行する操作ツールID           |
+| action_params    | JSON             | アクション固有パラメータ       |
+| is_enabled       | BOOLEAN          | ルール有効化フラグ             |
+| priority         | INT              | ルール優先度（数値が小さいほど高優先） |
+| last_executed    | DATETIME         | 最終実行日時                   |
+| execution_count  | INT              | 実行回数                       |
+| created_at       | DATETIME         | 作成日時                       |
+| updated_at       | DATETIME         | 最終更新日時                   |
+
+### `action_execution_log`（アクション実行履歴）
+| カラム名                | 型              | 説明                           |
+|------------------------|------------------|--------------------------------|
+| id                     | BIGINT           | 主キー、自動採番               |
+| rule_id                | INT              | 実行されたルールID             |
+| server_name            | VARCHAR(100)     | アクション実行対象サーバー     |
+| trigger_event          | JSON             | トリガーとなったイベント情報   |
+| execution_status       | ENUM             | 実行ステータス（success, failed, skipped） |
+| execution_result       | TEXT             | 実行結果・エラーメッセージ     |
+| execution_time         | DATETIME         | 実行日時                       |
+| processing_duration_ms | INT              | 処理時間（ミリ秒）             |
+
+---
+
+## 🚀 アクション実行システム（ActionEngine）
+
+### ✉️ メール通知機能
+- **攻撃検知時の自動メール通知**：ModSecurity検知やパターンマッチした攻撃を即座にメール通知
+- **定時統計レポート**：日次/週次/月次の統計データを自動でメール送信
+- **SMTP設定**：外部設定ファイル（smtp_config.json）またはデフォルト設定を使用
+- **接続チェック**：SMTP接続可能性を15秒タイムアウトで確認、5分間キャッシュで効率化
+- **テンプレート機能**：メールの件名・本文で変数置換対応（{attack_type}, {ip_address}など）
+
+#### 📧 SMTP設定ファイル仕様
+```json
+{
+  "smtp": {
+    "host": "192.168.10.5",
+    "port": 25,
+    "auth_required": false,
+    "username": "",
+    "password": "",
+    "security": "NONE",
+    "timeout": 30,
+    "connection_timeout": 15,
+    "enable_debug": false
+  },
+  "defaults": {
+    "from_email": "noreply@example.com",
+    "from_name": "Edamame Security Analyzer"
+  }
+}
+```
+
+#### 📍 SMTP設定ファイル読み込み順序
+1. `container/config/smtp_config.json`（開発環境）
+2. `/app/config/smtp_config.json`（Docker環境）
+3. `config/smtp_config.json`（相対パス）
+4. `smtp_config.json`（カレントディレクトリ）
+5. デフォルト設定（上記すべてが見つからない場合）
+
+### 🎯 アクション実行条件
+- **attack_detected**：攻撃検知時の即座実行
+- **ip_frequency**：IP頻度に基づく実行（未実装）
+- **status_code**：HTTPステータスコードに基づく実行（未実装）
+- **scheduled_report**：定時レポート送信
+- **custom**：カスタム条件（未実装）
+
+### 📊 統計データ収集機能
+- **アクセス数統計**：総アクセス数、ステータスコード別集計
+- **攻撃統計**：攻撃タイプ別件数、総攻撃数
+- **ModSecurity統計**：ブロック数、ルール別統計（TOP10）
+- **URL統計**：新規URL発見数
+- **サーバー別集計**：複数サーバー対応（*で全サーバー集計）
+
+### 🔧 将来拡張予定のアクション
+- **iptables**：攻撃IPの自動ブロック
+- **cloudflare**：Cloudflare WAFルール追加
+- **webhook**：外部システムへの通知

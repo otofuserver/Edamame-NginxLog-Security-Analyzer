@@ -192,7 +192,7 @@ public class DbSchema {
                         execution_status ENUM('success', 'failed', 'skipped') NOT NULL COMMENT '実行ステータス',
                         execution_result TEXT COMMENT '実行結果・エラーメッセージ',
                         execution_time DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '実行日時',
-                        processing_duration_ms INT DEFAULT 0 COMMENT '処��時間（ミリ秒）',
+                        processing_duration_ms INT DEFAULT 0 COMMENT '処理時間（ミリ秒）',
                         FOREIGN KEY (rule_id) REFERENCES action_rules(id) ON DELETE CASCADE,
                         INDEX idx_rule_id (rule_id),
                         INDEX idx_server_name (server_name),
@@ -201,6 +201,21 @@ public class DbSchema {
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
                 log.accept("action_execution_logテーブルを作成または確認しました", "INFO");
+
+                // serversテーブル（複数サーバー管理用）
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS servers (
+                        id INT AUTO_INCREMENT PRIMARY KEY,
+                        server_name VARCHAR(100) UNIQUE NOT NULL COMMENT 'サーバー名（ユニーク）',
+                        server_description TEXT COMMENT 'サーバーの説明',
+                        log_path VARCHAR(500) COMMENT 'ログファイルパス',
+                        is_active BOOLEAN DEFAULT TRUE COMMENT '有効フラグ',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
+                        last_log_received DATETIME COMMENT '最終ログ受信日時'
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                """);
+                log.accept("serversテーブルを作成または確認しました", "INFO");
 
                 // 手動コミット
                 conn.commit();
@@ -337,7 +352,7 @@ public class DbSchema {
                         "mail_alert",
                         "mail",
                         "true",
-                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[SECURITY ALERT] {attack_type} detected from {ip_address}\",\"body_template\":\"Security Alert\\n\\nServer: {server_name}\\nAttack Type: {attack_type}\\nSource IP: {ip_address}\\nURL: {url}\\nTime: {timestamp}\"}",
+                        "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[SECURITY ALERT] {attack_type} detected from {ip_address}\",\"body_template\":\"Security Alert\\n\\nServer: {server_name}\\nAttack Type: {attack_type}\\nSource IP: {ip_address}\\nURL: {url}\\nTime: {timestamp}\"}",
                         "メール通知ツール - セキュリティアラートをメールで送信"
                     },
                     {
@@ -365,21 +380,21 @@ public class DbSchema {
                         "daily_report_mail",
                         "mail",
                         "false",
-                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[日次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"日次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL���見数: {new_urls}\"}",
+                        "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[日次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"日次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
                         "日次レポートメール送信ツール"
                     },
                     {
                         "weekly_report_mail",
                         "mail",
                         "false",
-                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[週次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"週次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
+                        "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[週次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"週次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
                         "週次レポートメール送信ツール"
                     },
                     {
                         "monthly_report_mail",
                         "mail",
                         "false",
-                        "{\"smtp_host\":\"localhost\",\"smtp_port\":587,\"from_email\":\"security@example.com\",\"to_emails\":[\"admin@example.com\"],\"subject_template\":\"[月次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"月次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
+                        "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[月次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"月次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}",
                         "月次レポートメール送信ツール"
                     }
                 };
@@ -478,6 +493,23 @@ public class DbSchema {
                 }
             }
 
+            // serversテーブルの必要カラム確認・追加
+            String[][] serversColumns = {
+                {"server_description", "TEXT COMMENT 'サーバーの説明'"},
+                {"log_path", "VARCHAR(500) COMMENT 'ログファイルパス'"},
+                {"last_log_received", "DATETIME COMMENT '最終ログ受信日時'"},
+                {"is_active", "BOOLEAN DEFAULT TRUE COMMENT '有効フラグ'"},
+                {"created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時'"},
+                {"updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時'"}
+            };
+
+            for (String[] column : serversColumns) {
+                if (!columnExists(conn, "servers", column[0])) {
+                    addColumn(conn, "servers", column[0], column[1]);
+                    log.accept("serversテーブルに" + column[0] + "カラムを追加しました", "INFO");
+                }
+            }
+
             return true;
 
         } catch (SQLException e) {
@@ -545,6 +577,21 @@ public class DbSchema {
     private static boolean columnExists(Connection conn, String tableName, String columnName) throws SQLException {
         try (PreparedStatement pstmt = conn.prepareStatement("SHOW COLUMNS FROM " + tableName + " LIKE ?")) {
             pstmt.setString(1, columnName);
+            ResultSet rs = pstmt.executeQuery();
+            return rs.next();
+        }
+    }
+
+    /**
+     * テーブルが存在するかチェック
+     * @param conn データベース接続
+     * @param tableName テーブル名
+     * @return テーブルが存在する場合true
+     * @throws SQLException SQL例外
+     */
+    private static boolean tableExists(Connection conn, String tableName) throws SQLException {
+        try (PreparedStatement pstmt = conn.prepareStatement("SHOW TABLES LIKE ?")) {
+            pstmt.setString(1, tableName);
             ResultSet rs = pstmt.executeQuery();
             return rs.next();
         }
@@ -687,7 +734,7 @@ public class DbSchema {
                         """);
                     log.accept("modsec_alertsテーブルにserver_nameカラムを追加しました", "INFO");
 
-                    // ��ンデックスを追加
+                    // インデックスを追加
                     stmt.execute("""
                         CREATE INDEX idx_modsec_alerts_server_name ON modsec_alerts(server_name)
                         """);
@@ -743,20 +790,51 @@ public class DbSchema {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
 
-        String sql = """
-            INSERT INTO servers (server_name, server_description, log_path, last_log_received)
-            VALUES (?, ?, ?, NOW())
-            ON DUPLICATE KEY UPDATE
-                server_description = VALUES(server_description),
-                log_path = VALUES(log_path),
-                updated_at = NOW(),
-                last_log_received = NOW()
-            """;
+        // まずテーブル構造を確認し、存在しないカラムがある場合は追加
+        try {
+            if (!columnExists(conn, "servers", "server_description")) {
+                addColumn(conn, "servers", "server_description", "TEXT COMMENT 'サーバーの説明'");
+                log.accept("serversテーブルにserver_descriptionカラムを追加しました", "INFO");
+            }
+            if (!columnExists(conn, "servers", "log_path")) {
+                addColumn(conn, "servers", "log_path", "VARCHAR(500) COMMENT 'ログファイルパス'");
+                log.accept("serversテーブルにlog_pathカラムを追加しました", "INFO");
+            }
+            if (!columnExists(conn, "servers", "last_log_received")) {
+                addColumn(conn, "servers", "last_log_received", "DATETIME COMMENT '最終ログ受信日時'");
+                log.accept("serversテーブルにlast_log_receivedカラムを追加しました", "INFO");
+            }
+            if (!columnExists(conn, "servers", "is_active")) {
+                addColumn(conn, "servers", "is_active", "BOOLEAN DEFAULT TRUE COMMENT '有効フラグ'");
+                log.accept("serversテーブルにis_activeカラムを追加しました", "INFO");
+            }
+            if (!columnExists(conn, "servers", "created_at")) {
+                addColumn(conn, "servers", "created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時'");
+                log.accept("serversテーブルにcreated_atカラムを追加しました", "INFO");
+            }
+            if (!columnExists(conn, "servers", "updated_at")) {
+                addColumn(conn, "servers", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時'");
+                log.accept("serversテーブルにupdated_atカラムを追加しました", "INFO");
+            }
+        } catch (SQLException e) {
+            log.accept("サーバーテーブル構造確認エラー: " + e.getMessage(), "WARN");
+            // カラム追加に失敗しても処理を継続（最低限の情報だけで登録を試行）
+        }
+
+        // 利用可能なカラムのみでSQL文を動的��築
+        String sql = buildInsertOrUpdateSql(conn, log);
 
         try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
             pstmt.setString(1, serverName);
-            pstmt.setString(2, description);
-            pstmt.setString(3, logPath);
+            
+            // 存在するカラムのみパラメータを設定
+            int paramIndex = 2;
+            if (columnExists(conn, "servers", "server_description")) {
+                pstmt.setString(paramIndex++, description);
+            }
+            if (columnExists(conn, "servers", "log_path")) {
+                pstmt.setString(paramIndex++, logPath);
+            }
 
             int affectedRows = pstmt.executeUpdate();
             if (affectedRows > 0) {
@@ -772,63 +850,45 @@ public class DbSchema {
             return false;
         }
     }
-
+    
     /**
-     * 登録されているサーバー一覧を取得
+     * 利用可能なカラムに基づいてINSERT/UPDATE SQL文を動的構築
      * @param conn データベース接続
-     * @param logFunc ログ出力関数
-     * @return サーバー情報のリスト
+     * @param log ログ出力関数
+     * @return 動的に構築されたSQL文
      */
-    @SuppressWarnings("unused")
-    public static List<Map<String, Object>> getServerList(Connection conn, BiConsumer<String, String> logFunc) {
-        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
-
-        List<Map<String, Object>> servers = new ArrayList<>();
-
+    private static String buildInsertOrUpdateSql(Connection conn, BiConsumer<String, String> log) {
+        StringBuilder insertPart = new StringBuilder("INSERT INTO servers (server_name");
+        StringBuilder valuesPart = new StringBuilder("VALUES (?");
+        StringBuilder updatePart = new StringBuilder("ON DUPLICATE KEY UPDATE server_name = VALUES(server_name)");
+        
         try {
-            String sql = """
-                SELECT server_name, server_description, log_path, is_active,
-                       created_at, updated_at, last_log_received
-                FROM servers
-                ORDER BY server_name
-                """;
-
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                ResultSet rs = pstmt.executeQuery();
-
-                while (rs.next()) {
-                    Map<String, Object> server = new HashMap<>();
-                    server.put("server_name", rs.getString("server_name"));
-                    server.put("server_description", rs.getString("server_description"));
-                    server.put("log_path", rs.getString("log_path"));
-                    server.put("is_active", rs.getBoolean("is_active"));
-                    server.put("created_at", rs.getTimestamp("created_at"));
-                    server.put("updated_at", rs.getTimestamp("updated_at"));
-                    server.put("last_log_received", rs.getTimestamp("last_log_received"));
-                    servers.add(server);
-                }
+            // 存在するカラムを順番にチェックして SQL を構築
+            if (columnExists(conn, "servers", "server_description")) {
+                insertPart.append(", server_description");
+                valuesPart.append(", ?");
+                updatePart.append(", server_description = VALUES(server_description)");
             }
-
+            if (columnExists(conn, "servers", "log_path")) {
+                insertPart.append(", log_path");
+                valuesPart.append(", ?");
+                updatePart.append(", log_path = VALUES(log_path)");
+            }
+            if (columnExists(conn, "servers", "last_log_received")) {
+                insertPart.append(", last_log_received");
+                valuesPart.append(", NOW()");
+                updatePart.append(", last_log_received = NOW()");
+            }
+            if (columnExists(conn, "servers", "updated_at")) {
+                updatePart.append(", updated_at = NOW()");
+            }
         } catch (SQLException e) {
-            log.accept("サーバー一覧取得でエラー: " + e.getMessage(), "ERROR");
+            log.accept("SQL構築中にエラー: " + e.getMessage(), "DEBUG");
         }
-
-        return servers;
-    }
-
-    /**
-     * テーブルが存在するかチェック
-     * @param conn データベース接続
-     * @param tableName テーブル名
-     * @return テーブルが存在する場合true
-     * @throws SQLException SQL例外
-     */
-    private static boolean tableExists(Connection conn, String tableName) throws SQLException {
-        try (PreparedStatement pstmt = conn.prepareStatement("SHOW TABLES LIKE ?")) {
-            pstmt.setString(1, tableName);
-            ResultSet rs = pstmt.executeQuery();
-            return rs.next();
-        }
+        
+        insertPart.append(") ");
+        valuesPart.append(") ");
+        
+        return insertPart.toString() + valuesPart.toString() + updatePart.toString();
     }
 }

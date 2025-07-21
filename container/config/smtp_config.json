@@ -1,0 +1,22 @@
+{
+  "version": "1.0.0",
+  "description": "Edamame NginxLog Security Analyzer - SMTP設定ファイル",
+  "last_updated": "2025-01-21",
+  
+  "smtp": {
+    "host": "localhost",
+    "port": 25,
+    "security": "NONE",
+    "username": "",
+    "password": "",
+    "timeout": 30,
+    "connection_timeout": 10,
+    "auth_required": false,
+    "enable_debug": false
+  },
+  
+  "defaults": {
+    "from_email": "security@example.com",
+    "from_name": "Edamame Security Analyzer"
+  }
+}

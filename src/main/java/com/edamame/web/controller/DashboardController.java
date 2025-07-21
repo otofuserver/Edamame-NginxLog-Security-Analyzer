@@ -1,0 +1,313 @@
+package com.edamame.web.controller;
+
+import com.edamame.web.config.WebConfig;
+import com.edamame.web.service.DataService;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.function.BiConsumer;
+
+/**
+ * ダッシュボードコントローラークラス
+ * ダッシュボード画面の表示を担当
+ */
+public class DashboardController {
+
+    private final DataService dataService;
+    private final WebConfig webConfig;
+    private final BiConsumer<String, String> logFunction;
+
+    /**
+     * コンストラクタ
+     * @param dataService データサービス
+     * @param webConfig Web設定
+     * @param logFunction ログ出力関数
+     */
+    public DashboardController(DataService dataService, WebConfig webConfig, BiConsumer<String, String> logFunction) {
+        this.dataService = dataService;
+        this.webConfig = webConfig;
+        this.logFunction = logFunction != null ? logFunction :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+    }
+
+    /**
+     * ダッシュボードリクエストを処理
+     * @param exchange HTTPエクスチェンジ
+     * @throws IOException I/O例外
+     */
+    public void handleDashboard(HttpExchange exchange) throws IOException {
+        try {
+            if (!"GET".equals(exchange.getRequestMethod())) {
+                sendErrorResponse(exchange, 405, "Method Not Allowed");
+                return;
+            }
+
+            // データベース接続確認
+            if (!dataService.isConnectionValid()) {
+                sendErrorResponse(exchange, 503, "データベース接続エラー");
+                return;
+            }
+
+            // ダッシュボードデータを取得
+            Map<String, Object> dashboardData = dataService.getDashboardStats();
+
+            // HTMLを生成
+            String html = generateDashboardHtml(dashboardData);
+
+            // レスポンス送信
+            exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+            exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
+            exchange.sendResponseHeaders(200, html.getBytes(StandardCharsets.UTF_8).length);
+
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(html.getBytes(StandardCharsets.UTF_8));
+            }
+
+            logFunction.accept("ダッシュボード画面表示完了", "DEBUG");
+
+        } catch (Exception e) {
+            logFunction.accept("ダッシュボード処理エラー: " + e.getMessage(), "ERROR");
+            sendErrorResponse(exchange, 500, "内部サーバーエラー");
+        }
+    }
+
+    /**
+     * ダッシュボードHTMLを生成
+     * @param data ダッシュボードデータ
+     * @return 生成されたHTML
+     */
+    private String generateDashboardHtml(Map<String, Object> data) {
+        String template = webConfig.getTemplate("dashboard");
+
+        // 基本情報を置換
+        String html = template
+            .replace("{{APP_TITLE}}", webConfig.getAppTitle())
+            .replace("{{APP_DESCRIPTION}}", webConfig.getAppDescription())
+            .replace("{{APP_VERSION}}", "v1.0.0")
+            .replace("{{CURRENT_TIME}}", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+            .replace("{{SERVER_STATUS}}", dataService.isConnectionValid() ? "稼働中" : "エラー");
+
+        // 統計情報を置換
+        html = html
+            .replace("{{TOTAL_ACCESS}}", formatNumber(data.get("totalAccess")))
+            .replace("{{TOTAL_ATTACKS}}", formatNumber(data.get("totalAttacks")))
+            .replace("{{MODSEC_BLOCKS}}", formatNumber(data.get("modsecBlocks")))
+            .replace("{{ACTIVE_SERVERS}}", formatNumber(data.get("activeServers")));
+
+        // 最新アラート部分を生成
+        html = html.replace("{{RECENT_ALERTS}}", generateAlertsHtml(data.get("recentAlerts")));
+
+        // サーバー一覧部分を生成
+        html = html.replace("{{SERVER_LIST}}", generateServersHtml(data.get("serverList")));
+
+        // 攻撃タイプ統計部分を生成
+        html = html.replace("{{ATTACK_TYPES}}", generateAttackTypesHtml(data.get("attackTypes")));
+
+        // 自動更新設定
+        if (webConfig.isEnableAutoRefresh()) {
+            html = html
+                .replace("{{#AUTO_REFRESH}}", "")
+                .replace("{{/AUTO_REFRESH}}", "")
+                .replace("{{REFRESH_INTERVAL}}", String.valueOf(webConfig.getRefreshInterval()));
+        } else {
+            html = removeConditionalBlocks(html, "AUTO_REFRESH");
+        }
+
+        return html;
+    }
+
+    /**
+     * アラート一覧HTMLを生成
+     * @param alertsData アラートデータ
+     * @return 生成されたHTML
+     */
+    @SuppressWarnings("unchecked")
+    private String generateAlertsHtml(Object alertsData) {
+        if (!(alertsData instanceof List<?> alerts) || alerts.isEmpty()) {
+            return "<div class='alert-item'>最近のアラートはありません</div>";
+        }
+
+        StringBuilder html = new StringBuilder();
+        for (Object alertObj : alerts) {
+            if (alertObj instanceof Map<?, ?> alert) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> alertMap = (Map<String, Object>) alert;
+
+                String severityLevel = (String) alertMap.getOrDefault("severityLevel", "low");
+                String serverName = (String) alertMap.getOrDefault("serverName", "unknown");
+                String accessTime = (String) alertMap.getOrDefault("accessTime", "");
+                String ipAddress = (String) alertMap.getOrDefault("ipAddress", "");
+                String attackType = (String) alertMap.getOrDefault("attackType", "");
+                String url = (String) alertMap.getOrDefault("url", "");
+
+                html.append(String.format("""
+                    <div class="alert-item %s">
+                        <div class="alert-header">
+                            <span class="alert-time">%s</span>
+                            <span class="alert-server">%s</span>
+                        </div>
+                        <div class="alert-content">
+                            <strong>%s</strong> からの攻撃: %s<br>
+                            <small>URL: %s</small>
+                        </div>
+                    </div>
+                    """, severityLevel, accessTime, serverName, ipAddress, attackType,
+                    url.length() > 80 ? url.substring(0, 80) + "..." : url));
+            }
+        }
+
+        return html.toString();
+    }
+
+    /**
+     * サーバー一覧HTMLを生成
+     * @param serversData サーバーデータ
+     * @return 生成されたHTML
+     */
+    @SuppressWarnings("unchecked")
+    private String generateServersHtml(Object serversData) {
+        if (!(serversData instanceof List<?> servers) || servers.isEmpty()) {
+            return "<div class='server-item'>登録されたサーバーがありません</div>";
+        }
+
+        StringBuilder html = new StringBuilder();
+        for (Object serverObj : servers) {
+            if (serverObj instanceof Map<?, ?> server) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> serverMap = (Map<String, Object>) server;
+
+                String name = (String) serverMap.getOrDefault("name", "unknown");
+                String description = (String) serverMap.getOrDefault("description", "");
+                String status = (String) serverMap.getOrDefault("status", "unknown");
+                String lastLogReceived = (String) serverMap.getOrDefault("lastLogReceived", "未記録");
+                Object accessCount = serverMap.getOrDefault("todayAccessCount", 0);
+
+                String statusClass = switch (status) {
+                    case "online" -> "online";
+                    case "offline", "stale" -> "offline";
+                    default -> "offline";
+                };
+
+                String statusText = switch (status) {
+                    case "online" -> "オンライン";
+                    case "offline" -> "オフライン";
+                    case "stale" -> "データ古い";
+                    default -> "不明";
+                };
+
+                html.append(String.format("""
+                    <div class="server-item">
+                        <div class="server-info">
+                            <strong>%s</strong><br>
+                            <small>%s</small><br>
+                            <small>最終ログ: %s | 今日のアクセス: %s件</small>
+                        </div>
+                        <span class="server-status %s">%s</span>
+                    </div>
+                    """, name, description.isEmpty() ? "説明なし" : description,
+                    lastLogReceived, accessCount, statusClass, statusText));
+            }
+        }
+
+        return html.toString();
+    }
+
+    /**
+     * 攻撃タイプ統計HTMLを生成
+     * @param attackTypesData 攻撃タイプデータ
+     * @return 生成されたHTML
+     */
+    @SuppressWarnings("unchecked")
+    private String generateAttackTypesHtml(Object attackTypesData) {
+        if (!(attackTypesData instanceof List<?> attackTypes) || attackTypes.isEmpty()) {
+            return "<div class='attack-type-item'>今日の攻撃検知はありません</div>";
+        }
+
+        StringBuilder html = new StringBuilder();
+        for (Object attackTypeObj : attackTypes) {
+            if (attackTypeObj instanceof Map<?, ?> attackType) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> attackTypeMap = (Map<String, Object>) attackType;
+
+                String type = (String) attackTypeMap.getOrDefault("type", "unknown");
+                Object count = attackTypeMap.getOrDefault("count", 0);
+                String description = (String) attackTypeMap.getOrDefault("description", "");
+
+                html.append(String.format("""
+                    <div class="attack-type-item">
+                        <div class="attack-type-info">
+                            <strong>%s</strong><br>
+                            <small>%s</small>
+                        </div>
+                        <span class="attack-count">%s</span>
+                    </div>
+                    """, type, description, count));
+            }
+        }
+
+        return html.toString();
+    }
+
+    /**
+     * 条件付きブロックを削除
+     * @param html HTML文字列
+     * @param condition 条件名
+     * @return 処理済みHTML
+     */
+    private String removeConditionalBlocks(String html, String condition) {
+        String startTag = "{{#" + condition + "}}";
+        String endTag = "{{/" + condition + "}}";
+
+        int startIndex = html.indexOf(startTag);
+        int endIndex = html.indexOf(endTag);
+
+        if (startIndex != -1 && endIndex != -1) {
+            return html.substring(0, startIndex) + html.substring(endIndex + endTag.length());
+        }
+
+        return html;
+    }
+
+    /**
+     * 数値をフォーマット
+     * @param value 数値オブジェクト
+     * @return フォーマット済み文字列
+     */
+    private String formatNumber(Object value) {
+        if (value instanceof Number number) {
+            return String.format("%,d", number.intValue());
+        }
+        return "0";
+    }
+
+    /**
+     * エラーレスポンスを送信
+     * @param exchange HTTPエクスチェンジ
+     * @param statusCode ステータスコード
+     * @param message エラーメッセージ
+     * @throws IOException I/O例外
+     */
+    private void sendErrorResponse(HttpExchange exchange, int statusCode, String message) throws IOException {
+        String errorTemplate = webConfig.getTemplate("error");
+        String html = errorTemplate
+            .replace("{{APP_TITLE}}", webConfig.getAppTitle())
+            .replace("{{ERROR_CODE}}", String.valueOf(statusCode))
+            .replace("{{ERROR_MESSAGE}}", message);
+
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+        exchange.sendResponseHeaders(statusCode, html.getBytes(StandardCharsets.UTF_8).length);
+
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(html.getBytes(StandardCharsets.UTF_8));
+        }
+
+        logFunction.accept(String.format("エラーレスポンス送信: %d - %s", statusCode, message), "WARN");
+    }
+}

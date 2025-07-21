@@ -1,192 +1,180 @@
 package com.edamame.security;
 
-import java.io.*;
-import java.nio.file.*;
-import java.util.*;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.BiConsumer;
 
 /**
- * 複数サーバーの設定を管理するクラス
- * servers.confファイルからサーバー情報を読み込み、監視対象を管理する
+ * サーバー設定管理クラス
+ * 複数サーバーの監視設定を管理
  */
 public class ServerConfig {
 
-    /**
-     * サーバー情報を格納するrecordクラス
-     * @param name サーバー管理名
-     * @param logPath ログファイルパス
-     */
-    public record ServerInfo(String name, String logPath) {
-
-        /**
-         * サーバー情報の妥当性をチェック
-         * @return 妥当性チェック結果
-         */
-        public boolean isValid() {
-            return name != null && !name.trim().isEmpty() &&
-                   logPath != null && !logPath.trim().isEmpty();
-        }
-
-        /**
-         * ログファイルの存在確認
-         * @return ファイル存在確認結果
-         */
-        public boolean logFileExists() {
-            return Files.exists(Paths.get(logPath));
-        }
-
-        @Override
-        public String toString() {
-            return String.format("ServerInfo[name='%s', logPath='%s']", name, logPath);
-        }
-    }
-
-    private static final String DEFAULT_CONFIG_PATH = "/app/config/servers.conf";
-    private static long staticLastModified = 0; // 静的メソッド用の最終更新時刻管理
-    
     private final String configPath;
-    private final BiConsumer<String, String> logger;
+    private final BiConsumer<String, String> logFunction;
     private final List<ServerInfo> servers = new ArrayList<>();
     private long lastModified = 0;
 
     /**
+     * サーバー情報を表すレコードクラス
+     * @param name サーバー名
+     * @param logPath ログファイルパス
+     */
+    public record ServerInfo(String name, String logPath) {
+        /**
+         * ログファイルが存在するかチェック
+         * @return 存在する場合true
+         */
+        public boolean logFileExists() {
+            return Files.exists(Paths.get(logPath));
+        }
+    }
+
+    /**
      * コンストラクタ
      * @param configPath 設定ファイルパス
-     * @param logger ログ出力関数
+     * @param logFunction ログ出力関数
      */
-    public ServerConfig(String configPath, BiConsumer<String, String> logger) {
-        this.configPath = configPath != null ? configPath : DEFAULT_CONFIG_PATH;
-        this.logger = logger;
+    public ServerConfig(String configPath, BiConsumer<String, String> logFunction) {
+        this.configPath = configPath;
+        this.logFunction = logFunction != null ? logFunction :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
     }
 
     /**
-     * デフォルトパスでServerConfigを作成
-     * @param logger ログ出力関数
+     * デフォルト設定でインスタンスを作成
+     * @param logFunction ログ出力関数
      * @return ServerConfigインスタンス
      */
-    public static ServerConfig createDefault(BiConsumer<String, String> logger) {
-        return new ServerConfig(DEFAULT_CONFIG_PATH, logger);
+    public static ServerConfig createDefault(BiConsumer<String, String> logFunction) {
+        String configPath = System.getenv("SERVERS_CONFIG_PATH");
+        if (configPath == null || configPath.trim().isEmpty()) {
+            configPath = "/app/config/servers.conf";
+        }
+        return new ServerConfig(configPath, logFunction);
     }
 
     /**
-     * 設定ファイルからサーバーリストを読み込み
+     * サーバー設定を読み込み
      * @return 読み込み成功可否
      */
     public boolean loadServers() {
-        Path configFile = Paths.get(configPath);
-
-        if (!Files.exists(configFile)) {
-            logger.accept("サーバー設定ファイルが見つかりません: " + configPath, "WARN");
-            return false;
-        }
-
         try {
-            long currentModified = Files.getLastModifiedTime(configFile).toMillis();
-
-            // ファイルが更新されていない場合はスキップ
-            if (currentModified == lastModified && !servers.isEmpty()) {
-                return true;
+            Path path = Paths.get(configPath);
+            if (!Files.exists(path)) {
+                logFunction.accept("サーバー設定ファイルが見つかりません: " + configPath, "WARN");
+                return createDefaultConfig();
             }
 
+            List<String> lines = Files.readAllLines(path);
             servers.clear();
-            List<String> lines = Files.readAllLines(configFile);
-            int lineNumber = 0;
-            Set<String> serverNames = new HashSet<>(); // 重複チェック用
 
             for (String line : lines) {
-                lineNumber++;
                 line = line.trim();
-
-                // コメント行や空行をスキップ
                 if (line.isEmpty() || line.startsWith("#")) {
-                    continue;
+                    continue; // 空行とコメント行をスキップ
                 }
 
-                // CSV形式で解析: 管理名,ログパス
                 String[] parts = line.split(",", 2);
-                if (parts.length != 2) {
-                    logger.accept(String.format("設定ファイル %d行目の形式が不正です: %s",
-                        lineNumber, line), "WARN");
-                    continue;
-                }
-
-                String name = parts[0].trim();
-                String logPath = parts[1].trim();
-
-                // 管理名の重複チェック
-                if (serverNames.contains(name)) {
-                    logger.accept(String.format("致命的エラー: サーバー管理名が重複しています - '%s' (%d行目)",
-                        name, lineNumber), "ERROR");
-                    logger.accept("各サーバーには一意な管理名を設定してください", "ERROR");
-                    logger.accept("設定ファイル: " + configPath, "ERROR");
-                    return false; // 重複エラーで終了
-                }
-
-                ServerInfo server = new ServerInfo(name, logPath);
-                if (server.isValid()) {
-                    servers.add(server);
-                    serverNames.add(name); // 重複チェック用セットに追加
-                    logger.accept(String.format("サーバー設定を読み込み: %s → %s",
-                        name, logPath), "DEBUG");
+                if (parts.length == 2) {
+                    String serverName = parts[0].trim();
+                    String logPath = parts[1].trim();
+                    servers.add(new ServerInfo(serverName, logPath));
                 } else {
-                    logger.accept(String.format("無効なサーバー設定をスキップ: %s", line), "WARN");
+                    logFunction.accept("無効な設定行をスキップ: " + line, "WARN");
                 }
             }
 
-            lastModified = currentModified;
-            logger.accept(String.format("サーバー設定読み込み完了: %d台のサーバーを登録",
-                servers.size()), "INFO");
-
-            return !servers.isEmpty();
+            lastModified = Files.getLastModifiedTime(path).toMillis();
+            logFunction.accept("サーバー設定読み込み完了: " + servers.size() + "台", "INFO");
+            return true;
 
         } catch (IOException e) {
-            logger.accept("サーバー設定ファイル読み込みエラー: " + e.getMessage(), "ERROR");
+            logFunction.accept("サーバー設定読み込みエラー: " + e.getMessage(), "ERROR");
+            return createDefaultConfig();
+        }
+    }
+
+    /**
+     * デフォルト設定を作成
+     * @return 作成成功可否
+     */
+    private boolean createDefaultConfig() {
+        try {
+            logFunction.accept("デフォルトサーバー設定を作成します", "INFO");
+
+            // デフォルトサーバーを追加
+            servers.clear();
+            servers.add(new ServerInfo("default", "/var/log/nginx/nginx.log"));
+
+            // 設定ファイルを作成
+            String defaultContent = """
+                # Edamame NginxLog Security Analyzer - サーバー設定
+                # 形式: サーバー名,ログファイルパス
+                
+                default,/var/log/nginx/nginx.log
+                """;
+
+            Path path = Paths.get(configPath);
+            Path parentDir = path.getParent();
+            if (parentDir != null && !Files.exists(parentDir)) {
+                Files.createDirectories(parentDir);
+            }
+
+            Files.writeString(path, defaultContent);
+            lastModified = Files.getLastModifiedTime(path).toMillis();
+
+            logFunction.accept("デフォルトサーバー設定ファイルを作成しました: " + configPath, "INFO");
+            return true;
+
+        } catch (IOException e) {
+            logFunction.accept("デフォルト設定作成エラー: " + e.getMessage(), "ERROR");
             return false;
         }
     }
 
     /**
-     * 読み込み済みサーバーリストを取得
-     * @return サーバー情報のリスト（読み取り専用）
+     * 設定ファイルの更新チェック
+     * @param configPath 設定ファイルパス
+     * @param logFunction ログ出力関数
+     * @return 更新があった場合true
+     */
+    public static boolean updateIfNeeded(String configPath, BiConsumer<String, String> logFunction) {
+        try {
+            Path path = Paths.get(configPath);
+            if (!Files.exists(path)) {
+                return false;
+            }
+
+            long currentModified = Files.getLastModifiedTime(path).toMillis();
+            // この実装では簡易的な更新チェックのみ
+            return false; // 実際の更新処理は将来実装
+
+        } catch (IOException e) {
+            if (logFunction != null) {
+                logFunction.accept("設定ファイル更新チェックエラー: " + e.getMessage(), "ERROR");
+            }
+            return false;
+        }
+    }
+
+    /**
+     * サーバーリストを取得
+     * @return サーバー情報のリスト
      */
     public List<ServerInfo> getServers() {
-        return Collections.unmodifiableList(servers);
+        return new ArrayList<>(servers);
     }
 
     /**
-     * 指定名のサーバー情報を取得
-     * @param name サーバー管理名
-     * @return サーバー情報（見つからない場合はnull）
-     */
-    public ServerInfo getServer(String name) {
-        return servers.stream()
-            .filter(server -> server.name().equals(name))
-            .findFirst()
-            .orElse(null);
-    }
-
-    /**
-     * 設定ファイルが更新されているかチェック
-     * @return 更新確認結果
-     */
-    public boolean isConfigUpdated() {
-        Path configFile = Paths.get(configPath);
-        if (!Files.exists(configFile)) {
-            return false;
-        }
-
-        try {
-            long currentModified = Files.getLastModifiedTime(configFile).toMillis();
-            return currentModified != lastModified;
-        } catch (IOException e) {
-            logger.accept("設定ファイル更新確認エラー: " + e.getMessage(), "WARN");
-            return false;
-        }
-    }
-
-    /**
-     * ログファイルの存在確認を実行
-     * @return 存在しないログファイルのリスト
+     * ログファイルの存在確認
+     * @return 存在しないファイルを持つサーバーのリスト
      */
     public List<ServerInfo> validateLogFiles() {
         List<ServerInfo> missingFiles = new ArrayList<>();
@@ -194,8 +182,7 @@ public class ServerConfig {
         for (ServerInfo server : servers) {
             if (!server.logFileExists()) {
                 missingFiles.add(server);
-                logger.accept(String.format("ログファイルが見つかりません: %s (%s)",
-                    server.name(), server.logPath()), "WARN");
+                logFunction.accept("ログファイルが見つかりません: " + server.name() + " → " + server.logPath(), "WARN");
             }
         }
 
@@ -203,78 +190,72 @@ public class ServerConfig {
     }
 
     /**
-     * 設定情報の概要を表示
+     * 設定概要を表示
      */
     public void displayConfigSummary() {
-        logger.accept("=== サーバー設定概要 ===", "INFO");
-        logger.accept(String.format("設定ファイル: %s", configPath), "INFO");
-        logger.accept(String.format("登録サーバー数: %d", servers.size()), "INFO");
+        logFunction.accept("=== サーバー設定概要 ===", "INFO");
+        logFunction.accept("設定ファイル: " + configPath, "INFO");
+        logFunction.accept("サーバー数: " + servers.size(), "INFO");
 
         for (ServerInfo server : servers) {
             String status = server.logFileExists() ? "✓" : "✗";
-            logger.accept(String.format("  %s %s → %s", status, server.name(), server.logPath()), "INFO");
+            logFunction.accept(String.format("  %s %s → %s", status, server.name(), server.logPath()), "INFO");
         }
-        logger.accept("========================", "INFO");
+
+        logFunction.accept("最終更新: " + formatLastModified(), "INFO");
+        logFunction.accept("======================", "INFO");
     }
 
     /**
-     * 設定ファイルが更新されているかチェックして、必要に応じて再読み込み
-     * @param configPath 設定ファイルパス
-     * @param logger ログ出力関数
-     * @return 更新があった場合true
+     * 最終更新時刻をフォーマット
+     * @return フォーマット済み時刻文字列
      */
-    public static boolean updateIfNeeded(String configPath, BiConsumer<String, String> logger) {
-        Path configFile = Paths.get(configPath != null ? configPath : DEFAULT_CONFIG_PATH);
-        
-        if (!Files.exists(configFile)) {
-            return false;
+    private String formatLastModified() {
+        if (lastModified == 0) {
+            return "未設定";
         }
-
-        try {
-            long currentModified = Files.getLastModifiedTime(configFile).toMillis();
-            
-            // 初回チェック時は現在の時刻を記録してfalseを返す（ログ出力なし）
-            if (staticLastModified == 0) {
-                staticLastModified = currentModified;
-                return false;
-            }
-            
-            // ファイルが実際に更新されているかチェック
-            if (currentModified > staticLastModified) {
-                logger.accept("サーバー設定ファイルの更新を検知しました", "INFO");
-                staticLastModified = currentModified; // 更新時刻を記録
-                
-                // 新しいインスタンスで設定を再読み込み
-                ServerConfig config = new ServerConfig(configPath, logger);
-                boolean loadResult = config.loadServers();
-                
-                if (loadResult) {
-                    logger.accept("サーバー設定の再読み込みが完了しました", "INFO");
-                } else {
-                    logger.accept("サーバー設定の再読み込みに失敗しました", "WARN");
-                }
-                
-                return loadResult;
-            }
-            
-            return false; // 更新なし（ログ出力なし）
-            
-        } catch (IOException e) {
-            logger.accept("設定ファイル更新確認エラー: " + e.getMessage(), "WARN");
-            return false;
-        }
+        LocalDateTime dateTime = LocalDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(lastModified),
+            java.time.ZoneId.systemDefault()
+        );
+        return dateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
     /**
-     * サーバー設定をロードする静的メソッド（互換性のため）
-     * @param configPath 設定ファイルパス
-     * @param logger ログ出力関数
-     * @return 読み込み成��可否
-     * @deprecated インスタンスメソッドのloadServers()を使用してください
+     * サーバー名でサーバー情報を検索
+     * @param serverName サーバー名
+     * @return サーバー情報（見つからない場合null）
      */
-    @Deprecated
-    public static boolean loadServerConfigs(String configPath, BiConsumer<String, String> logger) {
-        ServerConfig config = new ServerConfig(configPath, logger);
-        return config.loadServers();
+    public ServerInfo findServerByName(String serverName) {
+        return servers.stream()
+            .filter(server -> server.name().equals(serverName))
+            .findFirst()
+            .orElse(null);
+    }
+
+    /**
+     * サーバー設定を追加
+     * @param serverName サーバー名
+     * @param logPath ログファイルパス
+     */
+    public void addServer(String serverName, String logPath) {
+        servers.add(new ServerInfo(serverName, logPath));
+        logFunction.accept("サーバー追加: " + serverName + " → " + logPath, "INFO");
+    }
+
+    /**
+     * サーバー数を取得
+     * @return サーバー数
+     */
+    public int getServerCount() {
+        return servers.size();
+    }
+
+    /**
+     * 設定が空かどうかを確認
+     * @return 空の場合true
+     */
+    public boolean isEmpty() {
+        return servers.isEmpty();
     }
 }

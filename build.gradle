@@ -8,7 +8,7 @@ group = 'com.edamame.security'
 version = '1.0.0'
 
 // プロジェクト情報
-description = 'NGINXログを監視し、セキュリティ攻撃を検知・記録するツール'
+description = 'NGINXログを監視し、セキュリティ攻撃を検知・記録するツール（Webフロントエンド統合版）'
 
 // Java設定
 java {
@@ -53,6 +53,10 @@ dependencies {
     // JSON処理（org.json）
     implementation "org.json:json:20240303"
 
+    // メール送信機能
+    implementation "javax.mail:javax.mail-api:1.6.2"
+    implementation "com.sun.mail:javax.mail:1.6.2"
+
     // 暗号化処理
     implementation "org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}"
 
@@ -62,6 +66,9 @@ dependencies {
     // ロギング
     implementation "ch.qos.logback:logback-classic:${logbackVersion}"
     implementation "ch.qos.logback:logback-core:${logbackVersion}"
+
+    // Webフロントエンド用（Java 21標準のHTTPサーバーを使用）
+    // 追加の外部依存関係は不要 - com.sun.net.httpserver.HttpServerを使用
 
     // テスト用依存関係
     testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
@@ -82,7 +89,8 @@ compileJava {
     // Java 21のモジュールシステム対応 - Jackson内部クラスアクセス許可
     options.forkOptions.jvmArgs += [
         '--add-opens=java.base/java.lang=ALL-UNNAMED',
-        '--add-opens=java.base/java.util=ALL-UNNAMED'
+        '--add-opens=java.base/java.util=ALL-UNNAMED',
+        '--add-opens=java.base/java.nio=ALL-UNNAMED'
     ]
 }
 
@@ -143,6 +151,7 @@ tasks.register('setupConfigShadowJar', com.github.jengelman.gradle.plugins.shado
 
     // メインアプリケーションのクラスを除外（ツールクラスのみ含める）
     exclude 'com/edamame/security/**'
+    exclude 'com/edamame/web/**'
 
     // 不要なファイルを除外
     exclude 'META-INF/*.SF'
@@ -152,7 +161,7 @@ tasks.register('setupConfigShadowJar', com.github.jengelman.gradle.plugins.shado
     exclude '**/hamcrest/**'
 }
 
-// Shadow JARタスクを使用したメインアプリケーション専用JAR
+// Shadow JARタスクを使用したメインアプリケーション専用JAR（Webフロントエンド統合版）
 tasks.register('mainAppShadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
     archiveBaseName = 'NginxLogToMysql'
     archiveVersion = version
@@ -164,13 +173,13 @@ tasks.register('mainAppShadowJar', com.github.jengelman.gradle.plugins.shadow.ta
     manifest {
         attributes(
             'Main-Class': 'com.edamame.security.NginxLogToMysql',
-            'Implementation-Title': 'Edamame NginxLog Security Analyzer',
+            'Implementation-Title': 'Edamame NginxLog Security Analyzer with Web Frontend',
             'Implementation-Version': version,
             'Implementation-Vendor': 'Edamame Security Team'
         )
     }
 
-    // ツールクラスを除外（メインアプリケーションのみ含める）
+    // ツールクラスを除外（メインアプリケーション+Webフロントエンドのみ含める）
     exclude 'com/edamame/tools/**'
 
     // 不要なファイルを除外

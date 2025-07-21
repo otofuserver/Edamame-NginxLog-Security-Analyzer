@@ -3,6 +3,8 @@ package com.edamame.security;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import javax.mail.*;
+import javax.mail.internet.*;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -16,6 +18,13 @@ public class ActionEngine {
 
     private final Connection dbConnection;
     private final BiConsumer<String, String> logFunction;
+    
+    // SMTP設定を起動時にキャッシュ
+    private JSONObject smtpConfig;
+    private boolean smtpConfigLoaded = false;
+
+    // SMTP接続チェック結果のキャッシュ
+    private final Map<String, SmtpCheckResult> smtpCheckCache = new HashMap<>();
 
     /**
      * コンストラクタ
@@ -26,6 +35,9 @@ public class ActionEngine {
         this.dbConnection = dbConnection;
         this.logFunction = logFunction != null ? logFunction :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+        
+        // 起動時にSMTP設定を読み込み
+        initializeSmtpConfig();
     }
 
     /**
@@ -81,7 +93,7 @@ public class ActionEngine {
             ));
 
             if (rules.isEmpty()) {
-                logFunction.accept("定時レポート送���に対応するアクションルールが見つかりません: " + reportType, "DEBUG");
+                logFunction.accept("定時レポート送信に対応するアクションルールが見つかりません: " + reportType, "DEBUG");
                 return;
             }
 
@@ -114,7 +126,7 @@ public class ActionEngine {
                    at.tool_name, at.tool_type, at.config_json, at.is_enabled as tool_enabled
             FROM action_rules ar
             JOIN action_tools at ON ar.action_tool_id = at.id
-            WHERE ar.is_enabled = TRUE 
+            WHERE ar.is_enabled = TRUE
               AND at.is_enabled = TRUE
               AND ar.condition_type = ?
               AND (ar.target_server = ? OR ar.target_server = '*')
@@ -165,19 +177,16 @@ public class ActionEngine {
 
             JSONObject conditionJson = new JSONObject(rule.conditionParams);
 
-            switch (rule.conditionType) {
-                case "attack_detected":
-                    return isAttackConditionMatching(conditionJson, eventData);
-                case "ip_frequency":
-                    return isIpFrequencyConditionMatching(conditionJson, eventData);
-                case "status_code":
-                    return isStatusCodeConditionMatching(conditionJson, eventData);
-                case "custom":
-                    return isCustomConditionMatching(conditionJson, eventData);
-                default:
+            return switch (rule.conditionType) {
+                case "attack_detected" -> isAttackConditionMatching(conditionJson, eventData);
+                case "ip_frequency" -> isIpFrequencyConditionMatching(conditionJson, eventData);
+                case "status_code" -> isStatusCodeConditionMatching(conditionJson, eventData);
+                case "custom" -> isCustomConditionMatching(conditionJson, eventData);
+                default -> {
                     logFunction.accept("未知の条件タイプ: " + rule.conditionType, "WARN");
-                    return false;
-            }
+                    yield false;
+                }
+            };
 
         } catch (Exception e) {
             logFunction.accept("条件マッチング処理でエラー: " + e.getMessage(), "ERROR");
@@ -228,7 +237,7 @@ public class ActionEngine {
      */
     private boolean isCustomConditionMatching(JSONObject conditionJson, Map<String, Object> eventData) {
         // 将来実装予定
-        logFunction.accept("カスタ���条件は未実装です", "DEBUG");
+        logFunction.accept("カスタム条件は未実装です", "DEBUG");
         return false;
     }
 
@@ -282,23 +291,315 @@ public class ActionEngine {
     }
 
     /**
-     * メールアクションの実行
+     * メールアクションの実行（最適化版）
      */
     private String executeMailAction(ActionRule rule, Map<String, Object> eventData) {
         logFunction.accept("メールアクション実行: " + rule.ruleName, "INFO");
 
-        // 現在はログ出力のみ（実際のメール送信は将来実装）
         try {
             JSONObject config = new JSONObject(rule.configJson);
+
+            // キャッシュされたSMTP設定を使用（毎回ファイル読み込みしない）
+            JSONObject smtpConfig = getSmtpConfig();
+            JSONObject smtp = smtpConfig.getJSONObject("smtp");
+            JSONObject defaults = smtpConfig.getJSONObject("defaults");
+
+            // メール設定を取得（外部ファイルからデフォルト値、config_jsonで上書き可能）
+            String smtpHost = smtp.getString("host");
+            int smtpPort = smtp.getInt("port");
+            String fromEmail = config.optString("from_email", defaults.getString("from_email"));
+            String fromName = config.optString("from_name", defaults.getString("from_name"));
+            String toEmail = config.getString("to_email");
+
+            // SMTP接続可能性をチェック
+            if (!isSmtpServerAvailable(smtpHost, smtpPort)) {
+                String warningMsg = String.format("SMTP接続不可: %s:%d - メール送信をスキップします", smtpHost, smtpPort);
+                logFunction.accept(warningMsg, "WARN");
+                return "SMTP接続不可のためスキップ: " + smtpHost + ":" + smtpPort;
+            }
+
+            // テンプレート変数を置換
             String subject = replaceVariables(config.getString("subject_template"), eventData);
             String body = replaceVariables(config.getString("body_template"), eventData);
 
-            logFunction.accept(String.format("メール送信予定 - 件名: %s", subject), "ALERT");
-            logFunction.accept(String.format("メール本文: %s", body), "DEBUG");
+            // SMTP設定
+            Properties props = new Properties();
+            props.put("mail.smtp.host", smtpHost);
+            props.put("mail.smtp.port", smtpPort);
+            props.put("mail.smtp.auth", smtp.getBoolean("auth_required") ? "true" : "false");
+            props.put("mail.smtp.timeout", smtp.getInt("timeout") * 1000);
+            props.put("mail.smtp.connectiontimeout", smtp.getInt("connection_timeout") * 1000);
 
-            return "メール送信処理完了（実際の送信は未実装）";
+            // セキュリティ設定
+            String security = smtp.getString("security");
+            if ("STARTTLS".equals(security)) {
+                props.put("mail.smtp.starttls.enable", "true");
+                props.put("mail.smtp.starttls.required", "true");
+            } else if ("SSL".equals(security)) {
+                props.put("mail.smtp.ssl.enable", "true");
+            }
+
+            // メールセッション作成
+            Session session;
+            if (smtp.getBoolean("auth_required")) {
+                String username = smtp.getString("username");
+                String password = smtp.getString("password");
+                session = Session.getInstance(props, new javax.mail.Authenticator() {
+                    protected javax.mail.PasswordAuthentication getPasswordAuthentication() {
+                        return new javax.mail.PasswordAuthentication(username, password);
+                    }
+                });
+            } else {
+                session = Session.getInstance(props);
+            }
+
+            // デバッグモード設定
+            if (smtp.getBoolean("enable_debug")) {
+                session.setDebug(true);
+            }
+
+            // メッセージ作成
+            Message message = new MimeMessage(session);
+            message.setFrom(new InternetAddress(fromEmail, fromName));
+            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail));
+            message.setSubject(subject);
+            message.setText(body);
+            message.setSentDate(new java.util.Date());
+
+            // メール送信
+            Transport.send(message);
+
+            logFunction.accept(String.format("メール送信成功: %s", toEmail), "INFO");
+            return "メール送信完了: " + toEmail;
+
         } catch (Exception e) {
-            throw new RuntimeException("メール設定の解析エラー: " + e.getMessage(), e);
+            logFunction.accept(String.format("メール送信失敗: %s", e.getMessage()), "ERROR");
+            return "メール送信失敗: " + e.getMessage();
+        }
+    }
+    
+    /**
+     * SMTP接続可能性をチェック（改善版）
+     * @param host SMTPホスト
+     * @param port SMTPポート
+     * @return 接続可能な場合true
+     */
+    private boolean isSmtpServerAvailable(String host, int port) {
+        // キャッシュで直近の接続失敗を記録（頻繁な接続チェックを避ける）
+        String cacheKey = host + ":" + port;
+        long currentTime = System.currentTimeMillis();
+
+        // 前回チェックから5分以内なら結果をキャッシュから返す
+        if (smtpCheckCache.containsKey(cacheKey)) {
+            SmtpCheckResult cachedResult = smtpCheckCache.get(cacheKey);
+            if (currentTime - cachedResult.timestamp < 300000) { // 5分間キャッシュ
+                if (!cachedResult.available) {
+                    logFunction.accept(String.format("SMTP接続チェック（キャッシュ）: %s:%d - 接続不可", host, port), "DEBUG");
+                }
+                return cachedResult.available;
+            }
+        }
+
+        try (java.net.Socket socket = new java.net.Socket()) {
+            // 接続タイムアウトを15秒に延長（従来の5秒では短すぎる）
+            socket.connect(new java.net.InetSocketAddress(host, port), 15000);
+
+            // 成功結果をキャッシュ
+            smtpCheckCache.put(cacheKey, new SmtpCheckResult(true, currentTime));
+            logFunction.accept(String.format("SMTP接続チェック成功: %s:%d", host, port), "DEBUG");
+            return true;
+        } catch (java.net.SocketTimeoutException e) {
+            logFunction.accept(String.format("SMTP接続タイムアウト %s:%d (15秒)", host, port), "DEBUG");
+            smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
+            return false;
+        } catch (java.net.ConnectException e) {
+            logFunction.accept(String.format("SMTP接続拒否 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
+            smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
+            return false;
+        } catch (Exception e) {
+            logFunction.accept(String.format("SMTP接続チェック失敗 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
+            smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
+            return false;
+        }
+    }
+
+
+    /**
+     * SMTP設定ファイルを読み込み
+     * @return SMTP設定のJSONObject
+     * @throws Exception 読み込みエラー
+     */
+    private JSONObject loadSmtpConfig() throws Exception {
+        // 複数の設定ファイルパスを試行
+        String[] configPaths = {
+            "container/config/smtp_config.json",  // 開発環境
+            "/app/config/smtp_config.json",       // Docker環境
+            "config/smtp_config.json",            // 相対パス
+            "smtp_config.json"                    // カレントディレクトリ
+        };
+
+        for (String configPath : configPaths) {
+            java.io.File configFile = new java.io.File(configPath);
+            if (configFile.exists()) {
+                logFunction.accept("SMTP設定ファイル読み込み成功: " + configPath, "INFO");
+
+                try (java.io.FileReader reader = new java.io.FileReader(configFile, java.nio.charset.StandardCharsets.UTF_8)) {
+                    StringBuilder content = new StringBuilder();
+                    char[] buffer = new char[1024];
+                    int length;
+                    while ((length = reader.read(buffer)) != -1) {
+                        content.append(buffer, 0, length);
+                    }
+                    return new JSONObject(content.toString());
+                } catch (Exception e) {
+                    logFunction.accept("SMTP設定ファイル読み込みエラー: " + configPath + " - " + e.getMessage(), "WARN");
+                    continue; // 次のパスを試行
+                }
+            }
+        }
+
+        // 設定ファイルが見つからない場合はデフォルト設定を返す
+        logFunction.accept("SMTP設定ファイルが見つかりません。デフォルト設定を使用します", "WARN");
+        return createDefaultSmtpConfig();
+    }
+
+    /**
+     * デフォルトSMTP設定を作成
+     * @return デフォルトSMTP設定のJSONObject
+     */
+    private JSONObject createDefaultSmtpConfig() {
+        JSONObject defaultConfig = new JSONObject();
+
+        // SMTP設定
+        JSONObject smtp = new JSONObject();
+        smtp.put("host", "localhost");
+        smtp.put("port", 25);
+        smtp.put("auth_required", false);
+        smtp.put("username", "");
+        smtp.put("password", "");
+        smtp.put("security", "NONE");
+        smtp.put("timeout", 30);
+        smtp.put("connection_timeout", 15);
+        smtp.put("enable_debug", false);
+
+        // デフォルト送信者情報
+        JSONObject defaults = new JSONObject();
+        defaults.put("from_email", "noreply@example.com");
+        defaults.put("from_name", "Edamame Security Analyzer");
+
+        defaultConfig.put("smtp", smtp);
+        defaultConfig.put("defaults", defaults);
+
+        return defaultConfig;
+    }
+
+    /**
+     * SMTP設定の初期化
+     * 起動時に一回だけ実行し、設定をキャッシュする
+     */
+    private void initializeSmtpConfig() {
+        try {
+            this.smtpConfig = loadSmtpConfigFromFile();
+            this.smtpConfigLoaded = true;
+            logFunction.accept("SMTP設定の初期化が完了しました", "INFO");
+        } catch (Exception e) {
+            logFunction.accept("SMTP設定の初期化に失敗しました。デフォルト設定を使用します: " + e.getMessage(), "WARN");
+            this.smtpConfig = createDefaultSmtpConfig();
+            this.smtpConfigLoaded = true;
+        }
+    }
+
+    /**
+     * キャッシュされたSMTP設定を取得
+     * @return SMTP設定のJSONObject
+     */
+    private JSONObject getSmtpConfig() {
+        if (!smtpConfigLoaded) {
+            initializeSmtpConfig();
+        }
+        return this.smtpConfig;
+    }
+
+    /**
+     * SMTP設定ファイルを読み込み（実際のファイル読み込み処理）
+     * @return SMTP設定のJSONObject
+     * @throws Exception 読み込みエラー
+     */
+    private JSONObject loadSmtpConfigFromFile() throws Exception {
+        // 複数の設定ファイルパスを試行
+        String[] configPaths = {
+            "container/config/smtp_config.json",  // 開発環境
+            "/app/config/smtp_config.json",       // Docker環境
+            "config/smtp_config.json",            // 相対パス
+            "smtp_config.json"                    // カレントディレクトリ
+        };
+
+        for (String configPath : configPaths) {
+            java.io.File configFile = new java.io.File(configPath);
+            if (configFile.exists()) {
+                logFunction.accept("SMTP設定ファイル読み込み成功: " + configPath, "INFO");
+
+                try (java.io.FileReader reader = new java.io.FileReader(configFile, java.nio.charset.StandardCharsets.UTF_8)) {
+                    StringBuilder content = new StringBuilder();
+                    char[] buffer = new char[1024];
+                    int length;
+                    while ((length = reader.read(buffer)) != -1) {
+                        content.append(buffer, 0, length);
+                    }
+                    return new JSONObject(content.toString());
+                } catch (Exception e) {
+                    logFunction.accept("SMTP設定ファイル読み込みエラー: " + configPath + " - " + e.getMessage(), "WARN");
+                    continue; // 次のパスを試行
+                }
+            }
+        }
+
+        // 設定ファイルが見つからない場合は例外を投げる
+        throw new Exception("SMTP設定ファイルが見つかりません");
+    }
+
+    /**
+     * SMTP接続チェック結果保持クラス
+     */
+    private static class SmtpCheckResult {
+        final boolean available;
+        final long timestamp;
+        
+        SmtpCheckResult(boolean available, long timestamp) {
+            this.available = available;
+            this.timestamp = timestamp;
+        }
+    }
+
+    /**
+     * アクションルールを表すレコードクラス
+     */
+    private static class ActionRule {
+        final int id;
+        final String ruleName;
+        final String targetServer;
+        final String conditionType;
+        final String conditionParams;
+        final int actionToolId;
+        final String actionParams;
+        final int priority;
+        final String toolName;
+        final String toolType;
+        final String configJson;
+
+        ActionRule(int id, String ruleName, String targetServer, String conditionType, String conditionParams,
+                  int actionToolId, String actionParams, int priority, String toolName, String toolType, String configJson) {
+            this.id = id;
+            this.ruleName = ruleName;
+            this.targetServer = targetServer;
+            this.conditionType = conditionType;
+            this.conditionParams = conditionParams;
+            this.actionToolId = actionToolId;
+            this.actionParams = actionParams;
+            this.priority = priority;
+            this.toolName = toolName;
+            this.toolType = toolType;
+            this.configJson = configJson;
         }
     }
 
@@ -347,9 +648,9 @@ public class ActionEngine {
      */
     private void updateRuleExecutionStats(int ruleId) {
         String sql = """
-            UPDATE action_rules 
-            SET execution_count = execution_count + 1, 
-                last_executed = NOW() 
+            UPDATE action_rules
+            SET execution_count = execution_count + 1,
+                last_executed = NOW()
             WHERE id = ?
             """;
 
@@ -367,7 +668,7 @@ public class ActionEngine {
     private void logExecutionResult(int ruleId, String serverName, Map<String, Object> eventData,
                                   String status, String result, long durationMs) {
         String sql = """
-            INSERT INTO action_execution_log 
+            INSERT INTO action_execution_log
             (rule_id, server_name, trigger_event, execution_status, execution_result, processing_duration_ms)
             VALUES (?, ?, ?, ?, ?, ?)
             """;
@@ -441,7 +742,7 @@ public class ActionEngine {
             // 総アクセス数
             String totalSql = """
                 SELECT COUNT(*) as total_access
-                FROM access_log 
+                FROM access_log
                 WHERE access_time BETWEEN ? AND ?
                 """ + serverCondition;
 
@@ -461,7 +762,7 @@ public class ActionEngine {
             // ステータスコード別統計
             String statusSql = """
                 SELECT status_code, COUNT(*) as count
-                FROM access_log 
+                FROM access_log
                 WHERE access_time BETWEEN ? AND ?
                 """ + serverCondition + """
                 GROUP BY status_code
@@ -502,7 +803,7 @@ public class ActionEngine {
             // 攻撃タイプ別統計
             String attackSql = """
                 SELECT attack_type, COUNT(*) as count
-                FROM url_registry 
+                FROM url_registry
                 WHERE created_at BETWEEN ? AND ?
                   AND attack_type NOT IN ('CLEAN', 'UNKNOWN')
                 """ + serverCondition + """
@@ -548,7 +849,7 @@ public class ActionEngine {
             // ModSecurityブロック数
             String blockSql = """
                 SELECT COUNT(*) as blocked_count
-                FROM access_log 
+                FROM access_log
                 WHERE access_time BETWEEN ? AND ?
                   AND blocked_by_modsec = TRUE
                 """ + serverCondition;
@@ -569,7 +870,7 @@ public class ActionEngine {
             // ModSecurityルール別統計
             String ruleSql = """
                 SELECT rule_id, COUNT(*) as count
-                FROM modsec_alerts 
+                FROM modsec_alerts
                 WHERE created_at BETWEEN ? AND ?
                 """ + serverCondition + """
                 GROUP BY rule_id
@@ -611,7 +912,7 @@ public class ActionEngine {
             // 新規URL発見数
             String newUrlSql = """
                 SELECT COUNT(*) as new_urls
-                FROM url_registry 
+                FROM url_registry
                 WHERE created_at BETWEEN ? AND ?
                 """ + serverCondition;
 
@@ -633,37 +934,5 @@ public class ActionEngine {
         }
 
         return stats;
-    }
-
-    /**
-     * アクションルールを表すレコードクラス
-     */
-    private static class ActionRule {
-        final int id;
-        final String ruleName;
-        final String targetServer;
-        final String conditionType;
-        final String conditionParams;
-        final int actionToolId;
-        final String actionParams;
-        final int priority;
-        final String toolName;
-        final String toolType;
-        final String configJson;
-
-        ActionRule(int id, String ruleName, String targetServer, String conditionType, String conditionParams,
-                  int actionToolId, String actionParams, int priority, String toolName, String toolType, String configJson) {
-            this.id = id;
-            this.ruleName = ruleName;
-            this.targetServer = targetServer;
-            this.conditionType = conditionType;
-            this.conditionParams = conditionParams;
-            this.actionToolId = actionToolId;
-            this.actionParams = actionParams;
-            this.priority = priority;
-            this.toolName = toolName;
-            this.toolType = toolType;
-            this.configJson = configJson;
-        }
     }
 }
