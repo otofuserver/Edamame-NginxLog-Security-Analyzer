@@ -65,7 +65,7 @@ public class WebSecurityUtils {
     }
 
     /**
-     * HTMLエスケープ処理（XSS防御）
+     * HTML���スケープ処理（XSS防御）
      * @param input エスケープ対象文字列
      * @return エスケープ済み文字列
      */
@@ -121,7 +121,7 @@ public class WebSecurityUtils {
 
     /**
      * JSONエスケープ処理
-     * @param input エスケープ対象文字列
+     * @param input エスケ��プ対象文字列
      * @return エスケープ済み文字列
      */
     public static String escapeJson(String input) {
@@ -201,20 +201,16 @@ public class WebSecurityUtils {
             "connect-src 'self'; " +
             "font-src 'self'; " +
             "object-src 'none'; " +
-            "media-src 'self'; " +
-            "frame-src 'none'");
-        
-        // Strict Transport Security
-        headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-        
-        // Referrer Policy
-        headers.put("Referrer-Policy", "strict-origin-when-cross-origin");
-        
+            "frame-ancestors 'none'");
+
+        // Strict Transport Security (HTTPS環境でのみ有効)
+        // headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+
         return headers;
     }
 
     /**
-     * 入力値サニタイズ（総合的な清浄化）
+     * 入力値をサニタイズ（一般用途）
      * @param input サニタイズ対象文字列
      * @return サニタイズ済み文字列
      */
@@ -223,67 +219,63 @@ public class WebSecurityUtils {
             return "";
         }
 
-        // XSS攻撃が検知された場合は空文字を返す
-        if (detectXSS(input)) {
-            return "";
-        }
-
-        // SQLインジェクション攻撃が検知された場合は空文字を返す
-        if (detectSqlInjection(input)) {
-            return "";
-        }
-
         // HTMLエスケープを適用
-        return escapeHtml(input.trim());
+        String sanitized = escapeHtml(input.trim());
+
+        // 制御文字を除去
+        sanitized = sanitized.replaceAll("[\u0000-\u001F\u007F-\u009F]", "");
+
+        return sanitized;
     }
 
     /**
-     * ファイル名のサニタイズ
-     * @param filename ファイル名
-     * @return サニタイズ済みファイル名
-     */
-    public static String sanitizeFilename(String filename) {
-        if (filename == null || filename.trim().isEmpty()) {
-            return "unknown";
-        }
-
-        // 危険な文字を除去
-        return filename.replaceAll("[^a-zA-Z0-9._-]", "_").substring(0, Math.min(filename.length(), 100));
-    }
-
-    /**
-     * URL表示専用のサニタイズ処理
-     * 正当なURL文字を保持しつつXSS攻撃を防御
+     * URL表示用サニタイズ（URLの正当な文字は保持）
      * @param url サニタイズ対象URL
      * @return サニタイズ済みURL
      */
     public static String sanitizeUrlForDisplay(String url) {
-        if (url == null || url.trim().isEmpty()) {
+        if (url == null) {
             return "";
         }
 
-        String trimmedUrl = url.trim();
+        // 基本的な制御文字のみ除去（URLの特殊文字は保持）
+        String sanitized = url.replaceAll("[\u0000-\u001F\u007F-\u009F]", "");
 
-        // 明らかに危険なスクリプトタグ等をチェック
-        String[] dangerousPatterns = {
-            "<script", "</script", "<iframe", "</iframe",
-            "javascript:", "vbscript:", "data:text/html",
-            "onclick=", "onload=", "onerror="
-        };
-
-        String lowerUrl = trimmedUrl.toLowerCase();
-        for (String pattern : dangerousPatterns) {
-            if (lowerUrl.contains(pattern)) {
-                return "[XSS検知により非表示]";
-            }
-        }
-
-        // HTMLの特殊文字のみエスケープ（URL用文字は保持）
-        return trimmedUrl
-            .replace("&", "&amp;")
+        // HTMLエスケープ（<, >, ", 'のみ）
+        sanitized = sanitized
             .replace("<", "&lt;")
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
             .replace("'", "&#39;");
+
+        return sanitized;
+    }
+
+    /**
+     * ファイル名をサニタイズ（パストラバーサル攻撃対策）
+     * @param filename サニタイズ対象ファイル名
+     * @return サニタイズ済みファイル名
+     */
+    public static String sanitizeFilename(String filename) {
+        if (filename == null) {
+            return "";
+        }
+
+        // パストラバーサル攻撃対策
+        String sanitized = filename
+            .replace("../", "")
+            .replace("..\\", "")
+            .replace("./", "")
+            .replace(".\\", "")
+            .replace("/", "")
+            .replace("\\", "");
+
+        // 危険な文字を除去
+        sanitized = sanitized.replaceAll("[<>:\"|?*]", "");
+
+        // 制御文字を除去
+        sanitized = sanitized.replaceAll("[\u0000-\u001F\u007F-\u009F]", "");
+
+        return sanitized.trim();
     }
 }

@@ -49,6 +49,15 @@ public class DashboardController {
                 return;
             }
 
+            // セッション情報を取得（認証フィルターで設定済み）
+            String username = (String) exchange.getAttribute("username");
+            if (username == null) {
+                // 認証情報がない場合はログイン画面にリダイレクト
+                exchange.getResponseHeaders().set("Location", "/login");
+                exchange.sendResponseHeaders(302, -1);
+                return;
+            }
+
             // セキュリティヘッダーを設定
             applySecurityHeaders(exchange);
 
@@ -67,6 +76,9 @@ public class DashboardController {
 
             // ダッシュボードデータを取得
             Map<String, Object> dashboardData = dataService.getDashboardStats();
+
+            // 現在のユーザー情報をデータに追加
+            dashboardData.put("currentUser", username);
 
             // HTMLを生成（XSS対策適用）
             String html = generateSecureDashboardHtml(dashboardData);
@@ -136,6 +148,12 @@ public class DashboardController {
      * @return 生成されたHTML
      */
     private String generateSecureDashboardHtml(Map<String, Object> data) {
+        // セッション情報を取得
+        String username = (String) data.get("currentUser");
+        if (username == null) {
+            username = "Unknown";
+        }
+
         String template = webConfig.getTemplate("dashboard");
 
         // 基本情報を置換（XSS対策適用）
@@ -144,7 +162,8 @@ public class DashboardController {
             .replace("{{APP_DESCRIPTION}}", WebSecurityUtils.escapeHtml(webConfig.getAppDescription()))
             .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml("v1.0.0"))
             .replace("{{CURRENT_TIME}}", WebSecurityUtils.escapeHtml(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
-            .replace("{{SERVER_STATUS}}", WebSecurityUtils.escapeHtml(dataService.isConnectionValid() ? "稼働中" : "エラー"));
+            .replace("{{SERVER_STATUS}}", WebSecurityUtils.escapeHtml(dataService.isConnectionValid() ? "稼働中" : "エラー"))
+            .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username));
 
         // 統計情報を置換（XSS対策適用）
         html = html
@@ -355,9 +374,9 @@ public class DashboardController {
                             </div>
                         </div>
                     </div>
-                    """, serverName,
+                    """, serverName, 
                     WebSecurityUtils.escapeHtml(formatNumber(totalAccess)),
-                    WebSecurityUtils.escapeHtml(formatNumber(attackCount)),
+                    WebSecurityUtils.escapeHtml(formatNumber(attackCount)), 
                     WebSecurityUtils.escapeHtml(formatNumber(modsecBlocks))));
             }
         }

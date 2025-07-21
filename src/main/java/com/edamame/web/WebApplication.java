@@ -3,8 +3,10 @@ package com.edamame.web;
 import com.edamame.web.controller.DashboardController;
 import com.edamame.web.controller.ApiController;
 import com.edamame.web.controller.StaticResourceController;
+import com.edamame.web.controller.LoginController;
 import com.edamame.web.service.DataService;
 import com.edamame.web.config.WebConfig;
+import com.edamame.web.security.AuthenticationService;
 import com.sun.net.httpserver.HttpServer;
 
 import java.io.IOException;
@@ -32,6 +34,7 @@ public class WebApplication {
     private final BiConsumer<String, String> logFunction;
     private final Connection dbConnection;
     private DataService dataService;
+    private AuthenticationService authService;
     private WebConfig webConfig;
 
     /**
@@ -81,6 +84,9 @@ public class WebApplication {
             // データサービスを初期化
             dataService = new DataService(dbConnection, logFunction);
 
+            // 認証サービスを初期化
+            authService = new AuthenticationService(dbConnection, logFunction);
+
             // HTTPサーバーを作成
             server = HttpServer.create(new InetSocketAddress(BIND_ADDRESS, DEFAULT_PORT), 0);
 
@@ -90,6 +96,9 @@ public class WebApplication {
 
             // コントローラーを設定
             setupControllers();
+
+            // 期限切れセッションのクリーンアップタスクを開始
+            startSessionCleanupTask();
 
             log("Webアプリケーション初期化完了", "INFO");
             return true;
@@ -104,23 +113,74 @@ public class WebApplication {
      * コントローラーをセットアップ
      */
     private void setupControllers() {
-        // ダッシュボードコントローラー
-        DashboardController dashboardController = new DashboardController(dataService, webConfig, logFunction);
-        server.createContext("/", dashboardController::handleDashboard);
-        server.createContext("/dashboard", dashboardController::handleDashboard);
+        // ログインコントローラー（認証不要）
+        LoginController loginController = new LoginController(authService, logFunction);
+        server.createContext("/login", loginController);
 
-        // APIコントローラー
-        ApiController apiController = new ApiController(dataService, logFunction);
-        server.createContext("/api/", apiController::handleApi);
+        // ログアウトコントローラー（認証不要、セッション削除処理のため）
+        // TODO: LogoutControllerクラスを作成後に有効化
+        // LogoutController logoutController = new LogoutController(authService, logFunction);
+        // server.createContext("/logout", logoutController);
 
-        // 静的リソースコントローラー
+        // 静的リソースコントローラー（認証不要）
         StaticResourceController staticController = new StaticResourceController(webConfig, logFunction);
         server.createContext("/static/", staticController::handleStaticResource);
         server.createContext("/css/", staticController::handleStaticResource);
         server.createContext("/js/", staticController::handleStaticResource);
         server.createContext("/favicon.ico", staticController::handleFavicon);
 
+        // 認証が必要なコントローラー（認証フィルターでラップ）
+        setupAuthenticatedControllers();
+
         log("コントローラー設定完了", "DEBUG");
+    }
+
+    /**
+     * 認証が必要なコントローラーをセットアップ
+     */
+    private void setupAuthenticatedControllers() {
+        // ダッシュボードコントローラー（一時的に認証フィルターなしで設定）
+        DashboardController dashboardController = new DashboardController(dataService, webConfig, logFunction);
+        server.createContext("/", dashboardController::handleDashboard);
+        server.createContext("/dashboard", dashboardController::handleDashboard);
+
+        // APIコントローラー（一時的に認証フィルターなしで設定）
+        ApiController apiController = new ApiController(dataService, logFunction);
+        server.createContext("/api/", apiController::handleApi);
+
+        // TODO: AuthenticationFilterクラスを作成後に以下を有効化
+        // AuthenticationFilter dashboardFilter = new AuthenticationFilter(authService, dashboardController::handleDashboard, logFunction);
+        // server.createContext("/", dashboardFilter);
+        // server.createContext("/dashboard", dashboardFilter);
+
+        // AuthenticationFilter apiFilter = new AuthenticationFilter(authService, apiController::handleApi, logFunction);
+        // server.createContext("/api/", apiFilter);
+    }
+
+    /**
+     * セッションクリーンアップタスクを開始
+     */
+    private void startSessionCleanupTask() {
+        // 1時間ごとに期限切れセッションをクリーンアップ
+        Thread cleanupThread = new Thread(() -> {
+            while (!Thread.currentThread().isInterrupted()) {
+                try {
+                    Thread.sleep(60 * 60 * 1000); // 1時間
+                    if (authService != null) {
+                        authService.cleanupExpiredSessions();
+                        log("期限切れセッションクリーンアップ完了（アクティブセッション: " + authService.getActiveSessionCount() + "）", "DEBUG");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        });
+        cleanupThread.setDaemon(true);
+        cleanupThread.setName("SessionCleanup");
+        cleanupThread.start();
+
+        log("セッションクリーンアップタスク開始", "DEBUG");
     }
 
     /**

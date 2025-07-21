@@ -199,15 +199,15 @@ public class StaticResourceController {
         String[] segments = path.split("/");
         if (segments.length >= 2) {
             String filename = segments[segments.length - 1]; // 最後のセグメント
-
+            
             // ファイル名のみをサニタイズ（パス全体ではなく）
             String sanitizedFilename = filename.replaceAll("[^a-zA-Z0-9._-]", "");
-
+            
             logFunction.accept("抽出されたファイル名: " + filename + " -> サニタイズ後: " + sanitizedFilename, "DEBUG");
-
+            
             return sanitizedFilename.isEmpty() ? null : sanitizedFilename;
         }
-
+        
         logFunction.accept("ファイル名の抽出に失敗: " + path, "WARN");
         return null;
     }
