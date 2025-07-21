@@ -238,6 +238,14 @@ public class NginxLogToMysql {
             log("複数サーバー対応スキーマ更新に失敗しました。", "WARN");
         }
 
+        // serversテーブルの重複カラム問題を修正
+        if (!ServersTableFixer.fixServersTableSchema(conn, NginxLogToMysql::log)) {
+            log("serversテーブル構造修正に失敗しました。", "WARN");
+        } else {
+            // 修正後の構造を表示
+            ServersTableFixer.showServersTableStructure(conn, NginxLogToMysql::log);
+        }
+
         // ホワイトリスト設定を読み込み
         loadWhitelistSettings(conn);
 

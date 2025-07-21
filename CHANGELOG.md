@@ -22,23 +22,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - セキュリティヘッダー設定（CSP、XSS Protection、Frame Options）
   - 入力値サニタイズとファイル名制限
 
+### 🔧 Database - MySQL照合順序エラー修正
+- **DbSchemaクラス強化**: MySQL 8.0照合順序不一致エラーの完全解決
+  - `fixCollationIssues()` メソッド追加で全テーブル照合順序を統一
+  - 全文字列カラムを `utf8mb4_unicode_ci` に変更
+  - `registerOrUpdateServer()` メソッドで照合順序を明示的に指定
+- **DataServiceクラス修正**: サーバー一覧取得時のJOIN句で照合順序明示
+  - `COLLATE utf8mb4_unicode_ci` を追加してエラー回避
+  - MySQL 8.0デフォルト照合順序との混在問題解決
+
 ### Added
 - XSS攻撃のリアルタイム検知・ブロック機能
 - セキュリティログ出力機能（攻撃者IP・攻撃内容記録）
 - CSRFトークン生成機能
 - パストラバーサル攻撃防止機能
 - 許可されたリソースのみアクセス可能な制限機能
+- MySQL照合順序統一機能（utf8mb4_unicode_ci）
 
 ### Changed
 - Webフロントエンド統合版をセキュリティ強化版に更新
 - 全HTML出力にXSS対策エスケープ処理を適用
 - APIレスポンスの完全サニタイズ実装
 - エラーメッセージもセキュリティ対策適用
+- バージョンを1.0.1に更新（セキュリティ強化＋照合順序修正版）
 
 ### Fixed
 - XSS攻撃がWebフロントエンドに通る脆弱性を完全修正
 - 不正なUser-AgentやRefererによる攻撃を防止
 - 静的リソースへの不正アクセスを制限
+- **MySQL照合順序エラーを完全解決**: `Illegal mix of collations` エラーの修正
+- サーバー一覧取得エラーの解消
+- データベーススキーマの照合順序統一による安定性向上
 
 ## [1.0.0] - 2025-01-20
 

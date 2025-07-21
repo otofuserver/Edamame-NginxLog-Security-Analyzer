@@ -5,10 +5,10 @@ plugins {
 }
 
 group = 'com.edamame.security'
-version = '1.0.0'
+version = '1.0.1'
 
 // プロジェクト情報
-description = 'NGINXログを監視し、セキュリティ攻撃を検知・記録するツール（Webフロントエンド統合版）'
+description = 'NGINXログを監視し、セキュリティ攻撃を検知・記録するツール（セキュリティ強化＋照合順序修正版）'
 
 // Java設定
 java {

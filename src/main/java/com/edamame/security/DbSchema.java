@@ -206,16 +206,28 @@ public class DbSchema {
                 stmt.execute("""
                     CREATE TABLE IF NOT EXISTS servers (
                         id INT AUTO_INCREMENT PRIMARY KEY,
-                        server_name VARCHAR(100) UNIQUE NOT NULL COMMENT 'サーバー名（ユニーク）',
-                        server_description TEXT COMMENT 'サーバーの説明',
-                        log_path VARCHAR(500) COMMENT 'ログファイルパス',
-                        is_active BOOLEAN DEFAULT TRUE COMMENT '有効フラグ',
-                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
-                        last_log_received DATETIME COMMENT '最終ログ受信日時'
+                        server_name VARCHAR(100) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci COMMENT 'サーバー識別名',
+                        server_description TEXT COLLATE utf8mb4_unicode_ci COMMENT 'サーバー説明',
+                        log_path VARCHAR(500) COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT 'ログファイルパス',
+                        is_active BOOLEAN DEFAULT TRUE COMMENT 'アクティブ状態',
+                        last_log_received DATETIME DEFAULT NULL COMMENT '最終ログ受信時刻',
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                 """);
-                log.accept("serversテーブルを作成または確認しました", "INFO");
+                log.accept("serversテーブルを作成または確認しました（照合順序統一）", "INFO");
+
+                // 既存テーブルの照合順序を修正
+                fixCollationIssues(stmt, log);
+
+                // serversテーブルにインデックスを追加
+                try {
+                    stmt.execute("CREATE INDEX IF NOT EXISTS idx_servers_name ON servers(server_name)");
+                    stmt.execute("CREATE INDEX IF NOT EXISTS idx_servers_active ON servers(is_active)");
+                } catch (SQLException e) {
+                    // インデックスが既に存在する場合は無視
+                    log.accept("serversテーブルインデックス設定済み: " + e.getMessage(), "DEBUG");
+                }
 
                 // 手動コミット
                 conn.commit();
@@ -746,13 +758,13 @@ public class DbSchema {
                     stmt.execute("""
                         CREATE TABLE servers (
                             id INT AUTO_INCREMENT PRIMARY KEY,
-                            server_name VARCHAR(100) UNIQUE NOT NULL COMMENT 'サーバー名（ユニーク）',
-                            server_description TEXT COMMENT 'サーバーの説明',
-                            log_path VARCHAR(500) COMMENT 'ログファイルパス',
-                            is_active BOOLEAN DEFAULT TRUE COMMENT '有効フラグ',
-                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時',
-                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時',
-                            last_log_received DATETIME COMMENT '最終ログ受信日時'
+                            server_name VARCHAR(100) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci COMMENT 'サーバー識別名',
+                            server_description TEXT COLLATE utf8mb4_unicode_ci COMMENT 'サーバー説明',
+                            log_path VARCHAR(500) COLLATE utf8mb4_unicode_ci DEFAULT '' COMMENT 'ログファイルパス',
+                            is_active BOOLEAN DEFAULT TRUE COMMENT 'アクティブ状態',
+                            last_log_received DATETIME DEFAULT NULL COMMENT '最終ログ受信時刻',
+                            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
                         """);
                     log.accept("serversテーブルを作成しました", "INFO");
@@ -767,88 +779,149 @@ public class DbSchema {
             } catch (SQLException e) {
                 conn.rollback();
                 conn.setAutoCommit(originalAutoCommit);
-                throw e;
+                log.accept("複数サーバー対応スキーマ拡張でエ���ー: " + e.getMessage(), "ERROR");
+                return false;
             }
 
         } catch (SQLException e) {
-            log.accept("複数サーバー対応スキーマ拡張でエラー: " + e.getMessage(), "ERROR");
+            log.accept("複数サーバー対応処理エラー: " + e.getMessage(), "ERROR");
             return false;
         }
     }
 
     /**
-     * サーバー情報をデータベースに登録または更新
+     * データベース全体の照���順序問題を修正
+     * @param stmt SQLステートメント
+     * @param log ログ出力関数
+     */
+    private static void fixCollationIssues(Statement stmt, BiConsumer<String, String> log) {
+        try {
+            // 主要テーブルの文字列カラムを utf8mb4_unicode_ci に統一
+            String[] alterCommands = {
+                // access_logテーブルの修正
+                "ALTER TABLE access_log MODIFY COLUMN server_name VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'default'",
+                "ALTER TABLE access_log MODIFY COLUMN method VARCHAR(10) COLLATE utf8mb4_unicode_ci NOT NULL",
+                "ALTER TABLE access_log MODIFY COLUMN ip_address VARCHAR(45) COLLATE utf8mb4_unicode_ci NOT NULL",
+
+                // url_registryテーブルの修正
+                "ALTER TABLE url_registry MODIFY COLUMN server_name VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'default'",
+                "ALTER TABLE url_registry MODIFY COLUMN method VARCHAR(10) COLLATE utf8mb4_unicode_ci NOT NULL",
+                "ALTER TABLE url_registry MODIFY COLUMN attack_type VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT 'none'",
+
+                // modsec_alertsテーブルの修正
+                "ALTER TABLE modsec_alerts MODIFY COLUMN server_name VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'default'",
+                "ALTER TABLE modsec_alerts MODIFY COLUMN rule_id VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL",
+                "ALTER TABLE modsec_alerts MODIFY COLUMN severity VARCHAR(20) COLLATE utf8mb4_unicode_ci DEFAULT NULL",
+                "ALTER TABLE modsec_alerts MODIFY COLUMN matched_var VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL",
+                "ALTER TABLE modsec_alerts MODIFY COLUMN matched_var_name VARCHAR(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL",
+
+                // usersテーブルの修正
+                "ALTER TABLE users MODIFY COLUMN username VARCHAR(100) COLLATE utf8mb4_unicode_ci NOT NULL",
+                "ALTER TABLE users MODIFY COLUMN email VARCHAR(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL",
+
+                // rolesテーブルの修正
+                "ALTER TABLE roles MODIFY COLUMN role_name VARCHAR(50) COLLATE utf8mb4_unicode_ci NOT NULL",
+
+                // settingsテーブルの修正
+                "ALTER TABLE settings MODIFY COLUMN whitelist_ip VARCHAR(45) COLLATE utf8mb4_unicode_ci DEFAULT ''",
+                "ALTER TABLE settings MODIFY COLUMN backend_version VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT ''",
+                "ALTER TABLE settings MODIFY COLUMN frontend_version VARCHAR(50) COLLATE utf8mb4_unicode_ci DEFAULT ''"
+            };
+
+            for (String alterCmd : alterCommands) {
+                try {
+                    stmt.execute(alterCmd);
+                } catch (SQLException e) {
+                    // カラムが存在しない場合は無視
+                    log.accept("照合順序修正スキップ（カラム未存在）: " + e.getMessage(), "DEBUG");
+                }
+            }
+
+            log.accept("データベース照合順序をutf8mb4_unicode_ciに統一しました", "INFO");
+
+        } catch (Exception e) {
+            log.accept("照合順序修正中にエラー: " + e.getMessage(), "WARN");
+        }
+    }
+
+    /**
+     * サーバー情報を登録または更新（照合順序対応版）
      * @param conn データベース接続
      * @param serverName サーバー名
      * @param description サーバーの説明
      * @param logPath ログファイルパス
      * @param logFunc ログ出力関数
-     * @return 登録/更新成功可否
+     * @return 成功可否
      */
-    public static boolean registerOrUpdateServer(Connection conn, String serverName, String description,
-                                               String logPath, BiConsumer<String, String> logFunc) {
+    public static boolean registerOrUpdateServer(Connection conn, String serverName, String description, String logPath, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
 
-        // まずテーブル構造を確認し、存在しないカラムがある場合は追加
+        // サーバー名をサニタイズ
+        if (serverName == null || serverName.trim().isEmpty()) {
+            serverName = "default";
+        }
+
         try {
-            if (!columnExists(conn, "servers", "server_description")) {
-                addColumn(conn, "servers", "server_description", "TEXT COMMENT 'サーバーの説明'");
-                log.accept("serversテーブルにserver_descriptionカラムを追加しました", "INFO");
+            // 照合順序を明示的に指定してサーバーの存在確認
+            String checkSql = """
+                SELECT id, server_description, log_path 
+                FROM servers 
+                WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+                """;
+
+            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
+                checkStmt.setString(1, serverName);
+                ResultSet rs = checkStmt.executeQuery();
+
+                if (rs.next()) {
+                    // サーバーが存在する場合は更新
+                    String updateSql = """
+                        UPDATE servers 
+                        SET server_description = ?, 
+                            log_path = ?, 
+                            last_log_received = NOW(),
+                            updated_at = NOW()
+                        WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+                        """;
+
+                    try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                        updateStmt.setString(1, description != null ? description : "");
+                        updateStmt.setString(2, logPath != null ? logPath : "");
+                        updateStmt.setString(3, serverName);
+
+                        int updated = updateStmt.executeUpdate();
+                        if (updated > 0) {
+                            log.accept("サーバー情報を更新しました: " + serverName, "DEBUG");
+                            return true;
+                        }
+                    }
+                } else {
+                    // サーバーが存在しない場合は新規登録
+                    String insertSql = """
+                        INSERT INTO servers (server_name, server_description, log_path, is_active, last_log_received) 
+                        VALUES (?, ?, ?, TRUE, NOW())
+                        """;
+
+                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                        insertStmt.setString(1, serverName);
+                        insertStmt.setString(2, description != null ? description : "");
+                        insertStmt.setString(3, logPath != null ? logPath : "");
+
+                        int inserted = insertStmt.executeUpdate();
+                        if (inserted > 0) {
+                            log.accept("新規サーバーを登録しました: " + serverName, "INFO");
+                            return true;
+                        }
+                    }
+                }
             }
-            if (!columnExists(conn, "servers", "log_path")) {
-                addColumn(conn, "servers", "log_path", "VARCHAR(500) COMMENT 'ログファイルパス'");
-                log.accept("serversテーブルにlog_pathカラムを追加しました", "INFO");
-            }
-            if (!columnExists(conn, "servers", "last_log_received")) {
-                addColumn(conn, "servers", "last_log_received", "DATETIME COMMENT '最終ログ受信日時'");
-                log.accept("serversテーブルにlast_log_receivedカラムを追加しました", "INFO");
-            }
-            if (!columnExists(conn, "servers", "is_active")) {
-                addColumn(conn, "servers", "is_active", "BOOLEAN DEFAULT TRUE COMMENT '有効フラグ'");
-                log.accept("serversテーブルにis_activeカラムを追加しました", "INFO");
-            }
-            if (!columnExists(conn, "servers", "created_at")) {
-                addColumn(conn, "servers", "created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '作成日時'");
-                log.accept("serversテーブルにcreated_atカラムを追加しました", "INFO");
-            }
-            if (!columnExists(conn, "servers", "updated_at")) {
-                addColumn(conn, "servers", "updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最終更新日時'");
-                log.accept("serversテーブルにupdated_atカラムを追加しました", "INFO");
-            }
+
         } catch (SQLException e) {
-            log.accept("サーバーテーブル構造確認エラー: " + e.getMessage(), "WARN");
-            // カラム追加に失敗しても処理を継続（最低限の情報だけで登録を試行）
+            log.accept("サーバー登録・更新エラー: " + e.getMessage(), "ERROR");
         }
 
-        // 利用可能なカラムのみでSQL文を動的��築
-        String sql = buildInsertOrUpdateSql(conn, log);
-
-        try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-            pstmt.setString(1, serverName);
-            
-            // 存在するカラムのみパラメータを設定
-            int paramIndex = 2;
-            if (columnExists(conn, "servers", "server_description")) {
-                pstmt.setString(paramIndex++, description);
-            }
-            if (columnExists(conn, "servers", "log_path")) {
-                pstmt.setString(paramIndex++, logPath);
-            }
-
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.accept(String.format("サーバー情報を登録/更新しました: %s", serverName), "DEBUG");
-                return true;
-            } else {
-                log.accept(String.format("サーバー情報の登録/更新に失敗しました: %s", serverName), "WARN");
-                return false;
-            }
-
-        } catch (SQLException e) {
-            log.accept("サーバー情報登録/更新でエラー: " + e.getMessage(), "ERROR");
-            return false;
-        }
+        return false;
     }
     
     /**

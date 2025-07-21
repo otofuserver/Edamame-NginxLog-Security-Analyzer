@@ -175,7 +175,7 @@ public class DataService {
     }
 
     /**
-     * サーバー一覧を取得
+     * サーバー一覧を取得（照合順序対応版）
      * @return サーバー情報のリスト
      */
     public List<Map<String, Object>> getServerList() {
@@ -185,9 +185,10 @@ public class DataService {
             SELECT s.server_name, s.server_description, s.is_active, s.last_log_received,
                    COUNT(al.id) as today_access_count
             FROM servers s
-            LEFT JOIN access_log al ON s.server_name = al.server_name AND DATE(al.access_time) = CURDATE()
+            LEFT JOIN access_log al ON s.server_name COLLATE utf8mb4_unicode_ci = al.server_name COLLATE utf8mb4_unicode_ci 
+                AND DATE(al.access_time) = CURDATE()
             GROUP BY s.id, s.server_name, s.server_description, s.is_active, s.last_log_received
-            ORDER BY s.server_name
+            ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
             """;
 
         try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
@@ -205,8 +206,10 @@ public class DataService {
                 servers.add(server);
             }
 
+            logFunction.accept("サーバー一覧取得完了（照合順序対応版）: " + servers.size() + "台", "DEBUG");
+
         } catch (SQLException e) {
-            logFunction.accept("サーバー一覧取得エラー: " + e.getMessage(), "ERROR");
+            logFunction.accept("サーバー一覧取得エラー（照合順序修正版）: " + e.getMessage(), "ERROR");
         }
 
         return servers;

@@ -39,7 +39,7 @@ RUN mkdir -p /run/secrets /app/config /var/log/nginx \
 
 
 # JARファイルをコピー（Webフロントエンド統合版）
-COPY ./NginxLogToMysql-1.0.0.jar ./nginxlog-analyzer.jar
+COPY ./NginxLogToMysql-1.0.1.jar ./nginxlog-analyzer.jar
 COPY ./SetupSecureConfig-V1.0.jar ./setup-config.jar
 
 # 実行権限の設定

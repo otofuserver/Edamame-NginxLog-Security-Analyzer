@@ -1,13 +1,13 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.41
+- **specification.txt version**: v1.0.42
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
 ## 基本情報
 - **アプリ名**: Edamame NginxLog Security Analyzer
-- **バージョン**: v1.0.33
+- **バージョン**: v1.0.1
 - **開発者**: Code Copilot
 - **動作環境**:
   - Java 21+ (Docker環境: openjdk:21-jdk-slim)
