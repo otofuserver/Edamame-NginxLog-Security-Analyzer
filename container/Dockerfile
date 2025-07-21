@@ -2,8 +2,8 @@ FROM openjdk:21-jdk-slim
 
 # メタデータの追加
 LABEL maintainer="Edamame Security Team" \
-      description="Edamame NginxLog Security Analyzer - Java版" \
-      version="1.0.33"
+      description="Edamame NginxLog Security Analyzer - Webフロントエンド統合版" \
+      version="1.0.0"
 
 # 日本語ロケールとタイムゾーンの設定
 ENV TZ=Asia/Tokyo
@@ -38,9 +38,9 @@ RUN mkdir -p /run/secrets /app/config /var/log/nginx \
     && chown -R nginxlog:nginxlog /run/secrets /app/config /var/log/nginx
 
 
-# JARファイルをコピー（containerフォルダからコピー）
-COPY ./NginxLogToMysql.jar ./nginxlog-analyzer.jar
-COPY ./SetupSecureConfig.jar ./setup-config.jar
+# JARファイルをコピー（Webフロントエンド統合版）
+COPY ./NginxLogToMysql-1.0.0.jar ./nginxlog-analyzer.jar
+COPY ./SetupSecureConfig-V1.0.jar ./setup-config.jar
 
 # 実行権限の設定
 RUN chown nginxlog:nginxlog /app/*.jar
@@ -48,18 +48,27 @@ RUN chown nginxlog:nginxlog /app/*.jar
 # ユーザーを nginxlog に切り替え
 USER nginxlog
 
-# JVMオプションの設定（文字エンコーディング強制指定）
-ENV JAVA_OPTS="-Xmx256m -Xms128m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djava.security.egd=file:/dev/./urandom -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Tokyo"
+# JVMオプションの設定（Webフロントエンド対応でメモリを増量）
+ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djava.security.egd=file:/dev/./urandom -Dfile.encoding=UTF-8 -Duser.timezone=Asia/Tokyo"
 
 # アプリケーションの設定
 ENV LOG_PATH="/var/log/nginx/nginx.log"
 ENV SECURE_CONFIG_PATH="/run/secrets/db_config_enc"
 ENV KEY_PATH="/run/secrets/db_secret_key"
 ENV ATTACK_PATTERNS_PATH="/app/config/attack_patterns.json"
+ENV SERVERS_CONFIG_PATH="/app/config/servers.conf"
 
-# ヘルスチェック設定
+# Webフロントエンド設定
+ENV ENABLE_WEB_FRONTEND="true"
+ENV WEB_PORT="8080"
+ENV WEB_BIND_ADDRESS="0.0.0.0"
+
+# Webダッシュボード用ポートを公開
+EXPOSE 8080
+
+# ヘルスチェック設定（Webダッシュボード対応）
 #HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-#    CMD /app/healthcheck.sh
+ #   CMD curl -f http://localhost:8080/api/health || exit 1
 
-# デフォルトコマンド（メインアプリケーションを実行）
+# デフォルトコマンド（Web���ロントエンド統合版メインアプリケーションを実行）
 CMD ["sh", "-c", "java $JAVA_OPTS -jar /app/nginxlog-analyzer.jar"]

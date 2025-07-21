@@ -2,8 +2,8 @@ package com.edamame.web.controller;
 
 import com.edamame.web.config.WebConfig;
 import com.edamame.web.service.DataService;
+import com.edamame.web.security.WebSecurityUtils;
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpHandler;
 
 import java.io.IOException;
 import java.io.OutputStream;
@@ -16,7 +16,7 @@ import java.util.function.BiConsumer;
 
 /**
  * ダッシュボードコントローラークラス
- * ダッシュボード画面の表示を担当
+ * ダッシュボード画面の表示を担当（XSS対策強化版）
  */
 public class DashboardController {
 
@@ -38,7 +38,7 @@ public class DashboardController {
     }
 
     /**
-     * ダッシュボードリクエストを処理
+     * ダッシュボードリクエストを処理（セキュリティ強化版）
      * @param exchange HTTPエクスチェンジ
      * @throws IOException I/O例外
      */
@@ -46,6 +46,16 @@ public class DashboardController {
         try {
             if (!"GET".equals(exchange.getRequestMethod())) {
                 sendErrorResponse(exchange, 405, "Method Not Allowed");
+                return;
+            }
+
+            // セキュリティヘッダーを設定
+            applySecurityHeaders(exchange);
+
+            // リクエストの検証
+            if (!validateRequest(exchange)) {
+                logFunction.accept("不正なリクエストを検知してブロックしました: " + exchange.getRequestURI(), "SECURITY");
+                sendErrorResponse(exchange, 400, "Invalid Request");
                 return;
             }
 
@@ -58,8 +68,8 @@ public class DashboardController {
             // ダッシュボードデータを取得
             Map<String, Object> dashboardData = dataService.getDashboardStats();
 
-            // HTMLを生成
-            String html = generateDashboardHtml(dashboardData);
+            // HTMLを生成（XSS対策適用）
+            String html = generateSecureDashboardHtml(dashboardData);
 
             // レスポンス送信
             exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
@@ -70,7 +80,7 @@ public class DashboardController {
                 os.write(html.getBytes(StandardCharsets.UTF_8));
             }
 
-            logFunction.accept("ダッシュボード画面表示完了", "DEBUG");
+            logFunction.accept("ダッシュボード画面表示完了（セキュリティ強化版）", "DEBUG");
 
         } catch (Exception e) {
             logFunction.accept("ダッシュボード処理エラー: " + e.getMessage(), "ERROR");
@@ -79,43 +89,85 @@ public class DashboardController {
     }
 
     /**
-     * ダッシュボードHTMLを生成
+     * セキュリティヘッダーを適用
+     * @param exchange HTTPエクスチェンジ
+     */
+    private void applySecurityHeaders(HttpExchange exchange) {
+        Map<String, String> securityHeaders = WebSecurityUtils.getSecurityHeaders();
+        for (Map.Entry<String, String> header : securityHeaders.entrySet()) {
+            exchange.getResponseHeaders().set(header.getKey(), header.getValue());
+        }
+    }
+
+    /**
+     * リクエストを検証
+     * @param exchange HTTPエクスチェンジ
+     * @return 安全なリクエストの場合true
+     */
+    private boolean validateRequest(HttpExchange exchange) {
+        String userAgent = exchange.getRequestHeaders().getFirst("User-Agent");
+        String referer = exchange.getRequestHeaders().getFirst("Referer");
+        String query = exchange.getRequestURI().getQuery();
+
+        // User-Agentのチェック
+        if (userAgent != null && WebSecurityUtils.detectXSS(userAgent)) {
+            logFunction.accept("不正なUser-Agentを検知: " + userAgent, "SECURITY");
+            return false;
+        }
+
+        // Refererのチェック
+        if (referer != null && WebSecurityUtils.detectXSS(referer)) {
+            logFunction.accept("不正なRefererを検知: " + referer, "SECURITY");
+            return false;
+        }
+
+        // クエリパラメータのチェック
+        if (query != null && (WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSqlInjection(query))) {
+            logFunction.accept("不正なクエリパラメータを検知: " + query, "SECURITY");
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * セキュアなダッシュボードHTMLを生成（XSS対策適用）
      * @param data ダッシュボードデータ
      * @return 生成されたHTML
      */
-    private String generateDashboardHtml(Map<String, Object> data) {
+    private String generateSecureDashboardHtml(Map<String, Object> data) {
         String template = webConfig.getTemplate("dashboard");
 
-        // 基本情報を置換
+        // 基本情報を置換（XSS対策適用）
         String html = template
-            .replace("{{APP_TITLE}}", webConfig.getAppTitle())
-            .replace("{{APP_DESCRIPTION}}", webConfig.getAppDescription())
-            .replace("{{APP_VERSION}}", "v1.0.0")
-            .replace("{{CURRENT_TIME}}", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
-            .replace("{{SERVER_STATUS}}", dataService.isConnectionValid() ? "稼働中" : "エラー");
+            .replace("{{APP_TITLE}}", WebSecurityUtils.escapeHtml(webConfig.getAppTitle()))
+            .replace("{{APP_DESCRIPTION}}", WebSecurityUtils.escapeHtml(webConfig.getAppDescription()))
+            .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml("v1.0.0"))
+            .replace("{{CURRENT_TIME}}", WebSecurityUtils.escapeHtml(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
+            .replace("{{SERVER_STATUS}}", WebSecurityUtils.escapeHtml(dataService.isConnectionValid() ? "稼働中" : "エラー"));
 
-        // 統計情報を置換
+        // 統計情報を置換（XSS対策適用）
         html = html
-            .replace("{{TOTAL_ACCESS}}", formatNumber(data.get("totalAccess")))
-            .replace("{{TOTAL_ATTACKS}}", formatNumber(data.get("totalAttacks")))
-            .replace("{{MODSEC_BLOCKS}}", formatNumber(data.get("modsecBlocks")))
-            .replace("{{ACTIVE_SERVERS}}", formatNumber(data.get("activeServers")));
+            .replace("{{TOTAL_ACCESS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("totalAccess"))))
+            .replace("{{TOTAL_ATTACKS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("totalAttacks"))))
+            .replace("{{MODSEC_BLOCKS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("modsecBlocks"))))
+            .replace("{{ACTIVE_SERVERS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("activeServers"))));
 
-        // 最新アラート部分を生成
-        html = html.replace("{{RECENT_ALERTS}}", generateAlertsHtml(data.get("recentAlerts")));
+        // 最新アラート部分を生成（XSS対策適用）
+        html = html.replace("{{RECENT_ALERTS}}", generateSecureAlertsHtml(data.get("recentAlerts")));
 
-        // サーバー一覧部分を生成
-        html = html.replace("{{SERVER_LIST}}", generateServersHtml(data.get("serverList")));
+        // サーバー一覧部分を生成（XSS対策適用）
+        html = html.replace("{{SERVER_LIST}}", generateSecureServersHtml(data.get("serverList")));
 
-        // 攻撃タイプ統計部分を生成
-        html = html.replace("{{ATTACK_TYPES}}", generateAttackTypesHtml(data.get("attackTypes")));
+        // 攻撃タイプ統計部分を生成（XSS対策適用）
+        html = html.replace("{{ATTACK_TYPES}}", generateSecureAttackTypesHtml(data.get("attackTypes")));
 
         // 自動更新設定
         if (webConfig.isEnableAutoRefresh()) {
             html = html
                 .replace("{{#AUTO_REFRESH}}", "")
                 .replace("{{/AUTO_REFRESH}}", "")
-                .replace("{{REFRESH_INTERVAL}}", String.valueOf(webConfig.getRefreshInterval()));
+                .replace("{{REFRESH_INTERVAL}}", WebSecurityUtils.escapeHtml(String.valueOf(webConfig.getRefreshInterval())));
         } else {
             html = removeConditionalBlocks(html, "AUTO_REFRESH");
         }
@@ -124,12 +176,12 @@ public class DashboardController {
     }
 
     /**
-     * アラート一覧HTMLを生成
+     * セキュアなアラート一覧HTMLを生成（XSS対策適用）
      * @param alertsData アラートデータ
      * @return 生成されたHTML
      */
     @SuppressWarnings("unchecked")
-    private String generateAlertsHtml(Object alertsData) {
+    private String generateSecureAlertsHtml(Object alertsData) {
         if (!(alertsData instanceof List<?> alerts) || alerts.isEmpty()) {
             return "<div class='alert-item'>最近のアラートはありません</div>";
         }
@@ -140,12 +192,15 @@ public class DashboardController {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> alertMap = (Map<String, Object>) alert;
 
-                String severityLevel = (String) alertMap.getOrDefault("severityLevel", "low");
-                String serverName = (String) alertMap.getOrDefault("serverName", "unknown");
-                String accessTime = (String) alertMap.getOrDefault("accessTime", "");
-                String ipAddress = (String) alertMap.getOrDefault("ipAddress", "");
-                String attackType = (String) alertMap.getOrDefault("attackType", "");
-                String url = (String) alertMap.getOrDefault("url", "");
+                String severityLevel = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("severityLevel", "low"));
+                String serverName = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("serverName", "unknown"));
+                String accessTime = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("accessTime", ""));
+                String ipAddress = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("ipAddress", ""));
+                String attackType = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("attackType", ""));
+                String url = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("url", ""));
+
+                // URLの長さ制限（XSS対策）
+                String displayUrl = url.length() > 80 ? url.substring(0, 80) + "..." : url;
 
                 html.append(String.format("""
                     <div class="alert-item %s">
@@ -158,8 +213,7 @@ public class DashboardController {
                             <small>URL: %s</small>
                         </div>
                     </div>
-                    """, severityLevel, accessTime, serverName, ipAddress, attackType,
-                    url.length() > 80 ? url.substring(0, 80) + "..." : url));
+                    """, severityLevel, accessTime, serverName, ipAddress, attackType, displayUrl));
             }
         }
 
@@ -167,12 +221,12 @@ public class DashboardController {
     }
 
     /**
-     * サーバー一覧HTMLを生成
+     * セキュアなサーバー一覧HTMLを生成（XSS対策適用）
      * @param serversData サーバーデータ
      * @return 生成されたHTML
      */
     @SuppressWarnings("unchecked")
-    private String generateServersHtml(Object serversData) {
+    private String generateSecureServersHtml(Object serversData) {
         if (!(serversData instanceof List<?> servers) || servers.isEmpty()) {
             return "<div class='server-item'>登録されたサーバーがありません</div>";
         }
@@ -183,10 +237,10 @@ public class DashboardController {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> serverMap = (Map<String, Object>) server;
 
-                String name = (String) serverMap.getOrDefault("name", "unknown");
-                String description = (String) serverMap.getOrDefault("description", "");
-                String status = (String) serverMap.getOrDefault("status", "unknown");
-                String lastLogReceived = (String) serverMap.getOrDefault("lastLogReceived", "未記録");
+                String name = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("name", "unknown"));
+                String description = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("description", ""));
+                String status = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("status", "unknown"));
+                String lastLogReceived = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("lastLogReceived", "未記録"));
                 Object accessCount = serverMap.getOrDefault("todayAccessCount", 0);
 
                 String statusClass = switch (status) {
@@ -212,7 +266,7 @@ public class DashboardController {
                         <span class="server-status %s">%s</span>
                     </div>
                     """, name, description.isEmpty() ? "説明なし" : description,
-                    lastLogReceived, accessCount, statusClass, statusText));
+                    lastLogReceived, WebSecurityUtils.escapeHtml(String.valueOf(accessCount)), statusClass, statusText));
             }
         }
 
@@ -220,12 +274,12 @@ public class DashboardController {
     }
 
     /**
-     * 攻撃タイプ統計HTMLを生成
+     * セキュアな攻撃タイプ統計HTMLを生成（XSS対策適用）
      * @param attackTypesData 攻撃タイプデータ
      * @return 生成されたHTML
      */
     @SuppressWarnings("unchecked")
-    private String generateAttackTypesHtml(Object attackTypesData) {
+    private String generateSecureAttackTypesHtml(Object attackTypesData) {
         if (!(attackTypesData instanceof List<?> attackTypes) || attackTypes.isEmpty()) {
             return "<div class='attack-type-item'>今日の攻撃検知はありません</div>";
         }
@@ -236,9 +290,9 @@ public class DashboardController {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> attackTypeMap = (Map<String, Object>) attackType;
 
-                String type = (String) attackTypeMap.getOrDefault("type", "unknown");
+                String type = WebSecurityUtils.sanitizeInput((String) attackTypeMap.getOrDefault("type", "unknown"));
                 Object count = attackTypeMap.getOrDefault("count", 0);
-                String description = (String) attackTypeMap.getOrDefault("description", "");
+                String description = WebSecurityUtils.sanitizeInput((String) attackTypeMap.getOrDefault("description", ""));
 
                 html.append(String.format("""
                     <div class="attack-type-item">
@@ -248,7 +302,7 @@ public class DashboardController {
                         </div>
                         <span class="attack-count">%s</span>
                     </div>
-                    """, type, description, count));
+                    """, type, description, WebSecurityUtils.escapeHtml(String.valueOf(count))));
             }
         }
 
@@ -276,7 +330,7 @@ public class DashboardController {
     }
 
     /**
-     * 数値をフォーマット
+     * 数値をフォーマット（XSS対策適用）
      * @param value 数値オブジェクト
      * @return フォーマット済み文字列
      */

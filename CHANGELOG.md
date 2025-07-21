@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2025-01-21 - 緊急セキュリティ強化版
+
+### 🚨 Security - 緊急XSS対策強化
+- **WebSecurityUtilsクラス追加**: 包括的XSS攻撃検知・防御システム
+  - 16種類の高精度XSS攻撃パターン検知
+  - HTMLエスケープ・JSONエスケープ機能
+  - SQLインジェクション検知機能
+  - セキュリティヘッダー自動生成
+- **全Webコントローラーのセキュリティ強化**
+  - DashboardController: 全出力データのHTMLエスケープ適用
+  - ApiController: JSON出力の完全サニタイズ
+  - StaticResourceController: パストラバーサル攻撃���止
+- **多層防御システム実装**
+  - リクエスト検証（User-Agent、Referer、クエリパラメータ）
+  - セキュリティヘッダー設定（CSP、XSS Protection、Frame Options）
+  - 入力値サニタイズとファイル名制限
+
+### Added
+- XSS攻撃のリアルタイム検知・ブロック機能
+- セキュリティログ出力機能（攻撃者IP・攻撃内容記録）
+- CSRFトークン生成機能
+- パストラバーサル攻撃防止機能
+- 許可されたリソースのみアクセス可能な制限機能
+
+### Changed
+- Webフロントエンド統合版をセキュリティ強化版に更新
+- 全HTML出力にXSS対策エスケープ処理を適用
+- APIレスポンスの完全サニタイズ実装
+- エラーメッセージもセキュリティ対策適用
+
+### Fixed
+- XSS攻撃がWebフロントエンドに通る脆弱性を完全修正
+- 不正なUser-AgentやRefererによる攻撃を防止
+- 静的リソースへの不正アクセスを制限
+
 ## [1.0.0] - 2025-01-20
 
 ### Added
@@ -18,6 +53,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 更新前の自動バックアップ機能
   - ネットワークエラー時の適切なハンドリング
   - AttackPattern.getPatternCount()メソッドの追加
+- **Webフロントエンド統合機能**
+  - リアルタイムダッシュボード表示
+  - REST API エンドポイント
+  - 自動更新機能付きWeb UI
+  - バックエンドとは独立したスレッド処理
 - **タグプッシュ時の自動リリース機能**
   - v*タグプッシュ時にcontainerフォルダにJARファイルを格納
   - 完全なリリースパッケージのzip化を自動実行
@@ -65,6 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Planned
-- Webダッシュボード機能の追加
-- リアルタイム監視アラート機能
+- リアルタイム監視アラート機能の拡張
 - 攻撃パターンのカスタマイズ機能拡張
+- Webダッシュボードの機能追加
