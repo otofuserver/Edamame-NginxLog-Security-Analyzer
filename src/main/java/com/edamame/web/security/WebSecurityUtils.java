@@ -54,13 +54,13 @@ public class WebSecurityUtils {
 
         String decoded = htmlDecode(input);
         String urlDecoded = urlDecode(decoded);
-
+        
         for (Pattern pattern : XSS_PATTERNS) {
             if (pattern.matcher(urlDecoded).find()) {
                 return true;
             }
         }
-
+        
         return false;
     }
 
@@ -78,7 +78,7 @@ public class WebSecurityUtils {
         for (Map.Entry<String, String> entry : HTML_ESCAPE_MAP.entrySet()) {
             result = result.replace(entry.getKey(), entry.getValue());
         }
-
+        
         return result;
     }
 
@@ -150,7 +150,7 @@ public class WebSecurityUtils {
         }
 
         String lowercase = input.toLowerCase();
-
+        
         // SQLキーワードの検知
         String[] sqlKeywords = {
             "union", "select", "insert", "update", "delete", "drop", "create",
@@ -182,18 +182,18 @@ public class WebSecurityUtils {
      */
     public static Map<String, String> getSecurityHeaders() {
         Map<String, String> headers = new HashMap<>();
-
+        
         // XSS Protection
         headers.put("X-XSS-Protection", "1; mode=block");
-
+        
         // Content Type Options
         headers.put("X-Content-Type-Options", "nosniff");
-
+        
         // Frame Options
         headers.put("X-Frame-Options", "DENY");
-
+        
         // Content Security Policy
-        headers.put("Content-Security-Policy",
+        headers.put("Content-Security-Policy", 
             "default-src 'self'; " +
             "script-src 'self' 'unsafe-inline'; " +
             "style-src 'self' 'unsafe-inline'; " +
@@ -203,13 +203,13 @@ public class WebSecurityUtils {
             "object-src 'none'; " +
             "media-src 'self'; " +
             "frame-src 'none'");
-
+        
         // Strict Transport Security
         headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-
+        
         // Referrer Policy
         headers.put("Referrer-Policy", "strict-origin-when-cross-origin");
-
+        
         return headers;
     }
 
@@ -249,5 +249,41 @@ public class WebSecurityUtils {
 
         // 危険な文字を除去
         return filename.replaceAll("[^a-zA-Z0-9._-]", "_").substring(0, Math.min(filename.length(), 100));
+    }
+
+    /**
+     * URL表示専用のサニタイズ処理
+     * 正当なURL文字を保持しつつXSS攻撃を防御
+     * @param url サニタイズ対象URL
+     * @return サニタイズ済みURL
+     */
+    public static String sanitizeUrlForDisplay(String url) {
+        if (url == null || url.trim().isEmpty()) {
+            return "";
+        }
+
+        String trimmedUrl = url.trim();
+
+        // 明らかに危険なスクリプトタグ等をチェック
+        String[] dangerousPatterns = {
+            "<script", "</script", "<iframe", "</iframe",
+            "javascript:", "vbscript:", "data:text/html",
+            "onclick=", "onload=", "onerror="
+        };
+
+        String lowerUrl = trimmedUrl.toLowerCase();
+        for (String pattern : dangerousPatterns) {
+            if (lowerUrl.contains(pattern)) {
+                return "[XSS検知により非表示]";
+            }
+        }
+
+        // HTMLの特殊文字のみエスケープ（URL用文字は保持）
+        return trimmedUrl
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;");
     }
 }

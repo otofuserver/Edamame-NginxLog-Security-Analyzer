@@ -779,7 +779,7 @@ public class DbSchema {
             } catch (SQLException e) {
                 conn.rollback();
                 conn.setAutoCommit(originalAutoCommit);
-                log.accept("複数サーバー対応スキーマ拡張でエ���ー: " + e.getMessage(), "ERROR");
+                log.accept("複数サーバー対応スキーマ拡張でエラー: " + e.getMessage(), "ERROR");
                 return false;
             }
 
@@ -924,6 +924,44 @@ public class DbSchema {
         return false;
     }
     
+    /**
+     * サーバーの最終ログ受信時刻を更新
+     * @param conn データベース接続
+     * @param serverName サーバー名
+     * @param logFunc ログ出力関数
+     */
+    public static void updateServerLastLogReceived(Connection conn, String serverName, BiConsumer<String, String> logFunc) {
+        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
+            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+
+        if (serverName == null || serverName.trim().isEmpty()) {
+            return;
+        }
+
+        try {
+            String updateSql = """
+                UPDATE servers 
+                SET last_log_received = NOW() 
+                WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+                """;
+
+            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
+                updateStmt.setString(1, serverName);
+                int updated = updateStmt.executeUpdate();
+
+                if (updated > 0) {
+                    log.accept("サーバーの最終ログ受信時刻を更新: " + serverName, "DEBUG");
+                } else {
+                    // サーバーが存在しない場合は自動登録
+                    registerOrUpdateServer(conn, serverName, "自動検出されたサーバー", "", log);
+                }
+            }
+
+        } catch (SQLException e) {
+            log.accept("最終ログ受信時刻更新エラー: " + e.getMessage(), "WARN");
+        }
+    }
+
     /**
      * 利用可能なカラムに基づいてINSERT/UPDATE SQL文を動的構築
      * @param conn データベース接続

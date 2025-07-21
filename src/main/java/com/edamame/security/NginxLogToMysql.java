@@ -735,6 +735,9 @@ public class NginxLogToMysql {
             // アクセスログをDBに保存
             long logId = saveAccessLog(conn, logData);
             if (logId > 0) {
+                // サーバーの最終ログ受信時刻を更新
+                DbSchema.updateServerLastLogReceived(conn, serverName, NginxLogToMysql::log);
+                
                 // URL登録処理
                 registerUrl(conn, logData);
 

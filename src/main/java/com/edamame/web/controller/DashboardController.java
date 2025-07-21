@@ -197,7 +197,8 @@ public class DashboardController {
                 String accessTime = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("accessTime", ""));
                 String ipAddress = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("ipAddress", ""));
                 String attackType = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("attackType", ""));
-                String url = WebSecurityUtils.sanitizeInput((String) alertMap.getOrDefault("url", ""));
+                // URL表示専用のサニタイズを使用（正当なURL文字を保持）
+                String url = WebSecurityUtils.sanitizeUrlForDisplay((String) alertMap.getOrDefault("url", ""));
 
                 // URLの長さ制限（XSS対策）
                 String displayUrl = url.length() > 80 ? url.substring(0, 80) + "..." : url;
