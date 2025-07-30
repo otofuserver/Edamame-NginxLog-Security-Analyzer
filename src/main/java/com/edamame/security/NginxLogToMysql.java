@@ -1,5 +1,8 @@
 package com.edamame.security;
 
+import com.edamame.security.db.DbSchema;
+import com.edamame.security.db.DbInitialData;
+import com.edamame.security.db.DbRegistry;
 import com.edamame.web.WebApplication;
 import org.json.JSONObject;
 import org.bouncycastle.crypto.engines.AESEngine;
@@ -17,6 +20,9 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * NGINXログ監視・解析メインクラス
@@ -33,6 +39,7 @@ public class NginxLogToMysql {
     private static final String SECURE_CONFIG_PATH = getEnvOrDefault("SECURE_CONFIG_PATH", "/run/secrets/db_config.enc");
     private static final String KEY_PATH = getEnvOrDefault("KEY_PATH", "/run/secrets/secret.key");
     private static final String ATTACK_PATTERNS_PATH = getEnvOrDefault("ATTACK_PATTERNS_PATH", "/app/config/attack_patterns.json");
+    private static final String ATTACK_PATTERNS_YAML_PATH = getEnvOrDefault("ATTACK_PATTERNS_YAML_PATH", "/app/config/attack_patterns.yaml");
     private static final String SERVERS_CONFIG_PATH = getEnvOrDefault("SERVERS_CONFIG_PATH", "/app/config/servers.conf");
 
     // Web設定
@@ -53,9 +60,9 @@ public class NginxLogToMysql {
     private static long lastServersConfigCheck = 0;
     private static final AtomicBoolean isRunning = new AtomicBoolean(true);
 
-    // ModSecurity状態管理用の変数を追加
-    private static String pendingModSecLine = null;
-    private static boolean hasPendingModSecAlert = false;
+    // ModSecurity状態管理用の変数をサーバー単位のMapに変更
+    private static final Map<String, String> pendingModSecLineMap = new HashMap<>();
+    private static final Map<String, Boolean> hasPendingModSecAlertMap = new HashMap<>();
 
     // 複数サーバー監視用
     private static ServerConfig serverConfig = null;
@@ -69,7 +76,8 @@ public class NginxLogToMysql {
 
     // Webフロントエンド
     private static WebApplication webApplication = null;
-    private static Thread webThread = null;
+    private static ScheduledExecutorService mainMonitorScheduler;
+    private static ScheduledExecutorService webMonitorScheduler;
 
     /**
      * 環境変数を取得し、存在しない場合はデフォルト値を返す
@@ -140,9 +148,7 @@ public class NginxLogToMysql {
         JSONObject jsonObj = new JSONObject(jsonStr);
         
         Map<String, String> result = new HashMap<>();
-        jsonObj.keys().forEachRemaining(jsonKey -> {
-            result.put(jsonKey, jsonObj.getString(jsonKey));
-        });
+        jsonObj.keys().forEachRemaining(jsonKey -> result.put(jsonKey, jsonObj.getString(jsonKey)));
         return result;
     }
 
@@ -223,31 +229,38 @@ public class NginxLogToMysql {
             return false;
         }
 
-        // テーブル作成とスキーマ確認処理
-        if (!DbSchema.createInitialTables(conn, APP_VERSION, NginxLogToMysql::log)) {
-            log("データベーステーブルの作成に失敗しました。", "CRITICAL");
+        // DBスキーマの自動同期・移行を実行（新管理システム）
+        try {
+            // 新しい自動スキーマ同期・移行ロジックを呼び出し
+            DbSchema.syncAllTablesSchema(conn, NginxLogToMysql::log);
+            log("DBスキーマの自動同期・移行が完了しました", "INFO");
+        } catch (Exception e) {
+            log("DBスキーマ自動同期・移行でエラー: " + e.getMessage(), "CRITICAL");
+            return  false;
+        }
+
+        // 初期データ投入（settings, roles, users, action_tools, action_rules など）
+        try {
+            DbInitialData.initializeDefaultData(conn, APP_VERSION, NginxLogToMysql::log);
+        } catch (Exception e) {
+            log("初期データ投入に失敗しました: " + e.getMessage(), "ERROR");
             return false;
-        }
-
-        if (!DbSchema.ensureAllRequiredColumns(conn, NginxLogToMysql::log)) {
-            log("データベースカラムの確認に失敗しました。", "WARN");
-        }
-
-        // 複数サーバー対応スキーマ更新
-        if (!DbSchema.addMultiServerSupport(conn, NginxLogToMysql::log)) {
-            log("複数サーバー対応スキーマ更新に失敗しました。", "WARN");
-        }
-
-        // serversテーブルの重複カラム問題を修正
-        if (!ServersTableFixer.fixServersTableSchema(conn, NginxLogToMysql::log)) {
-            log("serversテーブル構造修正に失敗しました。", "WARN");
-        } else {
-            // 修正後の構造を表示
-            ServersTableFixer.showServersTableStructure(conn, NginxLogToMysql::log);
         }
 
         // ホワイトリスト設定を読み込み
         loadWhitelistSettings(conn);
+
+        // 攻撃パターンファイルの自動更新を起動時に試行
+        try {
+            boolean updated = AttackPattern.updateIfNeeded(ATTACK_PATTERNS_PATH, NginxLogToMysql::log);
+            if (updated) {
+                log("攻撃パターンファイルを最新に更新しました (バージョン: " + AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
+            } else {
+                log("攻撃パターンファイルは最新です (バージョン: " + AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
+            }
+        } catch (Exception e) {
+            log("攻撃パターンファイルの更新チェックでエラー: " + e.getMessage(), "WARN");
+        }
 
         // 攻撃パターンファイルの確認
         if (!AttackPattern.isAttackPatternsFileAvailable(ATTACK_PATTERNS_PATH)) {
@@ -255,7 +268,7 @@ public class NginxLogToMysql {
         } else {
             log("攻撃パターンファイル確認完了 (バージョン: " +
                 AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ", パターン数: " +
-                AttackPattern.getPatternCount(ATTACK_PATTERNS_PATH) + ")", "INFO");
+                AttackPattern.getPatternCountYaml(ATTACK_PATTERNS_PATH) + ")", "INFO");
         }
 
         // 複数サーバー設定の初期化
@@ -281,7 +294,7 @@ public class NginxLogToMysql {
         reportManager.startScheduledReports();
         log("ScheduledReportManager初期化・開始完了", "INFO");
 
-        // Webフロントエンドの初期化（オ��ション）
+        // Webフロントエンドの初期化（オプション）
         if (ENABLE_WEB_FRONTEND) {
             if (!initializeWebFrontend(conn)) {
                 log("Webフロントエンドの初期化に失敗しました。バックエンドのみで続行します。", "WARN");
@@ -312,31 +325,23 @@ public class NginxLogToMysql {
                 return false;
             }
 
-            // 別スレッドでWebサーバーを開始
-            webThread = new Thread(() -> {
+            // ScheduledExecutorServiceでWebサーバーの監視を定期実行
+            webMonitorScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "WebFrontendMonitor");
+                t.setDaemon(true);
+                return t;
+            });
+            webMonitorScheduler.scheduleAtFixedRate(() -> {
+                if (!isRunning.get()) return;
+                // Webサーバーが既に起動済みかチェックし、未起動時のみstart()を呼ぶ
                 try {
-                    if (webApplication.start()) {
-                        log("Webフロントエンド開始完了 - ポート: " + WEB_PORT, "INFO");
-
-                        // Webスレッドはサーバーの稼働を維持
-                        while (isRunning.get()) {
-                            try {
-                                Thread.sleep(5000); // 5秒間隔でチェック
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                                break;
-                            }
-                        }
-                    } else {
-                        log("Webサーバー開始に失敗しました", "ERROR");
+                    if (!webApplication.isRunning()) {
+                        webApplication.start();
                     }
                 } catch (Exception e) {
-                    log("Webフロントエンドスレッドでエラー: " + e.getMessage(), "ERROR");
+                    log("Webフロントエンド監視スレッドでエラー: " + e.getMessage(), "ERROR");
                 }
-            }, "WebFrontendThread");
-
-            webThread.setDaemon(true); // デーモンスレッドに設定
-            webThread.start();
+            }, 0, 5, TimeUnit.SECONDS);
 
             log("Webフロントエンドスレッド開始完了", "INFO");
             log("ダッシュボードURL: http://localhost:" + WEB_PORT + "/dashboard", "INFO");
@@ -482,75 +487,6 @@ public class NginxLogToMysql {
         }
     }
 
-    /**
-     * ログ行を処理してデータベースに保存
-     * @param line ログの1行
-     */
-    private static void processLogLine(String line) {
-        try {
-            // 1. ModSecurity詳細行かどうか判定
-            if (ModSecHandler.detectModsecBlock(line)) {
-                // ModSecurity: Access denied の行は一時保存し、次のリクエスト行で利用
-                pendingModSecLine = line;
-                hasPendingModSecAlert = true;
-                log("ModSecurity行として処理済み: " + line.substring(0, Math.min(100, line.length())), "DEBUG");
-                return; // ModSecurity行は保存せずに終了
-            }
-
-            // 2. ログ行をパース（HTTPリクエスト行のみ）
-            Map<String, Object> logData = LogParser.parseLogLine(line, NginxLogToMysql::log);
-            if (logData == null) {
-                // パースできない行の場合、保留中のModSec情報をリセット
-                if (hasPendingModSecAlert) {
-                    hasPendingModSecAlert = false;
-                    pendingModSecLine = null;
-                }
-                return; // パースできない行はスキップ
-            }
-
-            Connection conn = dbConnect();
-            if (conn == null) {
-                log("DB接続が利用できません。ログ行をスキップします。", "ERROR");
-                return;
-            }
-
-            // 3. 直前にModSecurity: Access denied行があればblocked扱い
-            boolean isModSecBlocked = hasPendingModSecAlert;
-            logData.put("blocked_by_modsec", isModSecBlocked);
-
-            // アクセスログをDBに保存
-            long logId = saveAccessLog(conn, logData);
-            if (logId > 0) {
-                // URL登録処理
-                registerUrl(conn, logData);
-
-                // 5. ModSecurityアラートがあれば保存
-                if (isModSecBlocked && pendingModSecLine != null) {
-                    List<Map<String, String>> alerts = ModSecHandler.parseModsecAlert(pendingModSecLine, NginxLogToMysql::log);
-                    if (ModSecHandler.saveModsecAlerts(conn, logId, alerts, NginxLogToMysql::log)) {
-                        log("ModSecurityアラート保存完了 (アクセスログID: " + logId + ")", "DEBUG");
-                    }
-                }
-
-                log("ログ処理完了: " + logData.get("method") + " " + logData.get("full_url") +
-                    " (ID: " + logId + ", Blocked: " + isModSecBlocked + ")", "DEBUG");
-            }
-
-            // 処理完了後、保留中のModSec情報をクリア
-            if (hasPendingModSecAlert) {
-                hasPendingModSecAlert = false;
-                pendingModSecLine = null;
-            }
-
-        } catch (Exception e) {
-            log("ログ行処理中にエラー: " + e.getMessage(), "ERROR");
-            // エラー時も保留中のModSec情報をクリア
-            if (hasPendingModSecAlert) {
-                hasPendingModSecAlert = false;
-                pendingModSecLine = null;
-            }
-        }
-    }
 
     /**
      * アクセスログをデータベースに保存
@@ -612,8 +548,8 @@ public class NginxLogToMysql {
             return;
         }
 
-        // 攻撃タイプを検出
-        String attackType = AttackPattern.detectAttackType(fullUrl, ATTACK_PATTERNS_PATH, NginxLogToMysql::log);
+        // 攻撃タイプを検出（YAML版メソッドに変更）
+        String attackType = AttackPattern.detectAttackTypeYaml(fullUrl, ATTACK_PATTERNS_YAML_PATH, NginxLogToMysql::log);
 
         // ホワイトリスト判定
         boolean isWhitelisted = whitelistMode && whitelistIp.equals(ipAddress);
@@ -640,7 +576,7 @@ public class NginxLogToMysql {
                 // サーバー情報を自動登録/更新
                 Connection dbConn = dbConnect();
                 if (dbConn != null) {
-                    DbSchema.registerOrUpdateServer(dbConn, serverName, "自動検出されたサーバー", "", NginxLogToMysql::log);
+                    DbRegistry.registerOrUpdateServer(dbConn, serverName, "自動検出されたサーバー", "", NginxLogToMysql::log);
                 }
             }
         } catch (SQLException e) {
@@ -661,17 +597,6 @@ public class NginxLogToMysql {
                 log("Webフロントエンド停止完了", "INFO");
             } catch (Exception e) {
                 log("Webフロントエンド停止中にエラー: " + e.getMessage(), "WARN");
-            }
-        }
-
-        // Webスレッドの終了を待機
-        if (webThread != null && webThread.isAlive()) {
-            try {
-                webThread.join(5000); // 最大5秒待機
-                log("Webスレッド終了完了", "INFO");
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log("Webスレッド終了待機中に割り込まれました", "WARN");
             }
         }
 
@@ -714,11 +639,11 @@ public class NginxLogToMysql {
             // サーバー名をログデータに追加
             logData.put("server_name", serverName);
 
-            // ModSecurity詳細行の場合は保留として処理
+            // ModSecurity詳細行の場合は保留として処理（サーバー単位で管理）
             if (ModSecHandler.detectModsecBlock(originalLine)) {
-                pendingModSecLine = originalLine;
-                hasPendingModSecAlert = true;
-                log("ModSecurity行として処理済み (" + serverName + "): " + originalLine.substring(0, Math.min(100, originalLine.length())), "DEBUG");
+                pendingModSecLineMap.put(serverName, originalLine);
+                hasPendingModSecAlertMap.put(serverName, true);
+                log("ModSecurity行として処理済 (" + serverName + "): " + originalLine.substring(0, Math.min(100, originalLine.length())), "DEBUG");
                 return;
             }
 
@@ -728,22 +653,28 @@ public class NginxLogToMysql {
                 return;
             }
 
-            // 直前にModSecurity: Access denied行があればblocked扱い
-            boolean isModSecBlocked = hasPendingModSecAlert;
+            // サーバー単位で直前にModSecurity: Access denied行があればblocked扱い
+            boolean isModSecBlocked = hasPendingModSecAlertMap.getOrDefault(serverName, false);
+
+            // 静的ファイルはblocked扱いしない(自動で読み込まれるようなものは一緒にブロックされるため)
+            String fullUrl = (String) logData.get("full_url");
+            if (fullUrl != null && fullUrl.matches(".*\\.(ico|css|js|png|jpg|jpeg|gif|svg|woff2?)($|\\?)")) {
+                isModSecBlocked = false;
+            }
             logData.put("blocked_by_modsec", isModSecBlocked);
 
             // アクセスログをDBに保存
             long logId = saveAccessLog(conn, logData);
             if (logId > 0) {
                 // サーバーの最終ログ受信時刻を更新
-                DbSchema.updateServerLastLogReceived(conn, serverName, NginxLogToMysql::log);
-                
+                DbRegistry.updateServerLastLogReceived(conn, serverName, NginxLogToMysql::log);
+
                 // URL登録処理
                 registerUrl(conn, logData);
 
                 // ModSecurityアラートがあれば保存
-                if (isModSecBlocked && pendingModSecLine != null) {
-                    List<Map<String, String>> alerts = ModSecHandler.parseModsecAlert(pendingModSecLine, NginxLogToMysql::log);
+                if (isModSecBlocked && pendingModSecLineMap.get(serverName) != null) {
+                    List<Map<String, String>> alerts = ModSecHandler.parseModsecAlert(pendingModSecLineMap.get(serverName), NginxLogToMysql::log);
                     if (ModSecHandler.saveModsecAlertsWithServerName(conn, logId, alerts, serverName, NginxLogToMysql::log)) {
                         log("ModSecurityアラート保存完了 (" + serverName + ", アクセスログID: " + logId + ")", "DEBUG");
                     }
@@ -753,19 +684,27 @@ public class NginxLogToMysql {
                     " (ID: " + logId + ", Blocked: " + isModSecBlocked + ")", "DEBUG");
             }
 
-            // 処理完了後、保留中のModSec情報をクリア
-            if (hasPendingModSecAlert) {
-                hasPendingModSecAlert = false;
-                pendingModSecLine = null;
+            // 処理完了後、保留中のModSec情報をサーバー単位でクリア
+            if (hasPendingModSecAlertMap.getOrDefault(serverName, false)) {
+                hasPendingModSecAlertMap.put(serverName, false);
+                pendingModSecLineMap.remove(serverName);
             }
 
         } catch (Exception e) {
             log("拡張ログ行処理エラー: " + e.getMessage(), "ERROR");
-            // エラー時も保留中のModSec情報をクリア
-            if (hasPendingModSecAlert) {
-                hasPendingModSecAlert = false;
-                pendingModSecLine = null;
-            }
+            // エラー時も保留中のModSec情報をサーバー単位でクリア
+            try {
+                String serverName = "unknown";
+                String fallbackLine = e.getMessage(); // fallback
+                if (fallbackLine != null && fallbackLine.startsWith("[SERVER:")) {
+                    int endIndex = fallbackLine.indexOf("] ");
+                    if (endIndex > 0) {
+                        serverName = fallbackLine.substring(8, endIndex);
+                    }
+                }
+                hasPendingModSecAlertMap.put(serverName, false);
+                pendingModSecLineMap.remove(serverName);
+            } catch (Exception ignore) {}
         }
     }
 
@@ -791,28 +730,25 @@ public class NginxLogToMysql {
 
         log(String.format("監視開始完了: %d/%d サーバー", startedCount, logMonitors.size()), "INFO");
 
-        // メイン監視ループ（定期チェック用）
-        while (isRunning.get()) {
+        // ScheduledExecutorServiceで監視ループを定期実行
+        mainMonitorScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "MainMonitorScheduler");
+            t.setDaemon(true);
+            return t;
+        });
+        mainMonitorScheduler.scheduleAtFixedRate(() -> {
+            if (!isRunning.get()) return;
             try {
                 // 攻撃パターンファイルの定期更新チェック
                 checkAttackPatternsUpdate();
-
                 // サーバー設定ファイルの定期更新チェック
                 checkServersConfigUpdate();
-
                 // 監視状況の確認
                 checkMonitorHealth();
-
-                // 5秒間隔で監視
-                Thread.sleep(5000);
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
             } catch (Exception e) {
                 log("監視ループエラー: " + e.getMessage(), "ERROR");
             }
-        }
+        }, 0, 5, TimeUnit.SECONDS);
     }
 
     /**
@@ -872,6 +808,10 @@ public class NginxLogToMysql {
      * @param url アクセスされたURL
      */
     private static void outputSecurityAlert(String attackType, String ipAddress, String serverName, String url) {
+        // attackTypeがnormalの場合はアラートを出力しない
+        if ("normal".equalsIgnoreCase(attackType)) {
+            return;
+        }
         // ログ出力
         log("セキュリティアラート検知: " + attackType + " | IP: " + ipAddress + " | サーバー: " + serverName + " | URL: " + url, "ALERT");
 
@@ -911,6 +851,10 @@ public class NginxLogToMysql {
                 reportManager.shutdown();
             }
 
+            // ScheduledExecutorServiceの停止
+            if (mainMonitorScheduler != null) mainMonitorScheduler.shutdownNow();
+            if (webMonitorScheduler != null) webMonitorScheduler.shutdownNow();
+
             cleanup();
         }));
 
@@ -922,9 +866,6 @@ public class NginxLogToMysql {
 
             // 複数サーバー監視を開始
             log("複数サーバー監視モードで開始します", "INFO");
-            if (ENABLE_WEB_FRONTEND) {
-                log("Webダッシュボード: http://localhost:" + WEB_PORT + "/dashboard", "INFO");
-            }
             displayMonitoringStatistics();
             startMultiServerMonitoring();
 
