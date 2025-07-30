@@ -1,9 +1,7 @@
 package com.edamame.security;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.json.JSONObject;
-
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -19,7 +17,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -32,172 +29,99 @@ import java.util.regex.PatternSyntaxException;
  */
 public class AttackPattern {
 
-    private static final String GITHUB_URL = "https://github.com/otofuserver/Edamame-NginxLog-Security-Analyzer/blob/master/container/attack_patterns.json";
+    private static final String GITHUB_URL = "https://raw.githubusercontent.com/otofuserver/Edamame-NginxLog-Security-Analyzer/master/container/config/attack_patterns.yaml";
 
     /**
-     * URLをデコードする（%エンコーディング -> 通常文字）
-     * @param url エンコードされたURL
-     * @return デコードされたURL
+     * attack_patterns.yamlファイルが存在するかチェックする
+     * @param yamlPath attack_patterns.yamlのパス
+     * @return ファイルが存在し読み込み可能な場合true
      */
-    public static String decodeUrl(String url) {
+    public static boolean isAttackPatternsFileAvailable(String yamlPath) {
         try {
-            // プラス記号をスペースに変換
-            String decoded = url.replace("+", " ");
-
-            // URLデコードを最大2回実行（二重エンコーディング対応）
-            for (int i = 0; i < 2; i++) {
-                decoded = URLDecoder.decode(decoded, StandardCharsets.UTF_8);
+            File file = new File(yamlPath);
+            if (!file.exists() || !file.canRead()) {
+                return false;
             }
-
-            return decoded;
+            // YAMLファイルとして正常に読み込めるかチェック
+            AttackPatternYaml yaml = loadYamlPatterns(yamlPath);
+            return yaml.patterns() != null && !yaml.patterns().isEmpty();
         } catch (Exception e) {
-            return url; // デコードに失敗した場合は元のURLを返す
+            return false;
         }
     }
 
     /**
-     * URLから攻撃タイプを検出する（正規表現マッチング）
-     * URLデコード後の文字列でも検査を行う
-     * @param url 検査対象のURL
-     * @param attackPatternsPath attack_patterns.jsonのパス
-     * @param logFunc ログ出力用関数（省略可）
-     * @return 攻撃タイプ（文字列、複数の場合はカンマ区切り）
+     * attack_patterns.yamlからバージョン情報を取得する
+     * @param yamlPath attack_patterns.yamlのパス
+     * @return バージョン文字列（取得できない場合は"unknown"）
      */
-    public static String detectAttackType(String url, String attackPatternsPath, BiConsumer<String, String> logFunc) {
+    public static String getVersion(String yamlPath) {
         try {
-            // JSONファイルを読み込み（Jackson使用）
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode patterns = mapper.readTree(new File(attackPatternsPath));
-
-            List<String> detectedAttacks = new ArrayList<>();
-
-            // URLをデコード
-            String decodedUrl = decodeUrl(url);
-
-            // バージョンキーを除外して攻撃パターンを検査
-            Iterator<Map.Entry<String, JsonNode>> fields = patterns.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> entry = fields.next();
-                String attackType = entry.getKey();
-                String pattern = entry.getValue().asText();
-
-                if ("version".equals(attackType)) { // バージョン情報は除外
-                    continue;
-                }
-
-                try {
-                    // 正規表現パターンをコンパイル
-                    Pattern regex = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
-
-                    // 元のURLとデコード後のURLの両方で正規表現チェック
-                    if (regex.matcher(url).find() || regex.matcher(decodedUrl).find()) {
-                        detectedAttacks.add(attackType);
-                    }
-                } catch (PatternSyntaxException e) {
-                    // 正規表現エラーの場合は単純な文字列マッチングに代替
-                    if (url.toLowerCase().contains(pattern.toLowerCase()) ||
-                        decodedUrl.toLowerCase().contains(pattern.toLowerCase())) {
-                        detectedAttacks.add(attackType);
-                    }
-                }
-            }
-
-            if (!detectedAttacks.isEmpty()) {
-                return String.join(",", detectedAttacks); // 複数検出時はカンマ区切り
-            } else {
-                return "normal"; // 攻撃パターンが見つからない場合は正常
-            }
-
-        } catch (IOException e) {
-            if (logFunc != null) {
-                logFunc.accept("attack_patterns.jsonの読み込みでI/Oエラー: " + e.getMessage(), "WARN");
-            }
-            return "unknown"; // ファイルが見つからない場合や読み取り権限がない場合
+            AttackPatternYaml yaml = loadYamlPatterns(yamlPath);
+            return yaml.version() != null ? yaml.version() : "unknown";
         } catch (Exception e) {
-            if (logFunc != null) {
-                logFunc.accept("attack_patterns.json処理でエラー: " + e.getMessage(), "WARN");
-            }
-            return "unknown"; // その他のエラーの場合
+            return "unknown";
         }
     }
 
     /**
-     * GitHubからattack_patterns.jsonの最新バージョンを確認し、
+     * GitHubからattack_patterns.yamlの最新バージョンを確認し、
      * 新しいバージョンがある場合は更新する
-     * @param attackPatternsPath ローカルのattack_patterns.jsonのパス
+     * @param yamlPath ローカルのattack_patterns.yamlのパス
      * @param logFunc ログ出力用関数（省略可）
      * @return 更新が実行された場合true
      */
-    public static boolean updateIfNeeded(String attackPatternsPath, BiConsumer<String, String> logFunc) {
+    public static boolean updateIfNeeded(String yamlPath, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
-
         try {
-            // Pathオブジェクトを一度だけ作成
-            Path attackPatternsFile = Paths.get(attackPatternsPath);
-
-            // ローカルファイルのバージョン情報を取得
-            String localVersion = "";
-            try {
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode localPatterns = mapper.readTree(attackPatternsFile.toFile());
-                if (localPatterns.has("version")) {
-                    localVersion = localPatterns.get("version").asText();
-                }
-            } catch (IOException e) {
-                log.accept("ローカルのattack_patterns.jsonが見つからないか読み込めません: " + e.getMessage(), "WARN");
-                return false;
-            }
-
+            Path yamlFile = Paths.get(yamlPath);
+            String localVersion = getVersion(yamlPath);
             log.accept("攻撃パターンのバージョン確認中... (ローカル: " + localVersion + ")", "INFO");
-
-            // GitHubから最新のattack_patterns.jsonを取得
             try (HttpClient httpClient = HttpClient.newBuilder()
-                    .version(HttpClient.Version.HTTP_2)
-                    .connectTimeout(Duration.ofSeconds(10))
-                    .build()) {
-
+                .version(HttpClient.Version.HTTP_2)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build()) {
                 HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(GITHUB_URL))
                     .timeout(Duration.ofSeconds(10))
                     .header("User-Agent", "Edamame-NginxLog-Security-Analyzer")
                     .GET()
                     .build();
-
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
                 if (response.statusCode() != 200) {
                     log.accept("GitHubからの取得に失敗: HTTP " + response.statusCode(), "WARN");
                     return false;
                 }
-
-                // GitHubからのJSONを解析
-                ObjectMapper mapper = new ObjectMapper();
-                JsonNode remotePatterns = mapper.readTree(response.body());
-                String remoteVersion = remotePatterns.has("version") ? remotePatterns.get("version").asText() : "unknown";
-
+                String body = response.body();
+                if (body.trim().startsWith("<") || response.headers().firstValue("Content-Type").orElse("").contains("text/html")) {
+                    log.accept("GitHubからの取得に失敗: 期待したYAMLではなくHTMLが返されました（URLやファイルの存在を確認してください）", "WARN");
+                    return false;
+                }
+                // YAMLのバージョン取得
+                AttackPatternYaml remoteYaml;
+                try {
+                    ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+                    remoteYaml = mapper.readValue(body, AttackPatternYaml.class);
+                } catch (Exception e) {
+                    log.accept("GitHubからのYAML解析に失敗: " + e.getMessage(), "WARN");
+                    return false;
+                }
+                String remoteVersion = remoteYaml.version() != null ? remoteYaml.version() : "unknown";
                 log.accept("GitHub版バージョン: " + remoteVersion, "DEBUG");
-
-                // バージョン比較
                 if (!localVersion.equals(remoteVersion)) {
                     log.accept("新しいバージョンが見つかりました。更新を実行します...", "INFO");
-
-                    // ローカルファイルをバックアップ
                     try {
-                        Path backupPath = Paths.get(attackPatternsPath + ".backup." + System.currentTimeMillis());
-                        Files.copy(attackPatternsFile, backupPath, StandardCopyOption.REPLACE_EXISTING);
+                        Path backupPath = Paths.get(yamlPath + ".backup." + System.currentTimeMillis());
+                        Files.copy(yamlFile, backupPath, StandardCopyOption.REPLACE_EXISTING);
                     } catch (IOException e) {
                         log.accept("バックアップ作成に失敗: " + e.getMessage(), "WARN");
                     }
-
-                    // 新しいファイルを保存
                     try {
-                        Files.writeString(attackPatternsFile, response.body(), StandardCharsets.UTF_8,
-                                         StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-
+                        Files.writeString(yamlFile, body, StandardCharsets.UTF_8,
+                            StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                         log.accept("攻撃パターンファイルが正常に更新されました (v" + localVersion + " -> v" + remoteVersion + ")", "INFO");
                         return true;
-
                     } catch (IOException e) {
                         log.accept("攻撃パターンファイルの保存に失敗: " + e.getMessage(), "ERROR");
                         return false;
@@ -206,16 +130,7 @@ public class AttackPattern {
                     log.accept("攻撃パターンファイルは最新です", "INFO");
                     return false;
                 }
-
-            } catch (IOException e) {
-                log.accept("GitHubからの取得中にI/Oエラー: " + e.getMessage(), "WARN");
-                return false;
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt(); // スレッドの割り込み状態を再設定
-                log.accept("GitHubからの取得中に割り込みが発生しました: " + e.getMessage(), "WARN");
-                return false;
             }
-
         } catch (Exception e) {
             log.accept("攻撃パターンのバージョン確認中にエラーが発生しました: " + e.getMessage(), "ERROR");
             return false;
@@ -223,73 +138,106 @@ public class AttackPattern {
     }
 
     /**
-     * attack_patterns.jsonファイルが存在するかチェックする
-     * @param attackPatternsPath attack_patterns.jsonのパス
-     * @return ファイルが存在し読み込み可能な場合true
+     * URLをデコードする（%エンコーディング -> 通常文字）
+     * @param url エンコードされたURL
+     * @return デコードされたURL
      */
-    public static boolean isAttackPatternsFileAvailable(String attackPatternsPath) {
+    public static String decodeUrl(String url) {
         try {
-            File file = new File(attackPatternsPath);
-            if (!file.exists() || !file.canRead()) {
-                return false;
+            String decoded = url.replace("+", " ");
+            for (int i = 0; i < 2; i++) {
+                decoded = URLDecoder.decode(decoded, StandardCharsets.UTF_8);
             }
-
-            // JSONファイルとして正常に読み込めるかチェック
-            String jsonContent = Files.readString(file.toPath(), StandardCharsets.UTF_8);
-            JSONObject patterns = new JSONObject(jsonContent);
-
-            // 最低限の構造チェック（オブジェクトが空でないこと）
-            return !patterns.isEmpty();
-
+            return decoded;
         } catch (Exception e) {
-            return false;
+            return url;
         }
     }
-
+    
     /**
-     * attack_patterns.jsonからバージョン情報を取得する
-     * @param attackPatternsPath attack_patterns.jsonのパス
-     * @return バージョン文字列（取得できない場合は"unknown"）
-     */
-    public static String getVersion(String attackPatternsPath) {
-        try {
-            String jsonContent = Files.readString(Paths.get(attackPatternsPath), StandardCharsets.UTF_8);
-            JSONObject patterns = new JSONObject(jsonContent);
-
-            if (patterns.has("version")) {
-                return patterns.getString("version");
-            } else {
-                return "unknown";
-            }
-
-        } catch (Exception e) {
-            return "unknown";
-        }
-    }
-
-    /**
-     * attack_patterns.jsonから攻撃パターンの数を取得する
-     * @param attackPatternsPath attack_patterns.jsonのパス
+     * attack_patterns.yamlから攻撃パターンの数を取得する
+     * @param yamlPath attack_patterns.yamlのパス
      * @return パターン数（versionキーを除く）
      */
-    public static int getPatternCount(String attackPatternsPath) {
+    public static int getPatternCountYaml(String yamlPath) {
         try {
-            String jsonContent = Files.readString(Paths.get(attackPatternsPath), StandardCharsets.UTF_8);
-            JSONObject patterns = new JSONObject(jsonContent);
-
-            // バージョンキーを除いてカウント
-            int count = 0;
-            Iterator<String> keys = patterns.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                if (!"version".equals(key)) {
-                    count++;
-                }
-            }
-            return count;
-
+            AttackPatternYaml yaml = loadYamlPatterns(yamlPath);
+            return yaml.patterns() != null ? yaml.patterns().size() : 0;
         } catch (Exception e) {
             return 0;
+        }
+    }
+
+    /**
+     * YAML形式の攻撃パターン定義ファイルを読み込むためのレコード
+     */
+    public record AttackPatternYaml(String version, Map<String, PatternDef> patterns) {
+        public record PatternDef(String pattern, String description) {}
+    }
+
+    /**
+     * attack_patterns.yamlから攻撃パターン定義を読み込む
+     * @param yamlPath YAMLファイルのパス
+     * @return AttackPatternYamlオブジェクト
+     */
+    public static AttackPatternYaml loadYamlPatterns(String yamlPath) throws IOException {
+        ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
+        return mapper.readValue(new File(yamlPath), AttackPatternYaml.class);
+    }
+
+    /**
+     * YAML版: 攻撃タイプの日本語説明を取得
+     * @param attackType 攻撃タイプキー
+     * @param yamlPath attack_patterns.yamlのパス
+     * @return 日本語説明
+     */
+    public static String getAttackTypeDescriptionYaml(String attackType, String yamlPath) {
+        try {
+            AttackPatternYaml yaml = loadYamlPatterns(yamlPath);
+            var def = yaml.patterns().get(attackType);
+            return def != null ? def.description() : "不明な攻撃タイプ";
+        } catch (Exception e) {
+            return "不明な攻撃タイプ";
+        }
+    }
+
+    /**
+     * YAML版: URLから攻撃タイプを検出する
+     * @param url 検査対象のURL
+     * @param yamlPath attack_patterns.yamlのパス
+     * @param logFunc ログ出力用関数（省略可）
+     * @return 攻撃タイプ（文字列、複数の場合はカンマ区切り）
+     */
+    public static String detectAttackTypeYaml(String url, String yamlPath, BiConsumer<String, String> logFunc) {
+        try {
+            AttackPatternYaml yaml = loadYamlPatterns(yamlPath);
+            List<String> detectedAttacks = new ArrayList<>();
+            String decodedUrl = decodeUrl(url);
+            for (var entry : yaml.patterns().entrySet()) {
+                String attackType = entry.getKey();
+                String pattern = entry.getValue().pattern();
+                try {
+                    Pattern regex = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
+                    if (regex.matcher(url).find() || regex.matcher(decodedUrl).find()) {
+                        detectedAttacks.add(attackType);
+                    }
+                } catch (PatternSyntaxException e) {
+                    if (url.toLowerCase().contains(pattern.toLowerCase()) ||
+                        decodedUrl.toLowerCase().contains(pattern.toLowerCase())) {
+                        detectedAttacks.add(attackType);
+                    }
+                }
+            }
+            if (!detectedAttacks.isEmpty()) {
+                return String.join(",", detectedAttacks);
+            } else {
+                return "normal";
+            }
+        } catch (Exception e) {
+            if (logFunc != null) {
+                logFunc.accept("attack_patterns.yamlの読み込みでエラー: " + e.getMessage(), "WARN");
+            }
+            return "unknown";
         }
     }
 }

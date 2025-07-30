@@ -53,12 +53,18 @@ dependencies {
     // JSON処理（org.json）
     implementation "org.json:json:20240303"
 
+    //YAML処理（SnakeYAML - Java 21対応版）
+    implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.0'
+
     // メール送信機能
     implementation "javax.mail:javax.mail-api:1.6.2"
     implementation "com.sun.mail:javax.mail:1.6.2"
 
     // 暗号化処理
     implementation "org.bouncycastle:bcprov-jdk18on:${bouncyCastleVersion}"
+
+    // BCryptパスワードハッシュ化（本物のBCrypt実装）
+    implementation "at.favre.lib:bcrypt:0.10.2"
 
     // パスワードハッシュ化用（独自実装のBCryptPasswordEncoderを使用するためコメントアウト）
     // implementation "org.springframework.security:spring-security-crypto:${springSecurityVersion}"

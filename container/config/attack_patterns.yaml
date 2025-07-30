@@ -1,0 +1,42 @@
+version: v1.3
+patterns:
+  SQLi:
+    pattern: "(['\"]\\s*or\\s*['\"]?\\d+['\"]?\\s*=\\s*['\"]?\\d+|union\\s+select|'\\s*or\\s*'|--\\s*$|#\\s*$)"
+    description: "SQLインジェクション攻撃"
+  XSS:
+    pattern: "(<script.*?>|javascript:|on\\w+\\s*=|<img.*?src.*?=|<iframe|<object|<embed)"
+    description: "クロスサイトスクリプティング攻撃"
+  LFI:
+    pattern: "(\.\./|\.\.\\|/etc/passwd|/proc/self|\\windows\\system32)"
+    description: "ローカルファイルインクルード攻撃"
+  RFI:
+    pattern: "https?://[^\\s'\"<>]+"
+    description: "リモートファイルインクルード攻撃"
+  CommandInjection:
+    pattern: "(;|&&|\\|\\||\\||`|\\$\\(|\\${)\\s*(ls|cat|whoami|id|pwd|rm|cp|mv|mkdir|rmdir|chmod|chown|ps|kill|ping|wget|curl|nc|netcat|sh|bash|zsh|cmd|powershell|exec|system)"
+    description: "コマンドインジェクション攻撃"
+  SSRF:
+    pattern: "http(s)?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|169\\.254\\.|192\\.168\\.|10\\.0\\.|172\\.(1[6-9]|2[0-9]|3[01])\\.|\\[::1\\])"
+    description: "サーバーサイドリクエストフォージ攻撃"
+  XXE:
+    pattern: "(<!DOCTYPE\\s+[^>]*\\s+SYSTEM\\s+['\"]|<!ENTITY\\s+[^>]*\\s+SYSTEM\\s+['\"]|&[a-zA-Z0-9_]+;)"
+    description: "XML外部エンティティ攻撃"
+  CSRF:
+    pattern: "(csrf_token=|_csrf=|authenticity_token=)"
+    description: "クロスサイトリクエストフォージェリ攻撃"
+  OpenRedirect:
+    pattern: "(redirect=|url=|next=|return=|goto=|location=)"
+    description: "オープンリダイレクト攻撃"
+  PathTraversal:
+    pattern: "(\.\./|\.\.\/|%2e%2e%2f|%2e%2e%5c|file://)"
+    description: "パストラバーサル攻撃"
+  LDAP:
+    pattern: "(\(\||\)\(|\*\)|\(\*|%28%7C|%29%28|%2A%29)"
+    description: "LDAPインジェクション攻撃"
+  NoSQL:
+    pattern: "(\$ne|\$eq|\$gt|\$lt|\$regex|\$where|\$nin|\$in|\$exists)"
+    description: "NoSQLインジェクション攻撃"
+  TemplateInjection:
+    pattern: "(\{\{.*?\}\}|\$\{.*?\}|<%.*?%>|\[%.*?%\])"
+    description: "テンプレートインジェクション攻撃"
+
