@@ -252,12 +252,8 @@ public class NginxLogToMysql {
 
         // 攻撃パターンファイルの自動更新を起動時に試行
         try {
-            boolean updated = AttackPattern.updateIfNeeded(ATTACK_PATTERNS_PATH, NginxLogToMysql::log);
-            if (updated) {
-                log("攻撃パターンファイルを最新に更新しました (バージョン: " + AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
-            } else {
-                log("攻撃パターンファイルは最新です (バージョン: " + AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
-            }
+            AttackPattern.updateIfNeeded(ATTACK_PATTERNS_PATH, NginxLogToMysql::log);
+            log("攻撃パターンファイルの更新チェック完了 (バージョン: " + AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
         } catch (Exception e) {
             log("攻撃パターンファイルの更新チェックでエラー: " + e.getMessage(), "WARN");
         }
@@ -433,23 +429,18 @@ public class NginxLogToMysql {
 
         // 1時間（ATTACK_PATTERNS_CHECK_INTERVAL秒）経過チェック
         if (timeSinceLastCheck > ATTACK_PATTERNS_CHECK_INTERVAL * 1000L) {
-            log("Starting attack patterns update check...", "INFO");
+            log("攻撃パターンファイルの定期更新チェックを開始します...", "INFO");
 
             try {
-                boolean updated = AttackPattern.updateIfNeeded(ATTACK_PATTERNS_PATH, NginxLogToMysql::log);
-                if (updated) {
-                    log("Attack patterns file updated (version: " +
-                        AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
-                } else {
-                    log("Attack patterns file is up to date (version: " +
-                        AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "DEBUG");
-                }
+                AttackPattern.updateIfNeeded(ATTACK_PATTERNS_PATH, NginxLogToMysql::log);
+                log("攻撃パターンファイルの更新チェックが完了しました (バージョン: " +
+                    AttackPattern.getVersion(ATTACK_PATTERNS_PATH) + ")", "INFO");
             } catch (Exception e) {
-                log("Error during attack patterns update check: " + e.getMessage(), "WARN");
+                log("攻撃パターンファイルの定期更新チェック中にエラー: " + e.getMessage(), "WARN");
             }
 
             lastAttackPatternsCheck = currentTime;
-            log("Attack patterns check completed. Next check scheduled in " + ATTACK_PATTERNS_CHECK_INTERVAL + " seconds", "DEBUG");
+            log("次回の攻撃パターンファイル定期チェックは " + ATTACK_PATTERNS_CHECK_INTERVAL + " 秒後です", "DEBUG");
         }
     }
 

@@ -69,9 +69,8 @@ public class AttackPattern {
      * 新しいバージョンがある場合は更新する
      * @param yamlPath ローカルのattack_patterns.yamlのパス
      * @param logFunc ログ出力用関数（省略可）
-     * @return 更新が実行された場合true
      */
-    public static boolean updateIfNeeded(String yamlPath, BiConsumer<String, String> logFunc) {
+    public static void updateIfNeeded(String yamlPath, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
         try {
@@ -91,12 +90,12 @@ public class AttackPattern {
                 HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                 if (response.statusCode() != 200) {
                     log.accept("GitHubからの取得に失敗: HTTP " + response.statusCode(), "WARN");
-                    return false;
+                    return;
                 }
                 String body = response.body();
                 if (body.trim().startsWith("<") || response.headers().firstValue("Content-Type").orElse("").contains("text/html")) {
                     log.accept("GitHubからの取得に失敗: 期待したYAMLではなくHTMLが返されました（URLやファイルの存在を確認してください）", "WARN");
-                    return false;
+                    return;
                 }
                 // YAMLのバージョン取得
                 AttackPatternYaml remoteYaml;
@@ -105,7 +104,7 @@ public class AttackPattern {
                     remoteYaml = mapper.readValue(body, AttackPatternYaml.class);
                 } catch (Exception e) {
                     log.accept("GitHubからのYAML解析に失敗: " + e.getMessage(), "WARN");
-                    return false;
+                    return;
                 }
                 String remoteVersion = remoteYaml.version() != null ? remoteYaml.version() : "unknown";
                 log.accept("GitHub版バージョン: " + remoteVersion, "DEBUG");
@@ -120,20 +119,16 @@ public class AttackPattern {
                     try {
                         Files.writeString(yamlFile, body, StandardCharsets.UTF_8,
                             StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                        log.accept("攻撃パターンファイルが正常に更新されました (v" + localVersion + " -> v" + remoteVersion + ")", "INFO");
-                        return true;
+                        log.accept("攻撃パターンファイルが正常に更新されました (v" + localVersion + " -> " + remoteVersion + ")", "INFO");
                     } catch (IOException e) {
                         log.accept("攻撃パターンファイルの保存に失敗: " + e.getMessage(), "ERROR");
-                        return false;
                     }
                 } else {
                     log.accept("攻撃パターンファイルは最新です", "INFO");
-                    return false;
                 }
             }
         } catch (Exception e) {
             log.accept("攻撃パターンのバージョン確認中にエラーが発生しました: " + e.getMessage(), "ERROR");
-            return false;
         }
     }
 
