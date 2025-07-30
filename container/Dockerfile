@@ -55,7 +55,6 @@ ENV JAVA_OPTS="-Xmx512m -Xms256m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Djava.se
 ENV LOG_PATH="/var/log/nginx/nginx.log"
 ENV SECURE_CONFIG_PATH="/run/secrets/db_config_enc"
 ENV KEY_PATH="/run/secrets/db_secret_key"
-ENV ATTACK_PATTERNS_PATH="/app/config/attack_patterns.json"
 ENV SERVERS_CONFIG_PATH="/app/config/servers.conf"
 
 # Webフロントエンド設定

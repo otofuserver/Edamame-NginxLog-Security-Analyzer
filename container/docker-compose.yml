@@ -18,7 +18,7 @@ services:
       - LOG_PATH=/var/log/nginx/nginx.log
       - SECURE_CONFIG_PATH=/run/secrets/db_config_enc
       - KEY_PATH=/run/secrets/db_secret_key
-      - ATTACK_PATTERNS_PATH=/app/config/attack_patterns.json
+      - ATTACK_PATTERNS_PATH=/app/config/attack_patterns.yaml
       - SERVERS_CONFIG_PATH=/app/config/servers.conf
       # Webフロントエンド設定（統合版）
       - ENABLE_WEB_FRONTEND=true
