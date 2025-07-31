@@ -27,19 +27,20 @@ public class DbDelete {
                 int loginHistoryDays = rs.getInt("login_history_retention_days");
                 int actionExecLogDays = rs.getInt("action_execution_log_retention_days");
 
-                // access_log + modsec_alerts
+                // access_log + modsec_alerts（modsec_alertsを先に削除）
                 if (!rs.wasNull() && accessLogDays >= 0) {
+                    try (PreparedStatement delModsec = conn.prepareStatement(
+                        "DELETE FROM modsec_alerts WHERE detected_at < DATE_SUB(NOW(), INTERVAL ? DAY) OR access_log_id IN (SELECT id FROM access_log WHERE access_time < DATE_SUB(NOW(), INTERVAL ? DAY))")) {
+                        delModsec.setInt(1, accessLogDays);
+                        delModsec.setInt(2, accessLogDays);
+                        int deleted = delModsec.executeUpdate();
+                        log.accept("modsec_alerts: " + deleted + "件の古いレコードを削除", "INFO");
+                    }
                     try (PreparedStatement delAccess = conn.prepareStatement(
                         "DELETE FROM access_log WHERE access_time < DATE_SUB(NOW(), INTERVAL ? DAY)")) {
                         delAccess.setInt(1, accessLogDays);
                         int deleted = delAccess.executeUpdate();
                         log.accept("access_log: " + deleted + "件の古いレコードを削除", "INFO");
-                    }
-                    try (PreparedStatement delModsec = conn.prepareStatement(
-                        "DELETE FROM modsec_alerts WHERE detected_at < DATE_SUB(NOW(), INTERVAL ? DAY)")) {
-                        delModsec.setInt(1, accessLogDays);
-                        int deleted = delModsec.executeUpdate();
-                        log.accept("modsec_alerts: " + deleted + "件の古いレコードを削除", "INFO");
                     }
                 }
                 // login_history
@@ -66,4 +67,3 @@ public class DbDelete {
         }
     }
 }
-

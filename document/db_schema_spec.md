@@ -1,7 +1,7 @@
 # Edamame NginxLog Security Analyzer データベース仕様書
 
 ## db_schema_spec.md バージョン情報
-- **db_schema_spec.md version**: v2.2.2
+- **db_schema_spec.md version**: v2.2.3
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※DB関連の仕様変更時は必ず本ファイルを更新してください
 - ※変更履歴は CHANGELOG.md に記録されます
@@ -173,21 +173,23 @@
 ---
 
 ### `action_execution_log`（アクション実行履歴）
-| カラム名           | 型              | 説明                                 |
-|--------------------|------------------|--------------------------------------|
-| id                 | BIGINT           | 主キー、自動採番                     |
-| action_rule_id     | INT              | 実行したアクションルールID（action_rules.idへの外部キー） |
-| action_tool_id     | INT              | 実行したアクションツールID（action_tools.idへの外部キー） |
-| target_server      | VARCHAR(100)     | 対象サーバー名                       |
-| executed_at        | DATETIME         | 実行日時                             |
-| status             | VARCHAR(20)      | 実行ステータス（success, failed等）  |
-| result_message     | TEXT             | 実行結果メッセージ                   |
-| params_json        | TEXT             | 実行時パラメータ（JSON形式）         |
+| カラム名                 | 型              | 説明                                 |
+|--------------------------|------------------|--------------------------------------|
+| id                       | BIGINT           | 主キー、自動採番                     |
+| rule_id                  | INT              | 実行したアクションルールID           |
+| server_name              | VARCHAR(100)     | 対象サーバー名                       |
+| trigger_event            | VARCHAR(100)     | トリガーイベント（例:攻撃検知等）    |
+| execution_status         | VARCHAR(20)      | 実行ステータス（pending, success等） |
+| execution_result         | TEXT             | 実行結果メッセージ                   |
+| execution_time           | DATETIME         | 実行日時                             |
+| processing_duration_ms   | INT              | 処理所要時間（ミリ秒）               |
 
 #### 備考
 - すべてのアクション実行履歴はこのテーブルで管理
-- statusは`success`/`failed`/`skipped`等を記録
-- params_jsonには実行時のパラメータ（IP, URL, attack_type等）をJSONで保存
+- execution_statusは`pending`/`success`/`failed`/`skipped`等を記録
+- execution_resultには実行結果メッセージを保存
+- trigger_eventは発生元イベント種別（例:攻撃検知, 手動実行等）
+- processing_duration_msは実行処理の所要時間（ミリ秒）
 
 ---
 

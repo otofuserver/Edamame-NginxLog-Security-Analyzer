@@ -266,9 +266,9 @@ public class DbSchema {
         settingsDefs.put("whitelist_ip", "VARCHAR(45) DEFAULT ''");
         settingsDefs.put("backend_version", "VARCHAR(50) DEFAULT ''");
         settingsDefs.put("frontend_version", "VARCHAR(50) DEFAULT ''");
-        settingsDefs.put("access_log_retention_days", "INT DEFAULT NULL");
-        settingsDefs.put("login_history_retention_days", "INT DEFAULT NULL");
-        settingsDefs.put("action_execution_log_retention_days", "INT DEFAULT NULL");
+        settingsDefs.put("access_log_retention_days", "INT DEFAULT 365");
+        settingsDefs.put("login_history_retention_days", "INT DEFAULT 365");
+        settingsDefs.put("action_execution_log_retention_days", "INT DEFAULT 365");
         autoSyncTableColumns(conn, "settings", settingsDefs, null, log);
 
         // users
@@ -313,13 +313,13 @@ public class DbSchema {
         // action_execution_log
         var actionExecutionLogDefs = new java.util.LinkedHashMap<String, String>();
         actionExecutionLogDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
-        actionExecutionLogDefs.put("action_rule_id", "INT NOT NULL");
-        actionExecutionLogDefs.put("action_tool_id", "INT NOT NULL");
-        actionExecutionLogDefs.put("target_server", "VARCHAR(100) NOT NULL");
-        actionExecutionLogDefs.put("executed_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
-        actionExecutionLogDefs.put("status", "VARCHAR(20) NOT NULL DEFAULT 'pending'");
-        actionExecutionLogDefs.put("result_message", "TEXT");
-        actionExecutionLogDefs.put("params_json", "TEXT");
+        actionExecutionLogDefs.put("rule_id", "INT NOT NULL");
+        actionExecutionLogDefs.put("server_name", "VARCHAR(100) NOT NULL");
+        actionExecutionLogDefs.put("trigger_event", "VARCHAR(255) NOT NULL");
+        actionExecutionLogDefs.put("execution_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'");
+        actionExecutionLogDefs.put("execution_result", "TEXT");
+        actionExecutionLogDefs.put("execution_time", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+        actionExecutionLogDefs.put("processing_duration_ms", "INT");
         autoSyncTableColumns(conn, "action_execution_log", actionExecutionLogDefs, null, log);
     }
 }
