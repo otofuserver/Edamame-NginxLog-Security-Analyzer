@@ -1,7 +1,7 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.42
+- **specification.txt version**: v1.0.44
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -71,122 +71,16 @@
 - `/run/secrets/attack_patterns.json` を使って `attack_type`（例: SQLi, XSS, LFI等）を識別
 - ホワイトリストモード有効かつ指定IPからのアクセスなら `is_whitelisted = TRUE` に
 
-### 🧠 4. `attack_patterns.json` に基づく攻撃タイプ識別・自動更新
+### 🧠 4. `attack_patterns.yaml` に基づく攻撃タイプ識別・自動更新
 - 起動時に `url_registry` を再スキャンし、`attack_type` を最新に更新
-- パターンは `/run/secrets/attack_patterns.json` にJSON形式で定義
-- **備考:** `attack_patterns.json` には `"version"` キーが含まれるが、これはシグネチャ判定対象外
+- パターンは `/run/secrets/attack_patterns.yaml` にYAML形式で定義
+- **備考:** `attack_patterns.yaml` には `version` キーが含まれるが、これはシグネチャ判定対象外
 - **自動更新機能:** 1時間ごとにGitHubリポジトリから最新バージョンを自動チェック・更新
 - **バックアップ機能:** 更新前に自動でローカルファイルをバックアップ
 - **主な攻撃タイプ例:** SQLi, XSS, LFI, RFI, CommandInjection, SSRF, XXE, CSRF, OpenRedirect など
 
 ---
 
-## データベース構造（MySQL）
-
-### `access_log`
-| カラム名         | 型              | 説明                       |
-|------------------|------------------|----------------------------|
-| id               | BIGINT           | 主キー、自動採番         |
-| method           | VARCHAR(10)      | HTTPメソッド              |
-| full_url         | TEXT             | アクセスURL（クエリ含む） |
-| status_code      | INT              | HTTPステータスコード      |
-| ip_address       | VARCHAR(45)      | クライアントIP            |
-| access_time      | DATETIME         | アクセス日時（ログから抽出）|
-| blocked_by_modsec| BOOLEAN          | ModSecurityブロック有無    |
-| created_at       | DATETIME         | レコード作成日時          |
-| server_name      | VARCHAR(100)     | ログ送信元サーバー名      |
-
-### `url_registry`
-| カラム名         | 型              | 説明                                 |
-|------------------|------------------|--------------------------------------|
-| id               | INT              | 主キー、自動採番                   |
-| method           | VARCHAR(10)      | HTTPメソッド                        |
-| full_url         | TEXT             | アクセスURL                         |
-| created_at       | DATETIME         | 登録日時（自動設定）               |
-| updated_at       | DATETIME         | 最終更新日時（自動更新）           |
-| is_whitelisted   | BOOLEAN          | ホワイトリスト対象か               |
-| attack_type      | VARCHAR(50)      | 識別された攻撃タイプ               |
-| user_final_threat| BOOLEAN          | ユーザーの脅威最終判断             |
-| user_threat_note | TEXT             | 脅威判断に対するメモ欄             |
-| server_name      | VARCHAR(100)     | URL発見元サーバー名               |
-
-### `modsec_alerts`
-| カラム名         | 型              | 説明                                  |
-|------------------|------------------|---------------------------------------|
-| id               | BIGINT           | 主キー、自動採番                    |
-| access_log_id    | BIGINT           | `access_log.id` への外部キー         |
-| rule_id          | VARCHAR(20)      | ModSecurityルールID                  |
-| severity         | VARCHAR(20)      | 深刻度                               |
-| message          | TEXT             | アラートメッセージ                   |
-| data_value       | TEXT             | 詳細情報                             |
-| created_at       | DATETIME         | レコード作成日時                     |
-| detected_at      | DATETIME         | 検知日時                             |
-| server_name      | VARCHAR(100)     | アラート発生元サーバー名             |
-
-### `servers`（サーバー管理）
-| カラム名           | 型              | 説明                           |
-|--------------------|------------------|--------------------------------|
-| id                 | INT              | 主キー、自動採番               |
-| server_name        | VARCHAR(100)     | サーバー名（ユニーク）         |
-| server_description | TEXT             | サーバーの説明                 |
-| log_path          | VARCHAR(500)     | ログファイルパス               |
-| is_active         | BOOLEAN          | 有効フラグ                     |
-| created_at        | DATETIME         | 作成日時                       |
-| updated_at        | DATETIME         | 最終更新日時                   |
-| last_log_received | DATETIME         | 最終ログ受信日時               |
-
-### `settings`
-| カラム名              | 型              | 説明                           |
-|------------------------|------------------|----------------------------------|
-| id                     | INT              | 固定値: 1（単一レコード管理）   |
-| whitelist_mode         | BOOLEAN          | ホワイトリスト有効フラグ       |
-| whitelist_ip           | VARCHAR(45)      | 登録用のIPアドレス            |
-| backend_version        | VARCHAR(50)      | バックエンドバージョン情報     |
-| frontend_version       | VARCHAR(50)      | フロントエンドバージョン情報   |
-
-### `users`（フロントエンド認証用）
-| カラム名         | 型              | 説明                           |
-|------------------|------------------|--------------------------------|
-| id               | INT              | 主キー、自動採番               |
-| username         | VARCHAR(50)      | ユーザー名（ユニーク）         |
-| password_hash    | VARCHAR(255)     | パスワード（BCryptハッシュ化） |
-| role_id          | INT              | ロールID（rolesテーブルへの外部キー） |
-| created_at       | DATETIME         | 作成日時                       |
-| updated_at       | DATETIME         | 最終更新日時                   |
-| last_login       | DATETIME         | 最終ログイン日時               |
-| is_active        | BOOLEAN          | 有効フラグ                     |
-
-#### 🆕 初期ユーザー自動追加仕様
-- usersテーブル新規作成時、初期ユーザー（admin/admin123, admin@example.com, is_active=True）を自動追加する。
-- 初期ユーザーには自動で管理者ロール（administrator）が設定される。
-- パスワードはbcryptでハッシュ化して保存される。
-- 本番運用時は初期パスワードを必ず変更すること。
-
-### `roles`（ロール管理）
-| カラム名         | 型              | 説明                           |
-|------------------|------------------|--------------------------------|
-| id               | INT              | 主キー、自動採番               |
-| role_name        | VARCHAR(50)      | ロール名（ユニーク）           |
-| description      | TEXT             | ロールの説明                   |
-| created_at       | DATETIME         | 作成日時                       |
-| updated_at       | DATETIME         | 最終更新日時                   |
-
-#### 🆕 初期ロール自動追加仕様
-- rolesテーブル新規作成時、以下の初期ロールを自動追加する：
-  - **administrator**：管理者（すべての機能にアクセス可能）
-  - **monitor**：監視メンバー（ログ閲覧と基本的な分析機能のみ）
-
-### `login_history`（ログイン履歴）
-| カラム名         | 型              | 説明                           |
-|------------------|------------------|--------------------------------|
-| id               | BIGINT           | 主キー、自動採番               |
-| user_id          | INT              | users.id への外部キー           |
-| login_time       | DATETIME         | ログイン日時                   |
-| ip_address       | VARCHAR(45)      | ログイン元IP                   |
-| user_agent       | TEXT             | ユーザーエージェント           |
-| success          | BOOLEAN          | 成功/失敗フラグ                |
-
----
 
 ## セキュア設定ファイル（暗号化）
 
@@ -404,3 +298,10 @@ ls build/libs/
 - **iptables**：攻撃IPの自動ブロック
 - **cloudflare**：Cloudflare WAFルール追加
 - **webhook**：外部システムへの通知
+
+---
+
+## DB仕様について
+- データベース仕様（テーブル・カラム・初期データ・制約等）は `document/db_schema_spec.md` に集約しました。
+- DB関��の仕様を変更する場合は、必ず `db_schema_spec.md` を更新してください。
+- 旧DB仕様は本ファイルから削除しました。
