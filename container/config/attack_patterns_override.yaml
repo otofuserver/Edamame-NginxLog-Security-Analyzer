@@ -1,0 +1,16 @@
+version: "1.0.0"
+patterns:
+#  SQLi:
+#    pattern: 'select.+from'
+#    description: "SQLインジェクション（上書き例）"
+#    disable: false
+#    excludeUrls:
+#      - '^/safe/query$'
+#      - '^/api/health.*'
+#  CustomPattern:
+#    pattern: 'customtest'
+#    description: "カスタム攻撃パターン"
+#    disable: false
+#    excludeUrls: []
+#  XSS:
+#    disable: true
