@@ -55,7 +55,7 @@ public class DbDelete {
                 // action_execution_log
                 if (!rs.wasNull() && actionExecLogDays >= 0) {
                     try (PreparedStatement delAction = conn.prepareStatement(
-                        "DELETE FROM action_execution_log WHERE executed_at < DATE_SUB(NOW(), INTERVAL ? DAY)")) {
+                        "DELETE FROM action_execution_log WHERE execution_time < DATE_SUB(NOW(), INTERVAL ? DAY)")) {
                         delAction.setInt(1, actionExecLogDays);
                         int deleted = delAction.executeUpdate();
                         log.accept("action_execution_log: " + deleted + "件の古いレコードを削除", "INFO");
