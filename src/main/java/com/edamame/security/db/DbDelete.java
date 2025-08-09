@@ -42,6 +42,13 @@ public class DbDelete {
                         int deleted = delAccess.executeUpdate();
                         log.accept("access_log: " + deleted + "件の古いレコードを削除", "INFO");
                     }
+                    // agent_servers（last_heartbeat, registered_at, last_log_count, total_logs_receivedが古いものを削除）
+                    try (PreparedStatement delAgentServers = conn.prepareStatement(
+                        "DELETE FROM agent_servers WHERE last_heartbeat < DATE_SUB(NOW(), INTERVAL ? DAY) AND status != 'active'")) {
+                        delAgentServers.setInt(1, accessLogDays);
+                        int deleted = delAgentServers.executeUpdate();
+                        log.accept("agent_servers: " + deleted + "件の古いレコードを削除", "INFO");
+                    }
                 }
                 // login_history
                 if (!rs.wasNull() && loginHistoryDays >= 0) {

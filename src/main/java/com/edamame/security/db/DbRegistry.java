@@ -1,6 +1,7 @@
 package com.edamame.security.db;
 
 import java.sql.*;
+import java.util.Map;
 import java.util.function.BiConsumer;
 
 /**
@@ -26,91 +27,112 @@ public class DbRegistry {
         }
 
         try {
-            // 照合順序を明示的に指定してサーバーの存在確認
-            String checkSql = """
-                SELECT id, server_description, log_path
-                FROM servers
-                WHERE server_name = ? COLLATE utf8mb4_unicode_ci
-                """;
+            // サーバー情報SELECTをDbSelectに委譲
+            if (DbSelect.selectServerInfoByName(conn, serverName).isPresent()) {
+                // サーバーが存在する場合は更新
+                DbUpdate.updateServerInfo(conn, serverName, description, logPath, logFunc);
+            } else {
+                // サーバーが存在しない場合は新規登録
+                String insertSql = """
+                    INSERT INTO servers (server_name, server_description, log_path, is_active, last_log_received)
+                    VALUES (?, ?, ?, TRUE, NOW())
+                    """;
 
-            try (PreparedStatement checkStmt = conn.prepareStatement(checkSql)) {
-                checkStmt.setString(1, serverName);
-                ResultSet rs = checkStmt.executeQuery();
+                try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
+                    insertStmt.setString(1, serverName);
+                    insertStmt.setString(2, description != null ? description : "");
+                    insertStmt.setString(3, logPath != null ? logPath : "");
 
-                if (rs.next()) {
-                    // サーバーが存在する場合は更新
-                    String updateSql = """
-                        UPDATE servers
-                        SET server_description = ?,
-                            log_path = ?,
-                            last_log_received = NOW(),
-                            updated_at = NOW()
-                        WHERE server_name = ? COLLATE utf8mb4_unicode_ci
-                        """;
-
-                    try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-                        updateStmt.setString(1, description != null ? description : "");
-                        updateStmt.setString(2, logPath != null ? logPath : "");
-                        updateStmt.setString(3, serverName);
-
-                        int updated = updateStmt.executeUpdate();
-                        if (updated > 0) {
-                            log.accept("サーバー情報を更新しました: " + serverName, "DEBUG");
-                        }
-                    }
-                } else {
-                    // サーバーが存在しない場合���新規登録
-                    String insertSql = """
-                        INSERT INTO servers (server_name, server_description, log_path, is_active, last_log_received)
-                        VALUES (?, ?, ?, TRUE, NOW())
-                        """;
-
-                    try (PreparedStatement insertStmt = conn.prepareStatement(insertSql)) {
-                        insertStmt.setString(1, serverName);
-                        insertStmt.setString(2, description != null ? description : "");
-                        insertStmt.setString(3, logPath != null ? logPath : "");
-
-                        int inserted = insertStmt.executeUpdate();
-                        if (inserted > 0) {
-                            log.accept("新規サーバーを登録しました: " + serverName, "INFO");
-                        }
+                    int inserted = insertStmt.executeUpdate();
+                    if (inserted > 0) {
+                        log.accept("新規サーバーを登録しました: " + serverName, "INFO");
                     }
                 }
             }
-
         } catch (SQLException e) {
             log.accept("サーバー登録・更新エラー: " + e.getMessage(), "ERROR");
         }
     }
 
+
+
     /**
-     * サーバーの最終ログ受信時刻を更新
+     * エージェントサーバーを登録または更新
+     * TCP接続時のサーバー登録処理
+     * 
      * @param conn データベース接続
-     * @param serverName サーバー名
+     * @param serverInfo サーバー情報Map
      * @param logFunc ログ出力関数
+     * @return 登録ID（成功時）、null（失敗時）
      */
-    public static void updateServerLastLogReceived(Connection conn, String serverName, BiConsumer<String, String> logFunc) {
+    public static String registerOrUpdateAgent(Connection conn, Map<String, Object> serverInfo, BiConsumer<String, String> logFunc) {
         BiConsumer<String, String> log = (logFunc != null) ? logFunc :
             (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
-        if (serverName == null || serverName.trim().isEmpty()) {
-            return;
-        }
+
         try {
-            String updateSql = """
-                UPDATE servers
-                SET last_log_received = NOW()
-                WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+            // 登録IDを生成
+            String registrationId = generateAgentRegistrationId();
+
+            String sql = """
+                INSERT INTO agent_servers (
+                    registration_id, agent_name, agent_ip,
+                    hostname, os_name, os_version, java_version, nginx_log_paths,
+                    iptables_enabled, registered_at, last_heartbeat, status, agent_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW(), 'active', ?)
+                ON DUPLICATE KEY UPDATE
+                    agent_ip = VALUES(agent_ip),
+                    hostname = VALUES(hostname),
+                    os_name = VALUES(os_name),
+                    os_version = VALUES(os_version),
+                    java_version = VALUES(java_version),
+                    nginx_log_paths = VALUES(nginx_log_paths),
+                    iptables_enabled = VALUES(iptables_enabled),
+                    last_heartbeat = NOW(),
+                    status = 'active',
+                    agent_version = VALUES(agent_version)
                 """;
-            try (PreparedStatement updateStmt = conn.prepareStatement(updateSql)) {
-                updateStmt.setString(1, serverName);
-                int updated = updateStmt.executeUpdate();
-                if (updated == 0) {
-                    // サーバーが存在しない場合は自動登録
-                    registerOrUpdateServer(conn, serverName, "自動検出されたサーバー", "", log);
+
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                // ObjectMapperを��用してJSON文字列に変換
+                com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                
+                pstmt.setString(1, registrationId);
+                pstmt.setString(2, (String) serverInfo.get("agentName"));
+                pstmt.setString(3, (String) serverInfo.get("agentIp"));
+                pstmt.setString(4, (String) serverInfo.get("hostname"));
+                pstmt.setString(5, (String) serverInfo.get("osName"));
+                pstmt.setString(6, (String) serverInfo.get("osVersion"));
+                pstmt.setString(7, (String) serverInfo.get("javaVersion"));
+                pstmt.setString(8, objectMapper.writeValueAsString(serverInfo.get("nginxLogPaths")));
+                pstmt.setBoolean(9, (Boolean) serverInfo.getOrDefault("iptablesEnabled", true));
+                pstmt.setString(10, (String) serverInfo.getOrDefault("agentVersion", "unknown"));
+
+                int affected = pstmt.executeUpdate();
+                if (affected > 0) {
+                    log.accept("エージェント登録成功: " + serverInfo.get("agentName") + " (ID: " + registrationId + ")", "INFO");
+                    return registrationId;
+                } else {
+                    log.accept("エージェント登録失敗: " + serverInfo.get("agentName"), "ERROR");
+                    return null;
                 }
             }
-        } catch (SQLException e) {
-            log.accept("最終ログ受信時刻更新エラー: " + e.getMessage(), "WARN");
+
+        } catch (Exception e) {
+            log.accept("エージェント登録でエラー: " + e.getMessage(), "ERROR");
+            return null;
         }
+    }
+
+
+
+    /**
+     * エージェント登録IDを生成
+     * 「agent-{timestamp}-{random}」形式で生成
+     * 
+     * @return 生成された登録ID
+     */
+    private static String generateAgentRegistrationId() {
+        return "agent-" + System.currentTimeMillis() + "-" +
+               String.format("%04x", new java.security.SecureRandom().nextInt(0x10000));
     }
 }
