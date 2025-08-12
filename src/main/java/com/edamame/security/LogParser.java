@@ -1,5 +1,6 @@
 package com.edamame.security;
 
+import com.edamame.security.tools.AppLogger;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
@@ -7,8 +8,6 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.function.BiConsumer;
-import java.net.URLDecoder;
-import java.nio.charset.StandardCharsets;
 
 /**
  * ログパーサークラス
@@ -111,13 +110,21 @@ public class LogParser {
      * nginxログの1行をパースしてデータを抽出
      * 複数のログ形式に対応し、自動判定を行う
      * @param line ログの1行
-     * @param logFunc ログ出力用関数（省略可）
      * @return パース結果のMap（失敗時はnull）
      */
-    public static Map<String, Object> parseLogLine(String line, BiConsumer<String, String> logFunc) {
+    public static Map<String, Object> parseLogLine(String line) {
         // ログ出力用のヘルパー関数
-        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+        BiConsumer<String, String> log = (msg, level) -> {
+            switch (level) {
+                case "INFO" -> AppLogger.info(msg);
+                case "WARN" -> AppLogger.warn(msg);
+                case "ERROR" -> AppLogger.error(msg);
+                case "DEBUG" -> AppLogger.debug(msg);
+                case "CRITICAL" -> AppLogger.critical(msg);
+                case "RECOVERED" -> AppLogger.recovered(msg);
+                default -> AppLogger.info(msg);
+            }
+        };
 
         // 空行や無効な行をスキップ
         if (line == null || line.trim().isEmpty()) {
@@ -248,12 +255,6 @@ public class LogParser {
                 break;
         }
 
-        // URLデコード
-        try {
-            url = URLDecoder.decode(url, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            log.accept("URLデコードに失敗: " + url, "WARN");
-        }
 
         result.put("method", method);
         result.put("full_url", url);

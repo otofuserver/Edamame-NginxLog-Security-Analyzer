@@ -8,6 +8,8 @@ services:
     ports:
       # Webフロントエンド統合版: ダッシュボードポート公開
       - "8080:8080"  # Webダッシュボードアクセス用
+      # エージェントTCP通信ポート公開
+      - "2591:2591"  # エージェント専用TCP通信ポート
     volumes:
       - /var/log/docker/docker-nginx-LO.log:/var/log/nginx/nginx.log:ro
       - ./config:/app/config:ro
@@ -19,11 +21,13 @@ services:
       - SECURE_CONFIG_PATH=/run/secrets/db_config_enc
       - KEY_PATH=/run/secrets/db_secret_key
       - ATTACK_PATTERNS_PATH=/app/config/attack_patterns.yaml
-      - SERVERS_CONFIG_PATH=/app/config/servers.conf
       # Webフロントエンド設定（統合版）
       - ENABLE_WEB_FRONTEND=true
       - WEB_PORT=8080
       - WEB_BIND_ADDRESS=0.0.0.0
+      # エージェントTCP通信設定
+      - AGENT_TCP_PORT=2591
+      - AGENT_TCP_BIND_ADDRESS=0.0.0.0
     secrets:
       - db_config_enc
       - db_secret_key

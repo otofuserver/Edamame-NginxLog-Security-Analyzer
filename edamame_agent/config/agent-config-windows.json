@@ -1,0 +1,57 @@
+# Edamame Agent Configuration
+# エージェント用設定ファイル（Windows環境用）
+
+{
+  "server": {
+    "name": "windows-nginx-01",
+    "ip": "127.0.0.1",
+    "port": 80,
+    "type": "host",
+    "description": "Windows Nginx Server"
+  },
+  "agent": {
+    "name": "edamame-agent-windows-01",
+    "description": "Edamame Security Agent Instance for Windows"
+  },
+  "edamame": {
+    "host": "localhost",
+    "port": 2591,
+    "protocol": "agent-tcp",
+    "apiKey": "your-secure-api-key-here",
+    "useSSL": false,
+    "description": "Edamame Security Analyzer Container - Agent Communication Port",
+    "connectionTimeout": 30,
+    "socketKeepAlive": true
+  },
+  "logging": {
+    "servers": [
+      "# Windows IISサーバー",
+      "windows-iis,C:\\inetpub\\logs\\LogFiles\\W3SVC1\\*.log",
+      "",
+      "# Docker for Windowsコンテナ",
+      "# nginx-windows,C:\\ProgramData\\Docker\\containers\\*\\nginx-access.log"
+    ],
+    "collectionInterval": 10,
+    "format": "combined",
+    "maxBatchSize": 100,
+    "description": "Log collection settings with server mapping for Windows"
+  },
+  "iptables": {
+    "enabled": true,
+    "checkInterval": 30,
+    "chain": "INPUT",
+    "blockDuration": 3600,
+    "description": "Windows Firewall management settings"
+  },
+  "heartbeat": {
+    "interval": 60,
+    "timeout": 30,
+    "description": "Agent health monitoring"
+  },
+  "advanced": {
+    "maxRetries": 3,
+    "retryDelay": 5,
+    "logLevel": "INFO",
+    "enableDebug": false
+  }
+}

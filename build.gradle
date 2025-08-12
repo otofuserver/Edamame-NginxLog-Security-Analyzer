@@ -1,3 +1,5 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+
 plugins {
     id 'java'
     id 'application'
@@ -31,11 +33,11 @@ repositories {
 
 // 依存関係のバージョン定義
 ext {
-    mysqlVersion = '8.3.0'
+    mysqlVersion = '8.4.0' // 最新安定版（2025年8月時点）
     jacksonVersion = '2.15.4'  // より安定したバージョンに変更
-    logbackVersion = '1.4.14'
+    logbackVersion = '1.5.3' // 最新安定版（2025年8月時点）
     junitVersion = '5.10.1'
-    bouncyCastleVersion = '1.77'
+    bouncyCastleVersion = '1.78' // 最新安定版（2025年8月時点）
     springSecurityVersion = '6.2.1'
     // SetupSecureConfig専用バージョン（独立管理）
     setupConfigVersion = 'V1.0'
@@ -130,18 +132,18 @@ wrapper {
 }
 
 // カスタムタスク: セキュア設定セットアップ
-task setupSecureConfig(type: JavaExec) {
+tasks.register('setupSecureConfig', JavaExec) {
     group = 'application'
     description = 'セキュアなデータベース設定を作成します'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'com.edamame.tools.SetupSecureConfig'
+    mainClass.set('com.edamame.tools.SetupSecureConfig')
 }
 
 // Shadow JARタスクを使用したSetupSecureConfig専用JAR
-tasks.register('setupConfigShadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    archiveBaseName = 'SetupSecureConfig'
-    archiveVersion = setupConfigVersion
-    destinationDirectory = file("$buildDir/libs")
+tasks.register('setupConfigShadowJar', ShadowJar) {
+    archiveBaseName.set('SetupSecureConfig')
+    archiveVersion.set(setupConfigVersion.toString())
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
 
     from sourceSets.main.output
     configurations = [project.configurations.runtimeClasspath]
@@ -168,10 +170,10 @@ tasks.register('setupConfigShadowJar', com.github.jengelman.gradle.plugins.shado
 }
 
 // Shadow JARタスクを使用したメインアプリケーション専用JAR（Webフロントエンド統合版）
-tasks.register('mainAppShadowJar', com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar) {
-    archiveBaseName = 'NginxLogToMysql'
-    archiveVersion = version
-    destinationDirectory = file("$buildDir/libs")
+tasks.register('mainAppShadowJar', ShadowJar) {
+    archiveBaseName.set('NginxLogToMysql')
+    archiveVersion.set(version.toString())
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
 
     from sourceSets.main.output
     configurations = [project.configurations.runtimeClasspath]
@@ -185,7 +187,39 @@ tasks.register('mainAppShadowJar', com.github.jengelman.gradle.plugins.shadow.ta
         )
     }
 
-    // ツールクラスを除外（メインアプリケーション+Webフロントエンドのみ含める）
+    // ツールクラスとエージェントクラスを除外（メインアプリケーション+Webフロントエンドのみ含める）
+    exclude 'com/edamame/tools/**'
+    exclude 'com/edamame/agent/**'
+
+    // 不要なファイルを除外
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude '**/junit/**'
+    exclude '**/hamcrest/**'
+}
+
+// Shadow JARタスクを使用したEdamameAgent専用JAR
+tasks.register('agentShadowJar', ShadowJar) {
+    archiveBaseName.set('EdamameAgent')
+    archiveVersion.set(version.toString())
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+
+    manifest {
+        attributes(
+            'Main-Class': 'com.edamame.agent.EdamameAgent',
+            'Implementation-Title': 'Edamame Security Agent',
+            'Implementation-Version': version,
+            'Implementation-Vendor': 'Edamame Security Team'
+        )
+    }
+
+    // メインアプリケーションクラスとWebクラスを除外（エージェントクラスのみ含める）
+    exclude 'com/edamame/security/**'
+    exclude 'com/edamame/web/**'
     exclude 'com/edamame/tools/**'
 
     // 不要なファイルを除外
@@ -196,5 +230,35 @@ tasks.register('mainAppShadowJar', com.github.jengelman.gradle.plugins.shadow.ta
     exclude '**/hamcrest/**'
 }
 
+// TCP通信テストクライアント専用JAR（新規追加）
+tasks.register('testClientShadowJar', ShadowJar) {
+    archiveBaseName.set('AgentTcpTestClient')
+    archiveVersion.set(version.toString())
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+
+    from sourceSets.main.output
+    configurations = [project.configurations.runtimeClasspath]
+
+    manifest {
+        attributes(
+            'Main-Class': 'com.edamame.tools.AgentTcpTestClient',
+            'Implementation-Title': 'Edamame Agent TCP Test Client',
+            'Implementation-Version': version,
+            'Implementation-Vendor': 'Edamame Security Team'
+        )
+    }
+
+    // 全ての依存関係を含める（除外設定なし）
+    // テスト実行に必要な全クラスを確実に含める
+
+    // 不要なファイルのみ除外
+    exclude 'META-INF/*.SF'
+    exclude 'META-INF/*.DSA'
+    exclude 'META-INF/*.RSA'
+    exclude '**/junit/**'
+    exclude '**/hamcrest/**'
+}
+
+
 // ビルドタスクにShadowJARを含める
-build.dependsOn setupConfigShadowJar, mainAppShadowJar
+build.dependsOn setupConfigShadowJar, mainAppShadowJar, agentShadowJar

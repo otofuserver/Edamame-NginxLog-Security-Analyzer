@@ -33,6 +33,13 @@ Edamame NginxLog Security Analyzerは、NGINXのアクセスログを監視し�
 - ログ出力は`log(message, level)`メソッドを使用すること
 - DB接続エラーは最大5回までリトライすること
 
+### Jackson等のシリアライズ用getter/setter・デフォルトコンストラクタの扱い
+- Jackson等のJSONシリアライズ/デシリアライズを行うクラス（例：LogBatch等）には、**getter/setterやデフォルトコンストラクタを必ず実装すること**。
+- これらのメソッド・コンストラクタは**IDEや静的解析で「未使用」と警告される場合があるが、削除してはならない**。
+- Jackson等のライブラリがリフレクションで自動的に利用するため、**コード上で直接呼び出されていなくても必須**である。
+- 誤って削除すると、シリアライズ/デシリアライズ時にエラー（No serializer found等）が発生する。
+- 必要に応じてgetter/setter・デフォルトコンストラクタに「Jackson等のJSONシリアライズ用。IDEで未使用警告が出ても削除禁止」等のコメントを付与すること。
+
 ## プロジェクト構成
 
 ### メインクラス
@@ -87,12 +94,33 @@ Edamame NginxLog Security Analyzerは、NGINXのアクセスログを監視し�
 - プロジェクト内のファイルで仕様を変更したら**必ず**記載すること
 - `specification.txt`を更新した場合は、**必ず冒頭のバージョン情報も更新**すること
 
+### web_authentication_spec.md更新ルール
+- Web認証機能（ログイン・ログアウト・セッション管理）を変更したら**必ず**記載すること
+- 以下の変更時は`document/web_authentication_spec.md`を更新：
+  - AuthenticationService, AuthenticationFilter, LoginController, LogoutController の変更
+  - セッション管理ロジックの変更
+  - Cookie仕様・セキュリティ設定の変更
+  - 認証フロー・エンドポイントの変更
+- `web_authentication_spec.md`を更新した場合は、**必ず冒頭のバージョン情報も更新**すること
+
+### db_schema_spec.md更新ルール
+- DB関連の仕様（テーブル・カラム・初期データ・制約等）を変更した場合は**必ず**`document/db_schema_spec.md`を最新状態に更新すること
+- 仕様変更時は、ファイル冒頭のバージョン情報も**必ず**更新すること
+- 変更内容は**必ず**CHANGELOG.mdにも記載すること
+- 旧DB仕様はspecification.txt等から削除し、本ファイルに集約すること
+- 本ルールはプロジェクト全体の品質維持のため厳守すること
+
 ### CHANGELOG.md更新ルール
 - 機能追加・修正時は**CHANGELOG.md**に記録すること
 - バージョン情報を更新した場合は、`NginxLogToMysql.java`の`APP_VERSION`も同じバージョンに更新すること
 
 ### ビルド・テスト
-- コード変更後は**必ず**`./gradlew build`でビルドテストを実行すること
+- **ビルド時は必ずキャッシュクリアから実施すること**
+- ビルド手順：
+  1. `./gradlew clean` でキャッシュと成果物を削除
+  2. `./gradlew build` でクリーンビルドを実行
+- 理由：キャッシュが原因の予期しないビルドエラーやデプロイ問題を防止
+- コード変更後は**必ず**この手順でビルドテストを実行すること
 - エラーの有無を`get_errors`で確認すること
 
 ## Copilotへの指示
