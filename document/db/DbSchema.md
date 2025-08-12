@@ -1,8 +1,8 @@
 # Edamame NginxLog Security Analyzer データベース仕様書（新フォーマット）
 
 ## バージョン情報
-- **db_schema_spec.md version**: v2.8.0  # デバッグログ削除・仕様書メソッド記載完全化・AUTO_INCREMENT復元機能実装完了
-- **最終更新**: 2025-08-09
+- **db_schema_spec.md version**: v2.8.3  # action_toolsカラム(tool_type, is_enabled, config_json)追加・順序修正
+- **最終更新**: 2025-08-13
 - ※DB関連の仕様変更時は必ず本ファイルを更新し、バージョン情報も修正すること
 - ※変更履歴は CHANGELOG.md に記録
 
@@ -94,7 +94,7 @@
 |-------------------------------------|---|---|
 | id                                  | INT | 固定値: 1（単一レコード管理） |
 | whitelist_mode                      | BOOLEAN | ホワイトリスト有効フラグ |
-| whitelist_ip                        | VARCHAR(45) | ホワイトリストIPアドレス（カンマ区切りで複数指定可） |
+| whitelist_ip                        | VARCHAR(370) | ホワイトリストIPアドレス（カンマ区切りで複数指定可） |
 | backend_version                     | VARCHAR(50) | バックエンドバージョン情報 |
 | frontend_version                    | VARCHAR(50) | フロントエンドバージョン情報 |
 | access_log_retention_days           | INT | アクセスログ保存日数 |
@@ -156,11 +156,44 @@
 | id | BIGINT | 主キー、自動採番 |
 | rule_id | INT | 実行したアクションルールID |
 | server_name | VARCHAR(100) | 対象サーバー名 |
-| trigger_event | VARCHAR(100) | トリガーイベント |
+| trigger_event | VARCHAR(255) | トリガーイベント |
 | execution_status | VARCHAR(20) | 実行ステータス |
 | execution_result | TEXT | 実行結果メッセージ |
 | execution_time | DATETIME | 実行日時 |
 | processing_duration_ms | INT | 処理所要時間（ミリ秒） |
+
+### action_rules
+- アクション自動実行ルール管理
+
+| カラム名            | 型             | 説明 |
+|---------------------|----------------|------|
+| id                  | INT            | 主キー、自動採番 |
+| rule_name           | VARCHAR(100)   | ルール名（ユニーク） |
+| target_server       | VARCHAR(100)   | 対象サーバー名（"*"で全サーバー） |
+| condition_type      | VARCHAR(50)    | 条件タイプ（例: status_code, attack_type等） |
+| condition_params    | TEXT           | 条件パラメータ（JSON等で複数指定可） |
+| action_tool_id      | INT            | 実行アクションツールID（action_tools.idへの外部キー） |
+| action_params       | TEXT           | アクションパラメータ（JSON等） |
+| is_enabled          | BOOLEAN        | 有効フラグ |
+| priority            | INT            | 優先度（数値が小さいほど高優先） |
+| last_executed       | DATETIME       | 最終実行日時 |
+| execution_count     | INT            | 実行回数 |
+| created_at          | DATETIME       | 作成日時 |
+| updated_at          | DATETIME       | 最終更新日時 |
+
+### action_tools
+- アクション実行ツール定義
+
+| カラム名     | 型           | 説明 |
+|--------------|--------------|------|
+| id           | INT          | 主キー、自動採番 |
+| tool_name    | VARCHAR(100) | ツール名（ユニーク） |
+| tool_type    | VARCHAR(50)  | ツール種別（例: shell, http, script等） |
+| is_enabled   | BOOLEAN      | 有効フラグ |
+| config_json  | TEXT         | ツール設定（JSON形式） |
+| description  | TEXT         | ツール説明 |
+| created_at   | DATETIME     | 作成日時 |
+| updated_at   | DATETIME     | 最終更新日時 |
 
 ### agent_servers
 - エージェント登録サーバー管理
@@ -203,6 +236,7 @@
 | status | VARCHAR(20) | 処理状態 |
 | created_at | TIMESTAMP | 要求作成日時 |
 | processed_at | TIMESTAMP | 処理完了日時 |
+| result_message | TEXT | 処理結果メッセージ |
 
 ---
 
@@ -237,17 +271,17 @@
 - 主要全テーブルのスキーマ自動整合（カラム追加・削除・移行）を一括実行。
 
 ## 主なメソッド
-- `public static void syncAllTablesSchema(Connection conn, BiConsumer<String, String> log)`
+- `public static void syncAllTablesSchema(DbService dbService)`
   - 主要全テーブルのスキーマ自動整合（カラム追加・削除・移行）を一括実行する。
-- `public static void autoSyncTableColumns(Connection conn, String tableName, Map<String, String> idealColumnDefs, Map<String, String> migrateMap, BiConsumer<String, String> log)`
+- `public static void autoSyncTableColumns(DbService dbService, String tableName, Map<String, String> idealColumnDefs, Map<String, String> migrateMap)`
   - テーブルごとに理想カラム定義・移行マップを受け取り、カラム追加・削除・データ移行を自動実行する。
-- `private static void addMissingColumns(Connection conn, String tableName, Set<String> columnsToAdd, Map<String, String> columnDefs, BiConsumer<String, String> log)`
+- `private static void addMissingColumns(DbService dbService, String tableName, Set<String> columnsToAdd, Map<String, String> columnDefs)`
   - 不足カラムを追加する。
-- `private static void dropExtraColumns(Connection conn, String tableName, Set<String> columnsToDelete, BiConsumer<String, String> log)`
+- `private static void dropExtraColumns(DbService dbService, String tableName, Set<String> columnsToDelete)`
   - 不要カラムを削除する。
-- `private static void migrateColumnData(Connection conn, String toTable, String fromTable, String fromCol, String toCol, BiConsumer<String, String> log)`
+- `private static void migrateColumnData(DbService dbService, String toTable, String fromTable, String fromCol, String toCol)`
   - 旧カラムから新カラムへデータ移行を行う。
-- `private static void alterColumnTypeIfNeeded(Connection conn, String tableName, Map<String, String> idealColumnDefs, Set<String> targetColumns, BiConsumer<String, String> log)`
+- `private static void alterColumnTypeIfNeeded(DbService dbService, String tableName, Map<String, String> idealColumnDefs, Set<String> targetColumns)`
   - カラム型の違いを検出し、型や制約が異なる場合はALTER TABLEで型・制約を自動修正する。AUTO_INCREMENT復元機能も含む。
 - `private static boolean tableExists(Connection conn, String tableName)`
   - テーブル存在チェックを行う。

@@ -4,57 +4,91 @@
 - データベースからの検索・SELECT処理を担当。
 - 各種テーブルの検索・集計・条件抽出を実装。
 - サーバー・エージェント等のSELECT系処理を集約。
+- DbServiceとDbSessionを使用してConnection引数を完全排除（v2.0.0）。
 
-## 主なメソッド
-- `public static Optional<ServerInfo> selectServerInfoByName(Connection conn, String serverName)`
-  - サーバー名でサーバー情報（id, server_description, log_path）を取得。
+## 主なメソッド（v2.0.0 - Connection引数完全廃止）
+
+### DbService使用のメソッド（Connection引数なし）
+- `public static Optional<ServerInfo> selectServerInfoByName(DbService dbService, String serverName)`
+  - サーバー名でサーバー情報（id, server_description, log_path）を取得（DbService使用）。
   - 結果はOptional<ServerInfo>で返却。
-- `public static boolean existsServerByName(Connection conn, String serverName)`
-  - サーバー名でserversテーブルの存在有無を判定。
+  - DbService.selectServerInfoByName()に委譲。
+- `public static boolean existsServerByName(DbService dbService, String serverName)`
+  - サーバー名でserversテーブルの存在有無を判定（DbService使用）。
   - 結果はbooleanで返却。
-- `public static record ServerInfo(int id, String description, String logPath)`
-  - サーバー情報DTO。
-- `public static List<Map<String, Object>> selectPendingBlockRequests(Connection conn, String registrationId, int limit)`
-    - 指定したregistrationIdに紐づく、status='pending'のブロック要求リストを取得。
-    - 取得カラム: request_id, ip_address, duration, reason, chain_name
-    - 取得順: created_at昇順
-    - パラメータ:
-        - conn: データベース接続
-        - registrationId: エージェント登録ID
-        - limit: 最大取得件数
-    - 返却値: 各要求をMap<String, Object>で表現したリスト
-    - 用途: エージェントへのブロック指示送信処理等で利用
-    - 注意: 例外はSQLExceptionとしてスロー。呼び出し元でハンドリング。
-- `public static Map<String, Object> selectWhitelistSettings(Connection conn)`
-    - settingsテーブルからwhitelist_mode, whitelist_ipを取得。
-    - 返却値: Map（whitelist_mode: Boolean, whitelist_ip: String）
-    - 用途: ホワイトリスト判定処理等で利用
-    - 注意: 例外はSQLExceptionとしてスロー。呼び出し元でハンドリング。
-- `public static boolean existsUrlRegistryEntry(Connection conn, String serverName, String method, String fullUrl)`
-  - url_registryテーブルに(server_name, method, full_url)が存在するか判定。
-  - 結果はbooleanで返却。
-  - 用途: URL登録処理の重複チェックや既存URLのホワイトリスト再評価処理等で利用
-  - 例外はSQLExceptionとしてスロー。呼び出し元でハンドリング。
-- `public static Boolean selectIsWhitelistedFromUrlRegistry(Connection conn, String serverName, String method, String fullUrl)`
-  - url_registryテーブルからis_whitelistedカラムの値を取得。
-  - レコードが存在しない場合はnullを返却。
-  - 用途: 既存URLのホワイトリスト状態再評価処理等で利用。
-  - 例外はSQLExceptionとしてスロー。呼び出し元でハンドリング。
+  - DbService.existsServerByName()に委譲。
+- `public static List<Map<String, Object>> selectPendingBlockRequests(DbService dbService, String registrationId, int limit)`
+  - 指定したregistrationIdに紐づく、status='pending'のブロック要求リストを取得（DbService使用）。
+  - DbService.selectPendingBlockRequests()に委譲。
+- `public static Map<String, Object> selectWhitelistSettings(DbService dbService)`
+  - settingsテーブルからwhitelist_mode, whitelist_ipを取得（DbService使用）。
+  - DbService.selectWhitelistSettings()に委譲。
+- `public static boolean existsUrlRegistryEntry(DbService dbService, String serverName, String method, String fullUrl)`
+  - url_registryテーブルに(server_name, method, full_url)が存在するか判定（DbService使用）。
+  - DbService.existsUrlRegistryEntry()に委譲。
+- `public static Boolean selectIsWhitelistedFromUrlRegistry(DbService dbService, String serverName, String method, String fullUrl)`
+  - url_registryテーブルからis_whitelistedカラムの値を取得（DbService使用）。
+  - DbService.selectIsWhitelistedFromUrlRegistry()に���譲。
+
+## DTOクラス
+- `public record ServerInfo(int id, String description, String logPath)`
+  - サーバー情報DTO。Java recordで実装。
 
 ## ロジック
-- プリペアドステートメントで安全にSELECT実行。
-- サーバー名の照合順序（utf8mb4_unicode_ci）に対応。
-- 結果がなければOptional.empty()またはfalse/nullを返却。
-- 例外は呼び出し元でハンドリング。
+- **完全DbService委譲**: すべてのメソッドがDbServiceインスタンスを受け取り、内部的にDbServiceのメソッドに委譲。
+- **Connection引数完全排除**: v2.0.0でConnection引数を使用するメソッドを完全廃止。
+- **統一性重視**: 古いConnection引数方式との互換性を維持せず、一気に入れ替えで統一性を確保。
+- **例外処理**: SQLException は呼び出し元でハンドリング。
+- **結果処理**: データが見つからない場合はOptional.empty()、false、nullを適切に返却。
+
+## 使用例（v2.0.0完全版）
+
+### 新しいDbService専用版
+```java
+try (DbService dbService = new DbService(url, properties, logger)) {
+    // サーバー情報取得
+    Optional<DbSelect.ServerInfo> info = DbSelect.selectServerInfoByName(dbService, "web-server-01");
+    
+    // 存在確認
+    boolean exists = DbSelect.existsServerByName(dbService, "web-server-01");
+    
+    // ブロック要求取得
+    List<Map<String, Object>> requests = DbSelect.selectPendingBlockRequests(dbService, "agent-123", 10);
+    
+    // ホワイトリスト設定取得
+    Map<String, Object> settings = DbSelect.selectWhitelistSettings(dbService);
+    
+    // URL存在確認
+    boolean urlExists = DbSelect.existsUrlRegistryEntry(dbService, "web-server-01", "GET", "/api/users");
+    
+    // ホワイトリスト状態取得
+    Boolean isWhitelisted = DbSelect.selectIsWhitelistedFromUrlRegistry(dbService, "web-server-01", "GET", "/api/users");
+}
+```
+
+## 移行完了方針
+- **v2.0.0**: Connection引数を完全廃止、DbService専用に統一
+- **互換性なし**: 古いConnection引数方式は完全削除済み
+- **統一性確保**: 無駄を省き、一貫したAPI設計を実現
 
 ## 注意事項
-- SELECT対象カラム・テーブル追加時は本クラスの対応も必ず追加すること。
-- 仕様変更時は本仕様書・実装・db_schema_spec.md・CHANGELOG.mdを同時更新。
+- **DbService必須**: すべてのメソッドでDbServiceインスタンスが必要。
+- **Connection引数廃止**: v2.0.0でConnection引数を使用するメソッドは完全削除済み。
+- **SELECT対象追加時**: 本クラスの対応も必ず追加すること。
+- **仕様変更時**: 本仕様書・実装・db_schema_spec.md・CHANGELOG.mdを同時更新。
+
+## バージョン履歴
+- **v2.0.0** (2025-01-11): Connection引数を完全廃止、DbService専用に統一。互換性なし一気切り替え完了
+- **v1.2.0** (2025-01-11): DbServiceとDbSessionを使用したConnection引数なしメソッドを追加
+- **v1.1.0** (2025-01-11): ビルドエラー修正完了
+- **v1.0.0**: 初期実装
 
 ---
 
 ### 参考：実装例
 - selectServerInfoByName, existsServerByName, selectWhitelistSettings などをpublic staticで実装。
 - DTOはJava recordで定義。
+- DbService使用版は内部的にDbServiceのメソッドに委譲。
+- Connection引数方式は完全削除済み。
 
 ---
