@@ -1,5 +1,7 @@
 package com.edamame.security;
 
+import com.edamame.security.tools.AppLogger;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -90,10 +92,7 @@ public class ModSecHandler {
 
         } catch (Exception e) {
             // パースエラー時は基本的な情報のみ保存
-            if (logFunc != null) {
-                logFunc.accept("ModSecurityアラートの解析でエラー: " + e.getMessage(), "WARN");
-            }
-
+            AppLogger.warn("ModSecurityアラートの解析でエラー: " + e.getMessage());
             Map<String, String> alert = new HashMap<>();
             alert.put("rule_id", "parse_error");
             alert.put("msg", "ModSecurity Alert Parse Error");
@@ -123,137 +122,6 @@ public class ModSecHandler {
     }
 
     /**
-     * ModSecurityアラート情報をデータベースに保存
-     * @param conn データベース接続
-     * @param logId 関連するアクセスログのID
-     * @param alerts アラート情報のリスト
-     * @param logFunc ログ出力用関数（省略可）
-     * @return 保存に成功した場合true
-     */
-    public static boolean saveModsecAlerts(Connection conn, long logId, List<Map<String, String>> alerts, BiConsumer<String, String> logFunc) {
-        if (conn == null || alerts == null || alerts.isEmpty()) {
-            return false;
-        }
-
-        // 正しいカラム名に修正: created_at -> なし（デフォルト値を使用）
-        String insertSql = "INSERT INTO modsec_alerts (access_log_id, rule_id, message, data_value, severity) " +
-                          "VALUES (?, ?, ?, ?, ?)";
-
-        try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
-
-            for (Map<String, String> alert : alerts) {
-                pstmt.setLong(1, logId);
-                pstmt.setString(2, alert.get("rule_id"));
-                pstmt.setString(3, alert.get("msg"));      // "msg"の値を"message"カラムに
-                pstmt.setString(4, alert.get("data"));     // "data"の値を"data_value"カラムに
-                pstmt.setString(5, alert.get("severity"));
-
-                pstmt.addBatch();
-            }
-
-            int[] results = pstmt.executeBatch();
-
-            // すべての挿入が成功したかチェック
-            for (int result : results) {
-                if (result <= 0) {
-                    if (logFunc != null) {
-                        logFunc.accept("ModSecurityアラートの一部保存に失敗しました", "WARN");
-                    }
-                    return false;
-                }
-            }
-
-            if (logFunc != null) {
-                logFunc.accept(String.format("ModSecurityアラート %d件を保存しました (ログID: %d)",
-                    alerts.size(), logId), "INFO");
-            }
-
-            return true;
-
-        } catch (SQLException e) {
-            if (logFunc != null) {
-                logFunc.accept("ModSecurityアラート保存エラー: " + e.getMessage(), "ERROR");
-            }
-            return false;
-        }
-    }
-
-    /**
-     * 指定されたアクセスログIDに関連するModSecurityアラートの数を取得
-     * @param conn データベース接続
-     * @param logId アクセスログID
-     * @return アラート数（エラー時は-1）
-     */
-    public static int getAlertCount(Connection conn, long logId) {
-        if (conn == null) {
-            return -1;
-        }
-
-        String selectSql = "SELECT COUNT(*) FROM modsec_alerts WHERE access_log_id = ?";
-
-        try (PreparedStatement pstmt = conn.prepareStatement(selectSql)) {
-            pstmt.setLong(1, logId);
-
-            var rs = pstmt.executeQuery();
-            if (rs.next()) {
-                return rs.getInt(1);
-            }
-
-        } catch (SQLException e) {
-            // エラーログは呼び出し側で出力
-        }
-
-        return -1;
-    }
-
-    /**
-     * ModSecurityアラートテーブルの統計情報を取得
-     * @param conn データベース接続
-     * @return 統計情報のMap（総アラート数、ユニークルールID数など）
-     */
-    public static Map<String, Object> getAlertStatistics(Connection conn) {
-        Map<String, Object> stats = new HashMap<>();
-
-        if (conn == null) {
-            return stats;
-        }
-
-        try {
-            // 総アラート数
-            String totalSql = "SELECT COUNT(*) as total_alerts FROM modsec_alerts";
-            try (PreparedStatement pstmt = conn.prepareStatement(totalSql)) {
-                var rs = pstmt.executeQuery();
-                if (rs.next()) {
-                    stats.put("total_alerts", rs.getInt("total_alerts"));
-                }
-            }
-
-            // ユニークルールID数
-            String uniqueRulesSql = "SELECT COUNT(DISTINCT rule_id) as unique_rules FROM modsec_alerts WHERE rule_id != 'unknown' AND rule_id != 'parse_error'";
-            try (PreparedStatement pstmt = conn.prepareStatement(uniqueRulesSql)) {
-                var rs = pstmt.executeQuery();
-                if (rs.next()) {
-                    stats.put("unique_rules", rs.getInt("unique_rules"));
-                }
-            }
-
-            // 今日のアラート数
-            String todaySql = "SELECT COUNT(*) as today_alerts FROM modsec_alerts WHERE DATE(detected_at) = CURDATE()";
-            try (PreparedStatement pstmt = conn.prepareStatement(todaySql)) {
-                var rs = pstmt.executeQuery();
-                if (rs.next()) {
-                    stats.put("today_alerts", rs.getInt("today_alerts"));
-                }
-            }
-
-        } catch (SQLException e) {
-            // 統計取得エラー時は空のMapを返す
-        }
-
-        return stats;
-    }
-
-    /**
      * ModSecurityアラートをサーバー名付きでデータベースに保存
      * @param conn データベース接続
      * @param accessLogId 関連するアクセスログID
@@ -270,9 +138,6 @@ public class ModSecHandler {
             return true; // アラートがない場合は成功とみなす
         }
 
-        BiConsumer<String, String> log = (logFunc != null) ? logFunc :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
-
         String sql = """
             INSERT INTO modsec_alerts (access_log_id, rule_id, severity, message, data_value, server_name, detected_at)
             VALUES (?, ?, ?, ?, ?, ?, NOW())
@@ -288,7 +153,6 @@ public class ModSecHandler {
                 pstmt.setString(6, serverName != null ? serverName : "default");
                 pstmt.addBatch();
             }
-
             int[] results = pstmt.executeBatch();
             int successCount = 0;
             for (int result : results) {
@@ -296,17 +160,98 @@ public class ModSecHandler {
             }
 
             if (successCount > 0) {
-                log.accept(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, アクセスログID: %d)",
-                    successCount, serverName, accessLogId), "DEBUG");
+                AppLogger.debug(String.format("ModSecurityアラート保存完了: %d件 (サーバー: %s, アクセスログID: %d)",
+                    successCount, serverName, accessLogId));
                 return true;
             } else {
-                log.accept("ModSecurityアラートの保存で全て失敗しました", "WARN");
+                AppLogger.warn("ModSecurityアラートの保存で全て失敗しました");
                 return false;
             }
 
         } catch (SQLException e) {
-            log.accept("ModSecurityアラート保存エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("ModSecurityアラート保存エラー: " + e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * ModSecurityログから情報を抽出（AgentTcpServer用）
+     * @param rawLog ModSecurityのログ行
+     * @param logFunction ログ出力関数
+     * @return 抽出された情報のマップ
+     */
+    public static Map<String, String> extractModSecInfo(String rawLog, BiConsumer<String, String> logFunction) {
+        Map<String, String> extractedInfo = new HashMap<>();
+        try {
+            String extractedRuleId = null;
+            String extractedMsg = null;
+            String extractedData = null;
+            String extractedSeverity = null;
+
+            // Rule IDを抽出
+            Matcher ruleIdMatcher = RULE_ID_PATTERN.matcher(rawLog);
+            if (ruleIdMatcher.find()) {
+                extractedRuleId = ruleIdMatcher.group(1);
+                extractedInfo.put("id", extractedRuleId);
+            }
+            
+            // メッセージを抽出
+            Matcher msgMatcher = MSG_PATTERN.matcher(rawLog);
+            if (msgMatcher.find()) {
+                extractedMsg = msgMatcher.group(1);
+                extractedInfo.put("msg", extractedMsg);
+            }
+            
+            // データを抽出
+            Matcher dataMatcher = DATA_PATTERN.matcher(rawLog);
+            if (dataMatcher.find()) {
+                extractedData = dataMatcher.group(1);
+                extractedInfo.put("data", extractedData);
+            }
+            
+            // 重要度を抽出
+            Matcher severityMatcher = SEVERITY_PATTERN.matcher(rawLog);
+            if (severityMatcher.find()) {
+                extractedSeverity = severityMatcher.group(1);
+                extractedInfo.put("severity", extractedSeverity);
+            }
+            
+            // 抽出されなかった項目にデフォルト値を設定
+            if (extractedRuleId == null) {
+                extractedInfo.put("id", "unknown");
+            }
+
+            if (extractedMsg == null) {
+                // ルールIDがある場合はそれを含めたメッセージを生成
+                if (extractedRuleId != null) {
+                    extractedInfo.put("msg", "ModSecurity Rule " + extractedRuleId + " triggered");
+                } else {
+                    extractedInfo.put("msg", "ModSecurity Access Denied");
+                }
+            }
+
+            if (extractedData == null) {
+                extractedInfo.put("data", "");
+            }
+
+            if (extractedSeverity == null) {
+                extractedInfo.put("severity", "unknown");
+            }
+            
+            // デバッグ用：抽出結果をログ出力
+            AppLogger.debug("ModSecurity抽出結果 - ID: " + extractedInfo.get("id") +
+                          ", MSG: " + extractedInfo.get("msg") +
+                          ", DATA: " + extractedInfo.get("data") +
+                          ", SEVERITY: " + extractedInfo.get("severity"));
+
+        } catch (Exception e) {
+            AppLogger.warn("ModSecurity情報抽出エラー: " + e.getMessage());
+            // エラー時もデフォルト値を返す
+            extractedInfo.put("id", "parse_error");
+            extractedInfo.put("msg", "ModSecurity Parse Error");
+            extractedInfo.put("data", "");
+            extractedInfo.put("severity", "error");
+        }
+        return extractedInfo;
     }
 }
