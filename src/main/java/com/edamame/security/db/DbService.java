@@ -90,6 +90,16 @@ public class DbService implements AutoCloseable {
         return DbSelect.selectIsWhitelistedFromUrlRegistry(this, serverName, method, fullUrl);
     }
 
+    /**
+     * 最近の指定分数以内のアクセスログを取得（ModSecurity照合用）
+     * @param minutes 何分前までのログを取得するか
+     * @return アクセスログのリスト
+     * @throws SQLException SQL例外
+     */
+    public List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(int minutes) throws SQLException {
+        return DbSelect.selectRecentAccessLogsForModSecMatching(this, minutes);
+    }
+
     // ============= UPDATE操作（DbUpdateに委譲） =============
 
     /**
@@ -131,6 +141,17 @@ public class DbService implements AutoCloseable {
      */
     public int updateAgentLogStats(String registrationId, int logCount) throws SQLException {
         return DbUpdate.updateAgentLogStats(this, registrationId, logCount);
+    }
+
+    /**
+     * access_logのModSecurityブロック状態を更新
+     * @param accessLogId アクセスログID
+     * @param blockedByModSec ModSecurityによってブロックされたかどうか
+     * @return 更新された行数
+     * @throws SQLException SQL例外
+     */
+    public int updateAccessLogModSecStatus(Long accessLogId, boolean blockedByModSec) throws SQLException {
+        return DbUpdate.updateAccessLogModSecStatus(this, accessLogId, blockedByModSec);
     }
 
     /**

@@ -218,4 +218,34 @@ public class DbUpdate {
             }
         });
     }
+
+    /**
+     * access_logのModSecurityブロック状態を更新（DbService使用）
+     * @param dbService データベースサービス
+     * @param accessLogId アクセスログID
+     * @param blockedByModSec ModSecurityによってブロックされたかどうか
+     * @return 更新された行数
+     * @throws SQLException SQL例外
+     */
+    public static int updateAccessLogModSecStatus(DbService dbService, Long accessLogId, boolean blockedByModSec) throws SQLException {
+        return dbService.getSession().executeWithResult(conn -> {
+            try {
+                String sql = "UPDATE access_log SET blocked_by_modsec = ? WHERE id = ?";
+                try (var pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setBoolean(1, blockedByModSec);
+                    pstmt.setLong(2, accessLogId);
+                    int updated = pstmt.executeUpdate();
+                    if (updated > 0) {
+                        AppLogger.debug("access_logのModSecurityブロック状態を更新: ID=" + accessLogId + ", blocked=" + blockedByModSec);
+                    } else {
+                        AppLogger.warn("access_logのModSecurityブロック状態更新失敗: ID=" + accessLogId);
+                    }
+                    return updated;
+                }
+            } catch (SQLException e) {
+                AppLogger.error("access_logのModSecurityブロック状態更新でエラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
+    }
 }

@@ -2,6 +2,8 @@ package com.edamame.security;
 
 import com.edamame.security.agent.AgentTcpServer;
 import com.edamame.security.db.DbService;
+import com.edamame.security.modsecurity.ModSecurityQueue;
+import com.edamame.security.modsecurity.ModSecHandler;
 import com.edamame.web.WebApplication;
 import com.edamame.security.tools.AppLogger;
 import org.json.JSONObject;
@@ -65,8 +67,9 @@ public class NginxLogToMysql {
     private static String whitelistIp = "";
     private static final AtomicBoolean isRunning = new AtomicBoolean(true);
 
-
-
+    // ModSecurityアラートキュー（グローバル管理）
+    private static ModSecurityQueue modSecurityQueue = null;
+    private static ScheduledExecutorService modSecTaskExecutor = null;
 
     // アクション実行エンジン
     private static ActionEngine actionEngine = null;
@@ -202,6 +205,12 @@ public class NginxLogToMysql {
             return false;
         }
 
+        // ModSecurityキューとタスクの初期化
+        if (!initializeModSecurityQueue()) {
+            AppLogger.log("ModSecurityキューの初期化に失敗しました", "ERROR");
+            return false;
+        }
+
         // DBスキーマの自動同期・移行を実行（DbService使用）
         try {
             dbService.syncAllTablesSchema();
@@ -263,9 +272,9 @@ public class NginxLogToMysql {
             return false;
         }
 
-        // エージェントTCPサーバーの初期化（DbService使用に変更）
+        // エージェントTCPサーバーの初期化（ModSecurityキューを渡す）
         try {
-            agentTcpServer = new AgentTcpServer(dbService);
+            agentTcpServer = new AgentTcpServer(dbService, modSecurityQueue);
             agentTcpServer.start();
             AppLogger.log("エージェントTCPサーバー起動完了 (ポート: 2591)", "INFO");
         } catch (Exception e) {
@@ -363,6 +372,20 @@ public class NginxLogToMysql {
      */
     private static void cleanup() {
         AppLogger.log("アプリケーションをシャットダウン中...", "INFO");
+
+        // ModSecurityタスクを停止
+        if (modSecTaskExecutor != null && !modSecTaskExecutor.isShutdown()) {
+            modSecTaskExecutor.shutdown();
+            try {
+                if (!modSecTaskExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    modSecTaskExecutor.shutdownNow();
+                }
+                AppLogger.log("ModSecurityタスク停止完了", "INFO");
+            } catch (InterruptedException e) {
+                modSecTaskExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
 
         // Webフロントエンドを停止
         if (webApplication != null) {
@@ -471,6 +494,39 @@ public class NginxLogToMysql {
 
         } catch (Exception e) {
             AppLogger.log("メンテナンス処理でエラー: " + e.getMessage(), "WARN");
+        }
+    }
+
+    /**
+     * ModSecurityキューとタスクを初期化
+     * @return 初期化成功可否
+     */
+    private static boolean initializeModSecurityQueue() {
+        try {
+            AppLogger.log("ModSecurityキュー初期化中...", "INFO");
+
+            // ModSecurityキューを作成
+            modSecurityQueue = new ModSecurityQueue();
+
+            // ModSecurityタスク実行用のExecutorServiceを初期化
+            modSecTaskExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "ModSecTaskExecutor");
+                t.setDaemon(true);
+                return t;
+            });
+
+            // クリーンアップタスクを開始
+            modSecurityQueue.startCleanupTask(modSecTaskExecutor);
+
+            // 定期的アラート照合タスクを開始
+            ModSecHandler.startPeriodicAlertMatching(modSecTaskExecutor, modSecurityQueue, dbService);
+
+            AppLogger.log("ModSecurityキューとタスク初期化完了", "INFO");
+            return true;
+
+        } catch (Exception e) {
+            AppLogger.log("ModSecurityキュー初期化エラー: " + e.getMessage(), "ERROR");
+            return false;
         }
     }
 }

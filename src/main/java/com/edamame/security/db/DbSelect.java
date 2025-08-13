@@ -199,6 +199,48 @@ public class DbSelect {
     }
 
     /**
+     * 最近の指定分数以内のアクセスログを取得（ModSecurity照合用）
+     * @param dbService データベースサービス
+     * @param minutes 何分前までのログを取得するか
+     * @return アクセスログのリスト
+     * @throws SQLException SQL例外
+     */
+    public static List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(DbService dbService, int minutes) throws SQLException {
+        return dbService.getSession().executeWithResult(conn -> {
+            try {
+                String sql = """
+                    SELECT id, server_name, method, full_url, access_time, blocked_by_modsec
+                    FROM access_log
+                    WHERE access_time >= DATE_SUB(NOW(), INTERVAL ? MINUTE)
+                      AND blocked_by_modsec = false
+                    ORDER BY access_time DESC
+                    LIMIT 1000
+                    """;
+                
+                List<Map<String, Object>> results = new ArrayList<>();
+                try (var pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setInt(1, minutes);
+                    try (var rs = pstmt.executeQuery()) {
+                        while (rs.next()) {
+                            Map<String, Object> row = new HashMap<>();
+                            row.put("id", rs.getLong("id"));
+                            row.put("server_name", rs.getString("server_name"));
+                            row.put("method", rs.getString("method"));
+                            row.put("full_url", rs.getString("full_url"));
+                            row.put("access_time", rs.getTimestamp("access_time").toLocalDateTime());
+                            row.put("blocked_by_modsec", rs.getBoolean("blocked_by_modsec"));
+                            results.add(row);
+                        }
+                    }
+                }
+                return results;
+            } catch (SQLException e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /**
      * サーバー情報DTO
      */
     public record ServerInfo(int id, String description, String logPath) {}

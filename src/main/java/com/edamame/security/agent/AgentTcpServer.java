@@ -2,6 +2,8 @@ package com.edamame.security.agent;
 
 import com.edamame.security.*;
 import com.edamame.security.db.DbService;
+import com.edamame.security.modsecurity.ModSecurityQueue;
+import com.edamame.security.modsecurity.ModSecHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import static com.edamame.agent.network.TcpProtocolConstants.*;
@@ -21,10 +23,11 @@ import com.edamame.security.tools.UrlCodec;
  * エージェントTCP通信サーバー
  * ポート2591でエージェントからのTCP接続を受け付け、
  * カスタムバイナリプロトコルで通信を行う
- * v2.0.0: DbService/DbSessionパターンに完全移行
+ * v2.0.0: DbService/DbSessionパター���に完全移行
+ * v3.0.0: ModSecurityキュー管理をNginxLogToMysqlに移行
  *
  * @author Edamame Team
- * @version 2.0.0
+ * @version 3.0.0
  */
 public class AgentTcpServer {
 
@@ -41,8 +44,8 @@ public class AgentTcpServer {
     private final ActionEngine actionEngine;
     private final WhitelistManager whitelistManager;
 
-    // ModSecurity状態管理用（サーバー名単��）
-    private final Map<String, Map<String, Object>> pendingModSecInfoMap = new ConcurrentHashMap<>();
+    // ModSecurityアラートキュー（外部から注入）
+    private final ModSecurityQueue modSecurityQueue;
 
     private ServerSocket serverSocket;
     private volatile boolean running = false;
@@ -51,9 +54,10 @@ public class AgentTcpServer {
      * コンストラクタ
      *
      * @param dbService データベースサービス
+     * @param modSecurityQueue ModSecurityアラートキュー
      */
-    public AgentTcpServer(DbService dbService) {
-        this(DEFAULT_PORT, dbService);
+    public AgentTcpServer(DbService dbService, ModSecurityQueue modSecurityQueue) {
+        this(DEFAULT_PORT, dbService, modSecurityQueue);
     }
 
     /**
@@ -61,13 +65,16 @@ public class AgentTcpServer {
      *
      * @param port リスニングポート
      * @param dbService データベースサービス
+     * @param modSecurityQueue ModSecurityアラートキュー
      */
-    public AgentTcpServer(int port, DbService dbService) {
+    public AgentTcpServer(int port, DbService dbService, ModSecurityQueue modSecurityQueue) {
         this.port = port;
         this.dbService = dbService;
+        this.modSecurityQueue = modSecurityQueue;
         this.objectMapper = new ObjectMapper();
         this.threadPool = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
         this.activeSessions = new ConcurrentHashMap<>();
+
         try {
             this.actionEngine = new ActionEngine(dbService);
             this.whitelistManager = new WhitelistManager(dbService);
@@ -598,7 +605,7 @@ public class AgentTcpServer {
     /**
      * ログバッチ処理
      */
-    private void handleLogBatch(AgentSession session, byte[] data) throws IOException {
+    public void handleLogBatch(AgentSession session, byte[] data) throws IOException {
         try {
             String jsonData = new String(data, StandardCharsets.UTF_8);
             Map<String, Object> logBatch = objectMapper.readValue(jsonData, new TypeReference<Map<String, Object>>() {});
@@ -673,7 +680,7 @@ public class AgentTcpServer {
     }
 
     /**
-     * ログエントリを処理（v2.0.0統合版 - DbService完全対応）
+     * ログエントリを処理（v3.0.0 - ModSecurityキューベース関連付けシステム）
      */
     private int processLogEntries(AgentSession session, List<Map<String, Object>> logs) {
         int processedCount = 0;
@@ -693,7 +700,6 @@ public class AgentTcpServer {
 
         for (Map<String, Object> logData : logs) {
             try {
-                // エージェントから送信されるデータ構造を確認
                 String rawLogLine = (String) logData.get("rawLogLine");
                 String serverName = (String) logData.get("serverName");
                 String sourcePath = (String) logData.get("sourcePath");
@@ -702,16 +708,14 @@ public class AgentTcpServer {
                 // エージェントから受け取ったサーバー名をそのまま使用
                 String actualServerName = serverName;
 
-                // サーバー名単位でModSecurity状態を管理
-                Map<String, Object> pendingModSecInfo = pendingModSecInfoMap.computeIfAbsent(actualServerName, k -> new HashMap<>());
-
                 // ModSecurityエラーログの処理（error.logからの情報）
                 if (sourcePath != null && sourcePath.contains("error.log")) {
-                    // エラーログからModSecurity情報を抽出
+                    // エラーログからModSecurity情報を抽出してキューに追加
                     if (logData.containsKey("request")) {
                         String request = (String) logData.get("request");
-                        if (isModSecurityRawLog(request)) {
-                            processModSecurityRawLog(request, actualServerName, pendingModSecInfo);
+                        if (ModSecHandler.isModSecurityRawLog(request)) {
+                            ModSecHandler.processModSecurityAlertToQueue(request, actualServerName, modSecurityQueue);
+                            AppLogger.debug("ModSecurityアラートをキューに追加: サーバー=" + actualServerName);
                             continue; // ModSecurityエラーログは詳細情報保存のみで、access_logには記録しない
                         }
                     }
@@ -724,79 +728,29 @@ public class AgentTcpServer {
                     continue;
                 }
 
+                Map<String, Object> parsedLog = null;
+
                 // エージェントからの解析済みデータを直接処理する場合
                 if (rawLogLine == null || rawLogLine.trim().isEmpty()) {
                     AppLogger.debug("エージェントからの解析済みデータを処理中: " + logData.get("summary"));
 
                     // エージェントから送信されたフィールドを使用してparsedLogを構築
-                    Map<String, Object> parsedLog = buildParsedLogFromAgentData(logData);
+                    parsedLog = buildParsedLogFromAgentData(logData);
 
                     if (parsedLog == null) {
                         AppLogger.debug("空のログ行をスキップ: " + logData);
                         continue;
                     }
-
-                    // 重複チェック用のキーを生成（時刻を含めて厳密にチェック）
-                    String requestKey = generateStrictRequestKey(parsedLog, actualServerName);
-                    if (processedRequests.contains(requestKey)) {
-                        AppLogger.debug("重複リクエストをスキップ: " + requestKey);
-                        continue;
+                } else {
+                    // 通常のHTTPリクエスト行の処理（rawLogLineが存在する場合）
+                    parsedLog = LogParser.parseLogLine(rawLogLine);
+                    if (parsedLog == null) {
+                        AppLogger.warn("ログ解析失敗: [" + actualServerName + "] " + rawLogLine);
+                        continue; // パース失敗時はスキップ
                     }
-                    processedRequests.add(requestKey);
-
-                    // favicon.ico等の巻き込み検知を除外
-                    String fullUrl = (String) parsedLog.get("full_url");
-                    if (isIgnorableRequest(fullUrl)) {
-                        AppLogger.debug("無視対象リクエストをスキップ: " + fullUrl);
-                        continue;
-                    }
-
-                    AppLogger.debug("エージェントデータ変換成功: " + parsedLog.get("method") + " " + parsedLog.get("full_url") + " " + parsedLog.get("status_code"));
-
-                    // サーバー情報とエージェント情報を追加
-                    parsedLog.put("server_name", actualServerName);
-                    parsedLog.put("source_path", sourcePath);
-                    parsedLog.put("collected_at", collectedAt != null ? collectedAt : LocalDateTime.now().toString());
-                    parsedLog.put("agent_registration_id", registrationId);
-
-                    // 時系列でのModSecurity関連付け（直近5秒以内）
-                    boolean blockedByModSec = checkRecentModSecurityBlock(parsedLog, pendingModSecInfo);
-                    parsedLog.put("blocked_by_modsec", blockedByModSec);
-
-                    // DbServiceを使用してaccess_logテーブルに保存
-                    Long accessLogId = dbService.insertAccessLog(parsedLog);
-                    if (accessLogId != null) {
-                        processedCount++;
-                        AppLogger.debug("access_log保存成功: ID=" + accessLogId + " (" + parsedLog.get("method") + " " + parsedLog.get("full_url") + ")");
-
-                        // ModSecurity詳細情報がある場合は modsec_alerts に保存
-                        if (blockedByModSec && !pendingModSecInfo.isEmpty()) {
-                            saveModSecAlert(accessLogId, pendingModSecInfo, actualServerName);
-                            AppLogger.debug("ModSecurity alert saved for access_log ID: " + accessLogId);
-                            // 使用したModSecurity情報をクリア
-                            pendingModSecInfo.clear();
-                        }
-
-                        // 攻撃パターン識別とURL登録
-                        processUrlAndAttackPattern(parsedLog);
-
-                        // アクション実行エンジンでの脅威対応
-                        executeSecurityActions(parsedLog, blockedByModSec);
-                    } else {
-                        AppLogger.error("access_log保存失敗: " + parsedLog);
-                    }
-
-                    continue;
                 }
 
-                // 通常のHTTPリクエスト行の処理（rawLogLineが存在する場合）
-                Map<String, Object> parsedLog = LogParser.parseLogLine(rawLogLine);
-                if (parsedLog == null) {
-                    AppLogger.warn("ログ解析失敗: [" + actualServerName + "] " + rawLogLine);
-                    continue; // パース失敗時はスキップ
-                }
-
-                // 重複チェック
+                // 重複チェック用のキーを生成（時刻を含めて厳密にチェック）
                 String requestKey = generateStrictRequestKey(parsedLog, actualServerName);
                 if (processedRequests.contains(requestKey)) {
                     AppLogger.debug("重複リクエストをスキップ: " + requestKey);
@@ -804,43 +758,58 @@ public class AgentTcpServer {
                 }
                 processedRequests.add(requestKey);
 
-                // 無視対象リクエストのチェック
+                // favicon.ico等の巻き込み検知を除外
                 String fullUrl = (String) parsedLog.get("full_url");
                 if (isIgnorableRequest(fullUrl)) {
                     AppLogger.debug("無視対象リクエストをスキップ: " + fullUrl);
                     continue;
                 }
 
-                AppLogger.debug("ログ解析成功: " + parsedLog.get("method") + " " + parsedLog.get("full_url") + " " + parsedLog.get("status_code"));
+                AppLogger.debug("HTTPリクエスト処理: " + parsedLog.get("method") + " " + parsedLog.get("full_url") + " " + parsedLog.get("status_code"));
 
                 // サーバー情報とエージェント情報を追加
                 parsedLog.put("server_name", actualServerName);
                 parsedLog.put("source_path", sourcePath);
-                parsedLog.put("collected_at", collectedAt);
+                parsedLog.put("collected_at", collectedAt != null ? collectedAt : LocalDateTime.now().toString());
                 parsedLog.put("agent_registration_id", registrationId);
 
-                // 時系列でのModSecurity関連付け（直近5秒以内）
-                boolean blockedByModSec = checkRecentModSecurityBlock(parsedLog, pendingModSecInfo);
-                parsedLog.put("blocked_by_modsec", blockedByModSec);
+                // 初期状態ではModSecurityブロックはfalse
+                parsedLog.put("blocked_by_modsec", false);
 
                 // DbServiceを使用してaccess_logテーブルに保存
                 Long accessLogId = dbService.insertAccessLog(parsedLog);
                 if (accessLogId != null) {
                     processedCount++;
-                    AppLogger.debug("access_log保存成功: ID=" + accessLogId);
+                    AppLogger.debug("access_log保存成功: ID=" + accessLogId + " (" + parsedLog.get("method") + " " + parsedLog.get("full_url") + ")");
 
-                    // ModSecurity詳細情報がある場合は modsec_alerts に保存
-                    if (blockedByModSec && !pendingModSecInfo.isEmpty()) {
-                        saveModSecAlert(accessLogId, pendingModSecInfo);
-                        AppLogger.debug("ModSecurity alert saved for access_log ID: " + accessLogId + " (server: " + actualServerName + ")");
-                        // 使用したModSecurity情報をクリア
-                        pendingModSecInfo.clear();
+                    // ModSecurityアラートキューから一致するアラートを検索
+                    String method = (String) parsedLog.get("method");
+                    LocalDateTime accessTime = (LocalDateTime) parsedLog.get("access_time");
+
+                    List<ModSecurityQueue.ModSecurityAlert> matchingAlerts =
+                        modSecurityQueue.findMatchingAlerts(actualServerName, method, fullUrl, accessTime);
+
+                    if (!matchingAlerts.isEmpty()) {
+                        AppLogger.info("ModSecurityアラート一致検出: " + matchingAlerts.size() + "件, access_log ID=" + accessLogId);
+
+                        // access_logのblocked_by_modsecをtrueに更新
+                        dbService.updateAccessLogModSecStatus(accessLogId, true);
+
+                        // 一致したアラートをmodsec_alertsテーブルに保存
+                        for (ModSecurityQueue.ModSecurityAlert alert : matchingAlerts) {
+                            ModSecHandler.saveModSecurityAlertToDatabase(accessLogId, alert, dbService);
+                            AppLogger.debug("ModSecurityアラート保存: access_log ID=" + accessLogId +
+                                          ", ルール=" + alert.ruleId() + ", メッセージ=" + alert.message());
+                        }
+                    } else {
+                        AppLogger.debug("ModSecurityアラート一致なし: " + fullUrl);
                     }
 
                     // 攻撃パターン識別とURL登録
                     processUrlAndAttackPattern(parsedLog);
 
-                    // アクション実行エンジンでの脅威対応
+                    // アクション実行エンジンでの脅威対応（ModSecurityブロック状態を確認）
+                    boolean blockedByModSec = !matchingAlerts.isEmpty();
                     executeSecurityActions(parsedLog, blockedByModSec);
                 } else {
                     AppLogger.error("access_log保存失敗: " + parsedLog);
@@ -855,7 +824,6 @@ public class AgentTcpServer {
         AppLogger.info("Successfully processed " + processedCount + " log entries from " + session.getAgentName());
         return processedCount;
     }
-
 
     /**
      * より厳密な重複チェック用のリクエストキーを生成
@@ -990,91 +958,41 @@ public class AgentTcpServer {
         }
     }
 
-    /**
-     * ModSecurityのログ行かどうかを判定
-     */
-    private boolean isModSecurityRawLog(String logLine) {
-        return logLine != null && logLine.contains("ModSecurity:");
-    }
 
     /**
-     * ModSecurityエラーログから詳細情報を抽出
+     * TCPサーバーを停止
      */
-    private void processModSecurityRawLog(String rawLog, String serverName, Map<String, Object> pendingModSecInfo) {
-        try {
-            // ModSecurityログから情報を抽出
-            Map<String, String> extractedInfo = ModSecHandler.extractModSecInfo(rawLog, AppLogger::log);
+    public void stop() {
+        running = false;
 
-            if (!extractedInfo.isEmpty()) {
-                // 既存の情報に追加
-                pendingModSecInfo.putAll(extractedInfo);
-                pendingModSecInfo.put("server_name", serverName);
-                pendingModSecInfo.put("raw_log", rawLog);
-                pendingModSecInfo.put("detected_at", LocalDateTime.now().toString());
-
-                AppLogger.debug("ModSecurity情報を抽出: " + extractedInfo.get("id") + " - " + extractedInfo.get("msg"));
-            } else {
-                AppLogger.warn("ModSecurityログの解析に失敗: " + rawLog);
+        // 既存の停止処理
+        if (serverSocket != null && !serverSocket.isClosed()) {
+            try {
+                serverSocket.close();
+            } catch (IOException e) {
+                AppLogger.debug("Error closing server socket: " + e.getMessage());
             }
-        } catch (Exception e) {
-            AppLogger.error("ModSecurity情報抽出エラー: " + e.getMessage());
-        }
-    }
-
-    /**
-     * 直近のModSecurityブロックをチェック
-     */
-    private boolean checkRecentModSecurityBlock(Map<String, Object> parsedLog, Map<String, Object> pendingModSecInfo) {
-        if (pendingModSecInfo.isEmpty()) {
-            return false;
         }
 
+        threadPool.shutdown();
         try {
-            // 時刻の比較（5秒以内かどうか）
-            String detectedAtStr = (String) pendingModSecInfo.get("detected_at");
-            if (detectedAtStr != null) {
-                LocalDateTime detectedAt = LocalDateTime.parse(detectedAtStr);
-                LocalDateTime requestTime = (LocalDateTime) parsedLog.get("access_time");
-
-                if (requestTime != null) {
-                    long secondsDiff = java.time.Duration.between(detectedAt, requestTime).abs().getSeconds();
-                    if (secondsDiff <= 5) {
-                        AppLogger.debug("ModSecurityブロックを関連付け: " + secondsDiff + "秒差");
-                        return true;
-                    }
-                }
+            if (!threadPool.awaitTermination(10, TimeUnit.SECONDS)) {
+                threadPool.shutdownNow();
             }
-
-            return false;
-        } catch (Exception e) {
-            AppLogger.debug("ModSecurity関連付けチェックでエラー: " + e.getMessage());
-            return false;
+        } catch (InterruptedException e) {
+            threadPool.shutdownNow();
+            Thread.currentThread().interrupt();
         }
+
+        // アクティブセッションをクローズ
+        for (AgentSession session : activeSessions.values()) {
+            session.close();
+        }
+        activeSessions.clear();
+
+        AppLogger.info("Agent TCP Server stopped");
     }
 
-
-    /**
-     * modsec_alertsテーブルにModSecurityアラートを保存（DbService経由）
-     */
-    private void saveModSecAlert(Long accessLogId, Map<String, Object> modSecInfo, String serverName) {
-        // serverNameをmodSecInfoにセット（既存ロジック維持）
-        if (modSecInfo != null && serverName != null) {
-            modSecInfo.put("server_name", serverName);
-        }
-        try {
-            dbService.insertModSecAlert(accessLogId, modSecInfo);
-        } catch (Exception e) {
-            AppLogger.error("ModSecurity alert保存エラー: " + e.getMessage());
-        }
-    }
-
-    /**
-     * modsec_alertsテーブルにModSecurityアラートを保存（後方互換性用、DbService経由）
-     */
-    private void saveModSecAlert(Long accessLogId, Map<String, Object> modSecInfo) {
-        String serverName = (String) modSecInfo.getOrDefault("server_name", "unknown");
-        saveModSecAlert(accessLogId, modSecInfo, serverName);
-    }
 
     /**
      * URL登録と攻撃パターン識別処理
@@ -1090,39 +1008,6 @@ public class AgentTcpServer {
                 return;
             }
 
-            // URL登録処理（内部で攻撃パターン識別も実行）
-            String attackType = registerUrlToRegistryWithAttackType(serverName, method, fullUrl, clientIp);
-
-            // registerUrlToRegistryWithAttackTypeの戻り値で判定
-            if (attackType != null) {
-                AppLogger.info("新規URL登録: " + serverName + " - " + method + " " + fullUrl + " (攻撃タイプ: " + attackType + ")");
-
-                // セキュリティアラート検知の場合
-                if (!"CLEAN".equals(attackType) && !"UNKNOWN".equals(attackType) && !"normal".equals(attackType)) {
-                    AppLogger.warn("セキュリティアラート検知: " + attackType + " from " + clientIp + " to " + fullUrl);
-                }
-            }
-
-            // サーバー情報を更新
-            dbService.registerOrUpdateServer(serverName, "Agent-based server", (String) parsedLog.get("source_path"));
-
-        } catch (Exception e) {
-            AppLogger.error("Error in URL/attack pattern processing: " + e.getMessage());
-        }
-    }
-
-    /**
-     * URL登録処理（攻撃タイプ識別版・IPアドレス対応・既存URL再評価対応）
-     */
-    private String registerUrlToRegistryWithAttackType(String serverName, String method, String fullUrl, String clientIp) {
-        try {
-            // DbServiceを使用して存在チェック
-            if (dbService.existsUrlRegistryEntry(serverName, method, fullUrl)) {
-                // 既存URLの場合は再アクセス時にホワイトリスト状態を再評価
-                whitelistManager.updateExistingUrlWhitelistStatusOnAccess(serverName, method, fullUrl, clientIp);
-                return null; // 既存URL（新規登録なし）
-            }
-
             // 攻撃パターン識別を実行
             String attackType = AttackPattern.detectAttackTypeYaml(fullUrl,
                 "/app/config/attack_patterns.yaml", "/app/config/attack_patterns_override.yaml");
@@ -1136,18 +1021,14 @@ public class AgentTcpServer {
                 if (isWhitelisted) {
                     AppLogger.info("ホワイトリストURL登録: " + serverName + " - " + method + " " + fullUrl + " from " + clientIp);
                 }
-                return attackType;
             } else {
                 AppLogger.error("URL登録失敗: " + serverName + " - " + method + " " + fullUrl);
-                return null;
             }
 
         } catch (Exception e) {
             AppLogger.error("Error registering URL to registry: " + e.getMessage());
-            return null;
         }
     }
-
 
     /**
      * セキュリティアクションの実行

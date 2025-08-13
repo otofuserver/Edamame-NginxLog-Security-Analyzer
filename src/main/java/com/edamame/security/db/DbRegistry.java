@@ -224,7 +224,7 @@ public class DbRegistry {
     /**
      * modsec_alertsテーブルにModSecurityアラートを保存（DbService使用）
      * @param dbService データベースサービス
-     * @param accessLogId access_logテーブルのID
+     * @param accessLogId 関連するアクセスログID
      * @param modSecInfo ModSecurity情報Map
      * @throws SQLException SQL例外
      */
@@ -239,18 +239,33 @@ public class DbRegistry {
                     """;
                 try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                     pstmt.setLong(1, accessLogId);
-                    pstmt.setString(2, (String) modSecInfo.getOrDefault("id", "unknown"));
-                    pstmt.setString(3, (String) modSecInfo.getOrDefault("severity", "unknown"));
-                    pstmt.setString(4, (String) modSecInfo.getOrDefault("msg", "ModSecurity Access Denied"));
-                    pstmt.setString(5, (String) modSecInfo.getOrDefault("data", ""));
+                    pstmt.setString(2, (String) modSecInfo.getOrDefault("rule_id", "unknown"));
+                    
+                    // severityの型安全な処理
+                    Object severityObj = modSecInfo.get("severity");
+                    if (severityObj instanceof Integer) {
+                        pstmt.setInt(3, (Integer) severityObj);
+                    } else if (severityObj instanceof String) {
+                        try {
+                            pstmt.setInt(3, Integer.parseInt((String) severityObj));
+                        } catch (NumberFormatException e) {
+                            pstmt.setInt(3, 2); // デフォルト値（critical）
+                        }
+                    } else {
+                        pstmt.setInt(3, 2); // デフォルト値（critical）
+                    }
+                    
+                    pstmt.setString(4, (String) modSecInfo.getOrDefault("message", "ModSecurity Access Denied"));
+                    pstmt.setString(5, (String) modSecInfo.getOrDefault("data_value", ""));
                     pstmt.setString(6, (String) modSecInfo.getOrDefault("server_name", "unknown"));
+                    
                     int affected = pstmt.executeUpdate();
                     if (affected > 0) {
-                        AppLogger.log("ModSecurity alert saved successfully for access_log ID: " + accessLogId, "DEBUG");
+                        AppLogger.debug("ModSecurity alert saved successfully for access_log ID: " + accessLogId);
                     }
                 }
             } catch (SQLException e) {
-                AppLogger.log("Error saving ModSec alert: " + e.getMessage(), "ERROR");
+                AppLogger.error("Error saving ModSec alert: " + e.getMessage());
                 throw new RuntimeException(e);
             }
         });

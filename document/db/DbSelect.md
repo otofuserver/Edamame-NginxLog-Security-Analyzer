@@ -6,7 +6,7 @@
 - サーバー・エージェント等のSELECT系処理を集約。
 - DbServiceとDbSessionを使用してConnection引数を完全排除（v2.0.0）。
 
-## 主なメソッド（v2.0.0 - Connection引数完全廃止）
+## 主なメソッド（v2.1.0 - ModSecurityアラート照合機能強化）
 
 ### DbService使用のメソッド（Connection引数なし）
 - `public static Optional<ServerInfo> selectServerInfoByName(DbService dbService, String serverName)`
@@ -28,7 +28,11 @@
   - DbService.existsUrlRegistryEntry()に委譲。
 - `public static Boolean selectIsWhitelistedFromUrlRegistry(DbService dbService, String serverName, String method, String fullUrl)`
   - url_registryテーブルからis_whitelistedカラムの値を取得（DbService使用）。
-  - DbService.selectIsWhitelistedFromUrlRegistry()に���譲。
+  - DbService.selectIsWhitelistedFromUrlRegistry()に委譲。
+- `public static List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(DbService dbService, int minutes)`
+  - **[v2.1.0新機能]** 最近の指定分数以内のアクセスログを取得（ModSecurity照合用）。
+  - `blocked_by_modsec = false`の未処理ログのみを抽出し、ModSecurityアラートとの定期的な照合に使用。
+  - 最大1000件まで取得、`access_time`降順でソート。
 
 ## DTOクラス
 - `public record ServerInfo(int id, String description, String logPath)`
@@ -40,12 +44,13 @@
 - **統一性重視**: 古いConnection引数方式との互換性を維持せず、一気に入れ替えで統一性を確保。
 - **例外処理**: SQLException は呼び出し元でハンドリング。
 - **結果処理**: データが見つからない場合はOptional.empty()、false、nullを適切に返却。
+- **ModSecurityアラート照合**: 定期的なアラート照合により、時間差で到着するModSecurityアラートとアクセスログの関連付けを強化。
 
-## 使用例（v2.0.0完全版）
+## 使用例（v2.1.0完全版）
 
 ### 新しいDbService専用版
 ```java
-try (DbService dbService = new DbService(url, properties, logger)) {
+try (DbService dbService = new DbService(url, properties)) {
     // サーバー情報取得
     Optional<DbSelect.ServerInfo> info = DbSelect.selectServerInfoByName(dbService, "web-server-01");
     
@@ -63,10 +68,46 @@ try (DbService dbService = new DbService(url, properties, logger)) {
     
     // ホワイトリスト状態取得
     Boolean isWhitelisted = DbSelect.selectIsWhitelistedFromUrlRegistry(dbService, "web-server-01", "GET", "/api/users");
+    
+    // ModSecurity照合用の最近のアクセスログ取得（v2.1.0新機能）
+    List<Map<String, Object>> recentLogs = DbSelect.selectRecentAccessLogsForModSecMatching(dbService, 5);
+}
+```
+
+### ModSecurity定期照合での使用例（v2.1.0新機能）
+```java
+// AgentTcpServerでの定期的なアラート照合処理
+public void performPeriodicAlertMatching() {
+    try {
+        // 最近5分以内の未処理アクセスログを取得
+        List<Map<String, Object>> recentAccessLogs = 
+            DbSelect.selectRecentAccessLogsForModSecMatching(dbService, 5);
+        
+        for (Map<String, Object> accessLog : recentAccessLogs) {
+            Long accessLogId = (Long) accessLog.get("id");
+            String serverName = (String) accessLog.get("server_name");
+            String method = (String) accessLog.get("method");
+            String fullUrl = (String) accessLog.get("full_url");
+            LocalDateTime accessTime = (LocalDateTime) accessLog.get("access_time");
+            
+            // ModSecurityアラートキューから一致するアラートを検索
+            List<ModSecurityAlert> matchingAlerts = 
+                modSecurityQueue.findMatchingAlerts(serverName, method, fullUrl, accessTime);
+            
+            if (!matchingAlerts.isEmpty()) {
+                // 一致したアラートをデータベースに保存
+                dbService.updateAccessLogModSecStatus(accessLogId, true);
+                // ...アラート保存処理
+            }
+        }
+    } catch (SQLException e) {
+        AppLogger.error("定期的ModSecurityアラート一致チェックでエラー: " + e.getMessage());
+    }
 }
 ```
 
 ## 移行完了方針
+- **v2.1.0**: ModSecurityアラート照合機能を強化、定期的な照合処理を追加
 - **v2.0.0**: Connection引数を完全廃止、DbService専用に統一
 - **互換性なし**: 古いConnection引数方式は完全削除済み
 - **統一性確保**: 無駄を省き、一貫したAPI設計を実現
@@ -75,20 +116,12 @@ try (DbService dbService = new DbService(url, properties, logger)) {
 - **DbService必須**: すべてのメソッドでDbServiceインスタンスが必要。
 - **Connection引数廃止**: v2.0.0でConnection引数を使用するメソッドは完全削除済み。
 - **SELECT対象追加時**: 本クラスの対応も必ず追加すること。
+- **ModSecurityアラート照合**: `selectRecentAccessLogsForModSecMatching`は定期的な照合処理でのみ使用し、通常のログ取得には使用しないこと。
 - **仕様変更時**: 本仕様書・実装・db_schema_spec.md・CHANGELOG.mdを同時更新。
 
 ## バージョン履歴
+- **v2.1.0** (2025-08-13): ModSecurityアラート照合機能を強化、selectRecentAccessLogsForModSecMatchingメソッドを追加
 - **v2.0.0** (2025-01-11): Connection引数を完全廃止、DbService専用に統一。互換性なし一気切り替え完了
 - **v1.2.0** (2025-01-11): DbServiceとDbSessionを使用したConnection引数なしメソッドを追加
 - **v1.1.0** (2025-01-11): ビルドエラー修正完了
 - **v1.0.0**: 初期実装
-
----
-
-### 参考：実装例
-- selectServerInfoByName, existsServerByName, selectWhitelistSettings などをpublic staticで実装。
-- DTOはJava recordで定義。
-- DbService使用版は内部的にDbServiceのメソッドに委譲。
-- Connection引数方式は完全削除済み。
-
----
