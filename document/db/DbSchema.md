@@ -1,8 +1,8 @@
 # Edamame NginxLog Security Analyzer データベース仕様書（新フォーマット）
 
 ## バージョン情報
-- **db_schema_spec.md version**: v2.8.5  # settingsテーブルbackend_version/frontend_versionカラム廃止
-- **最終更新**: 2025-01-14
+- **db_schema_spec.md version**: v2.9.0  # usersテーブルrole_id廃止・users_roles中間テーブル追加
+- **最終更新**: 2025-08-14
 - ※DB関連の仕様変更時は必ず本ファイルを更新し、バージョン情報も修正すること
 - ※変更履歴は CHANGELOG.md に記録
 
@@ -106,21 +106,30 @@
 | username | VARCHAR(50) | ユーザー名（ユニーク） |
 | email | VARCHAR(255) | メールアドレス |
 | password_hash | VARCHAR(255) | パスワード（BCryptハッシュ化） |
-| role_id | INT | ロールID（rolesテーブルへの外部キー） |
 | created_at | DATETIME | 作成日時 |
 | updated_at | DATETIME | 最終更新日時 |
 | is_active | BOOLEAN | 有効フラグ |
 
+### users_roles
+- ユーザー・ロール多対多管理（中間テーブル）
+
+| カラム名 | 型 | 説明 |
+|---|---|---|
+| user_id | INT | users.idへの外部キー |
+| role_id | INT | roles.idへの外部キー |
+| PRIMARY KEY | (user_id, role_id) | 複合主キー（重複禁止） |
+
 ### roles
-- ロール管理
+- ユーザーロール管理
 
 | カラム名 | 型 | 説明 |
 |---|---|---|
 | id | INT | 主キー、自動採番 |
 | role_name | VARCHAR(50) | ロール名（ユニーク） |
-| description | TEXT | ロールの説明 |
+| description | TEXT | ロール説明 |
 | created_at | DATETIME | 作成日時 |
 | updated_at | DATETIME | 最終更新日時 |
+
 
 ### login_history
 - ログイン履歴
@@ -295,223 +304,7 @@
   2. 既存カラム一覧取得→差分判定
   3. 不足カラム追加→データ移行→不要カラム削除→型修正
 
-## データベーススキーマ詳細
 
-### 基本ログ管理テーブル
-
-#### access_log（アクセスログ）
-```sql
-CREATE TABLE access_log (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    server_name VARCHAR(100) NOT NULL DEFAULT 'default',
-    method VARCHAR(10) NOT NULL,
-    full_url TEXT NOT NULL,
-    status_code INT NOT NULL,
-    ip_address VARCHAR(45) NOT NULL,
-    access_time DATETIME NOT NULL,
-    blocked_by_modsec BOOLEAN DEFAULT FALSE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    source_path VARCHAR(500),
-    collected_at TIMESTAMP NULL,
-    agent_registration_id VARCHAR(255) NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### url_registry（URL登録管理）
-```sql
-CREATE TABLE url_registry (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    server_name VARCHAR(100) NOT NULL DEFAULT 'default',
-    method VARCHAR(10) NOT NULL,
-    full_url TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    is_whitelisted BOOLEAN DEFAULT FALSE,
-    attack_type VARCHAR(50) DEFAULT 'none',
-    user_final_threat BOOLEAN DEFAULT NULL,
-    user_threat_note TEXT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### modsec_alerts（ModSecurityアラート）
-```sql
-CREATE TABLE modsec_alerts (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    server_name VARCHAR(100) NOT NULL DEFAULT 'default',
-    access_log_id BIGINT NOT NULL,
-    rule_id VARCHAR(20),
-    severity VARCHAR(20),
-    message TEXT,              -- 旧msgから移行
-    data_value TEXT,          -- 旧dataから移行
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### servers（サーバー管理）
-```sql
-CREATE TABLE servers (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    server_name VARCHAR(100) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci,
-    server_description TEXT COLLATE utf8mb4_unicode_ci,    -- 旧descriptionから移行
-    log_path VARCHAR(500) COLLATE utf8mb4_unicode_ci DEFAULT '',
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    last_log_received DATETIME                             -- 旧last_activity_atか���移行
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### settings（システム設定）
-```sql
-CREATE TABLE settings (
-    id INT PRIMARY KEY,
-    whitelist_mode BOOLEAN DEFAULT FALSE,
-    whitelist_ip VARCHAR(370) DEFAULT '',
-    log_retention_days INT DEFAULT 365    -- 統一保存日数（旧個別設定から移行）
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-### 認証・セッション管理テーブル
-
-#### users（ユーザー管理）
-```sql
-CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    email VARCHAR(255) NOT NULL DEFAULT '',
-    password_hash VARCHAR(255) NOT NULL,
-    role_id INT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    is_active BOOLEAN DEFAULT TRUE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### roles（ロール管理）
-```sql
-CREATE TABLE roles (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    role_name VARCHAR(50) NOT NULL UNIQUE,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### login_history（ログイン履歴）
-```sql
-CREATE TABLE login_history (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    ip_address VARCHAR(45) NOT NULL,
-    user_agent TEXT,
-    success BOOLEAN NOT NULL DEFAULT TRUE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### sessions（セッション管理）
-```sql
-CREATE TABLE sessions (
-    session_id VARCHAR(64) PRIMARY KEY,
-    username VARCHAR(255) NOT NULL,
-    expires_at DATETIME NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-### エージェント管理テーブル
-
-#### agent_servers（エージェントサーバー管理）
-```sql
-CREATE TABLE agent_servers (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    registration_id VARCHAR(255) UNIQUE NOT NULL,
-    agent_name VARCHAR(255) NOT NULL,         -- 旧server_nameから移行
-    agent_ip VARCHAR(45) NOT NULL,           -- 旧server_ipから移行
-    hostname VARCHAR(255),
-    os_name VARCHAR(100),
-    os_version VARCHAR(100),
-    java_version VARCHAR(50),
-    nginx_log_paths TEXT,
-    iptables_enabled BOOLEAN DEFAULT TRUE,
-    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(20) DEFAULT 'active',
-    agent_version VARCHAR(50),
-    tcp_connection_count INT DEFAULT 0,
-    last_log_count INT DEFAULT 0,
-    total_logs_received BIGINT DEFAULT 0,
-    description TEXT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### agent_block_requests（エージェントブロック要求）
-```sql
-CREATE TABLE agent_block_requests (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    request_id VARCHAR(255) UNIQUE NOT NULL,
-    registration_id VARCHAR(255) NOT NULL,
-    ip_address VARCHAR(45) NOT NULL,
-    duration INT NOT NULL DEFAULT 3600,
-    reason TEXT,
-    chain_name VARCHAR(50) DEFAULT 'INPUT',
-    status VARCHAR(20) DEFAULT 'pending',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    processed_at TIMESTAMP NULL,
-    result_message TEXT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-### アクション管理テーブル
-
-#### action_tools（アクション実行ツール）
-```sql
-CREATE TABLE action_tools (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    tool_name VARCHAR(100) NOT NULL UNIQUE,
-    tool_type VARCHAR(50) NOT NULL,
-    is_enabled BOOLEAN DEFAULT TRUE,
-    config_json TEXT,
-    description TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### action_rules（アクション実行ルール）
-```sql
-CREATE TABLE action_rules (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    rule_name VARCHAR(100) NOT NULL UNIQUE,
-    target_server VARCHAR(100) NOT NULL,
-    condition_type VARCHAR(50) NOT NULL,
-    condition_params TEXT,
-    action_tool_id INT NOT NULL,
-    action_params TEXT,
-    is_enabled BOOLEAN DEFAULT TRUE,
-    priority INT DEFAULT 100,
-    last_executed DATETIME,
-    execution_count INT DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
-
-#### action_execution_log（アクション実行ログ）
-```sql
-CREATE TABLE action_execution_log (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    rule_id INT NOT NULL,
-    server_name VARCHAR(100) NOT NULL,
-    trigger_event VARCHAR(255) NOT NULL,
-    execution_status VARCHAR(20) NOT NULL DEFAULT 'pending',
-    execution_result TEXT,
-    execution_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    processing_duration_ms INT
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
 
 ## 自動スキーマ同期機能
 
@@ -609,35 +402,13 @@ try {
 - **v2.0.0**: Connection引数方式廃止、DbService専用
 - **v2.1.0**: **DbSession対応、エージェント管理テーブル追加、カラム移行機能強化**
 
----
-
-## 実装参考
-
-### テーブル定義パターン
-```java
-var tableDefs = new java.util.LinkedHashMap<String, String>();
-tableDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
-tableDefs.put("name", "VARCHAR(100) NOT NULL");
-tableDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
-autoSyncTableColumns(dbSession, "table_name", tableDefs, null);
-```
-
-### カラム移行パターン
-```java
-var migrateMap = new java.util.HashMap<String, String>();
-migrateMap.put("old_column", "new_column");
-autoSyncTableColumns(dbSession, "table_name", tableDefs, migrateMap);
-```
-
-### DbSession連携パターン
-```java
-dbSession.execute(conn -> {
-    try {
-        // スキーマ同期処理
-        DbSchema.syncAllTablesSchema(dbSession);
-    } catch (SQLException e) {
-        AppLogger.error("スキーマ同期エラー: " + e.getMessage());
-        throw new RuntimeException(e);
-    }
-});
+#### roles（ロール管理）
+```sql
+CREATE TABLE roles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    role_name VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```

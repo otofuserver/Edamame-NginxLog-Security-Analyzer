@@ -111,11 +111,17 @@ public class DbSchema {
         usersDefs.put("username", "VARCHAR(50) NOT NULL UNIQUE");
         usersDefs.put("email", "VARCHAR(255) NOT NULL DEFAULT ''");
         usersDefs.put("password_hash", "VARCHAR(255) NOT NULL");
-        usersDefs.put("role_id", "INT NOT NULL");
         usersDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         usersDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
         usersDefs.put("is_active", "BOOLEAN DEFAULT TRUE");
         autoSyncTableColumns(dbSession, "users", usersDefs, null);
+
+        // users_roles（ユーザー・ロール中間テーブル）
+        var usersRolesDefs = new java.util.LinkedHashMap<String, String>();
+        usersRolesDefs.put("user_id", "INT NOT NULL");
+        usersRolesDefs.put("role_id", "INT NOT NULL");
+        usersRolesDefs.put("PRIMARY KEY", "(user_id, role_id)");
+        autoSyncTableColumns(dbSession, "users_roles", usersRolesDefs, null);
 
         // roles
         var rolesDefs = new java.util.LinkedHashMap<String, String>();

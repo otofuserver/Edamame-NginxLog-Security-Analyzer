@@ -13,17 +13,16 @@ public class DbInitialData {
     /**
      * 初期データを挿入する
      * @param dbSession データベースセッション
-     * @param appVersion アプリケーションバージョン
      */
-    public static void initializeDefaultData(DbSession dbSession, String appVersion) throws SQLException {
+    public static void initializeDefaultData(DbSession dbSession) throws SQLException {
         try {
             // settingsテーブル初期データ挿入
-            initializeSettingsTable(dbSession, appVersion);
+            initializeSettingsTable(dbSession);
 
             // rolesテーブル初期データ挿入
             initializeRolesTable(dbSession);
 
-            // usersテーブル初期デ��タ挿入
+            // usersテーブル初期データ挿入
             initializeUsersTable(dbSession);
 
             // action_toolsテーブル初期データ挿入
@@ -39,9 +38,9 @@ public class DbInitialData {
     }
 
     /**
-     * settingsテーブルの初期データを挿入
+     * settingsテーブルの初期データを挿入（現行スキーマに合わせて修正）
      */
-    private static void initializeSettingsTable(DbSession dbSession, String appVersion) throws SQLException {
+    private static void initializeSettingsTable(DbSession dbSession) throws SQLException {
         dbSession.execute(conn -> {
             try {
                 boolean isEmpty;
@@ -51,29 +50,19 @@ public class DbInitialData {
                 }
 
                 if (isEmpty) {
-                    String[][] initialSettings = {
-                        {"app_version", appVersion, "アプリケーションバージョン"},
-                        {"whitelist_enabled", "true", "ホワイトリスト機能有効化"},
-                        {"auto_whitelist_threshold", "100", "自動ホワイトリスト化の閾値"},
-                        {"whitelist_check_interval_minutes", "10", "��ワイトリストチェック間隔（分）"},
-                        {"log_retention_days", "30", "ログ保持日数"},
-                        {"alert_notification_enabled", "true", "アラート通知有効化"}
-                    };
-
-                    String insertSql = "INSERT INTO settings (setting_key, setting_value, description) VALUES (?, ?, ?)";
+                    // settingsテーブルはid=1の単一レコードのみ
+                    String insertSql = "INSERT INTO settings (id, whitelist_mode, whitelist_ip, log_retention_days) VALUES (?, ?, ?, ?)";
                     try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
-                        for (String[] setting : initialSettings) {
-                            pstmt.setString(1, setting[0]);
-                            pstmt.setString(2, setting[1]);
-                            pstmt.setString(3, setting[2]);
-                            pstmt.addBatch();
-                        }
-                        pstmt.executeBatch();
-                        AppLogger.info("settingsテーブル初期データ挿入完了");
+                        pstmt.setInt(1, 1);
+                        pstmt.setBoolean(2, false); // デフォルト: ホワイトリスト無効
+                        pstmt.setString(3, "");    // デフォルト: 空
+                        pstmt.setInt(4, 365);       // デフォルト: 365日
+                        pstmt.executeUpdate();
+                        AppLogger.info("settingsテーブル初期データ挿入完了（id=1固定、現行スキーマ対応）");
                     }
                 }
             } catch (SQLException e) {
-                AppLogger.error("settings��ーブル初期データ挿入エラー: " + e.getMessage());
+                AppLogger.error("settingsテーブル初期データ挿入エラー: " + e.getMessage());
                 throw new RuntimeException(e);
             }
         });
@@ -132,13 +121,45 @@ public class DbInitialData {
                     BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
                     String hashedPassword = passwordEncoder.encode("admin123");
 
-                    String insertSql = "INSERT INTO users (username, email, password_hash, role_id, is_active) VALUES (?, ?, ?, 1, TRUE)";
-                    try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                    String insertUserSql = "INSERT INTO users (username, email, password_hash, is_active) VALUES (?, ?, ?, TRUE)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(insertUserSql, Statement.RETURN_GENERATED_KEYS)) {
                         pstmt.setString(1, "admin");
                         pstmt.setString(2, "admin@example.com");
                         pstmt.setString(3, hashedPassword);
                         pstmt.executeUpdate();
                         AppLogger.info("usersテーブル初期データ挿入完了 (デフォルト管理者: admin/admin123)");
+
+                        // adminユーザーID取得
+                        int adminUserId = 0;
+                        try (ResultSet generatedKeys = pstmt.getGeneratedKeys()) {
+                            if (generatedKeys.next()) {
+                                adminUserId = generatedKeys.getInt(1);
+                            } else {
+                                // fallback: ユーザー名で取得
+                                try (PreparedStatement ps2 = conn.prepareStatement("SELECT id FROM users WHERE username = ?")) {
+                                    ps2.setString(1, "admin");
+                                    try (ResultSet rs2 = ps2.executeQuery()) {
+                                        if (rs2.next()) adminUserId = rs2.getInt(1);
+                                    }
+                                }
+                            }
+                        }
+                        // adminロールID取得
+                        int adminRoleId = 1;
+                        try (PreparedStatement psRole = conn.prepareStatement("SELECT id FROM roles WHERE role_name = ?")) {
+                            psRole.setString(1, "admin");
+                            try (ResultSet rsRole = psRole.executeQuery()) {
+                                if (rsRole.next()) adminRoleId = rsRole.getInt(1);
+                            }
+                        }
+                        // users_rolesへadmin権限付与
+                        String insertUserRoleSql = "INSERT INTO users_roles (user_id, role_id) VALUES (?, ?)";
+                        try (PreparedStatement psUserRole = conn.prepareStatement(insertUserRoleSql)) {
+                            psUserRole.setInt(1, adminUserId);
+                            psUserRole.setInt(2, adminRoleId);
+                            psUserRole.executeUpdate();
+                            AppLogger.info("users_rolesテーブルにadminユーザーへadminロールを付与");
+                        }
                     }
                 }
             } catch (SQLException e) {

@@ -318,7 +318,7 @@ public final class DbService {
      */
     public static void initializeDefaultData(String appVersion) throws SQLException {
         checkInitialized();
-        DbInitialData.initializeDefaultData(globalSession, appVersion);
+        DbInitialData.initializeDefaultData(globalSession);
     }
 
     /**
