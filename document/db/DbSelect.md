@@ -1,87 +1,184 @@
 # DbSelect.java 仕様書
 
+## 概要
+**バージョン**: v2.1.0  
+**更新日**: 2025-01-14
+
 ## 役割
-- データベースからの検索・SELECT処理を担当。
-- 各種テーブルの検索・集計・条件抽出を実装。
-- サーバー・エージェント等のSELECT系処理を集約。
-- DbServiceとDbSessionを使用してConnection引数を完全排除（v2.0.0）。
+- データベースからの検索・SELECT処理専用クラス
+- 各種テーブルの検索・集計・条件抽出を実装
+- サーバー・エージェント・URL登録等のSELECT系処理を集約
+- **UPDATE系処理はDbUpdate.javaに完全移譲**
 
-## 主なメソッド（v2.1.0 - ModSecurityアラート照合機能強化）
+## DbSession対応実装（v2.1.0～）
+- **DbSessionパターンに完全対応**：Connection管理・例外処理を自動化
+- **Connection引数方式は完全廃止**：DbSessionを受け取る方式に統一
+- トランザクション管理・ログ出力はDbSessionが担当
 
-### DbService使用のメソッド（Connection引数なし）
-- `public static Optional<ServerInfo> selectServerInfoByName(DbService dbService, String serverName)`
-  - サーバー名でサーバー情報（id, server_description, log_path）を取得（DbService使用）。
-  - 結果はOptional<ServerInfo>で返却。
-  - DbService.selectServerInfoByName()に委譲。
-- `public static boolean existsServerByName(DbService dbService, String serverName)`
-  - サーバー名でserversテーブルの存在有無を判定（DbService使用）。
-  - 結果はbooleanで返却。
-  - DbService.existsServerByName()に委譲。
-- `public static List<Map<String, Object>> selectPendingBlockRequests(DbService dbService, String registrationId, int limit)`
-  - 指定したregistrationIdに紐づく、status='pending'のブロック要求リストを取得（DbService使用）。
-  - DbService.selectPendingBlockRequests()に委譲。
-- `public static Map<String, Object> selectWhitelistSettings(DbService dbService)`
-  - settingsテーブルからwhitelist_mode, whitelist_ipを取得（DbService使用）。
-  - DbService.selectWhitelistSettings()に委譲。
-- `public static boolean existsUrlRegistryEntry(DbService dbService, String serverName, String method, String fullUrl)`
-  - url_registryテーブルに(server_name, method, full_url)が存在するか判定（DbService使用）。
-  - DbService.existsUrlRegistryEntry()に委譲。
-- `public static Boolean selectIsWhitelistedFromUrlRegistry(DbService dbService, String serverName, String method, String fullUrl)`
-  - url_registryテーブルからis_whitelistedカラムの値を取得（DbService使用）。
-  - DbService.selectIsWhitelistedFromUrlRegistry()に委譲。
-- `public static List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(DbService dbService, int minutes)`
-  - **[v2.1.0新機能]** 最近の指定分数以内のアクセスログを取得（ModSecurity照合用）。
-  - `blocked_by_modsec = false`の未処理ログのみを抽出し、ModSecurityアラートとの定期的な照合に使用。
-  - 最大1000件まで取得、`access_time`降順でソート。
+## 主要メソッド詳細
+
+### `selectServerInfoByName(DbSession dbSession, String serverName)`
+- **機能**: サーバー名でサーバー情報を取得
+- **戻り値**: Optional<ServerInfo>（存在しない場合はOptional.empty()）
+- **照合順序**: utf8mb4_unicode_ci対応
+
+```sql
+SELECT id, server_description, log_path 
+FROM servers 
+WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+```
+
+### `existsServerByName(DbSession dbSession, String serverName)`
+- **機能**: サーバー名で存在有無を判定
+- **戻り値**: boolean（存在すればtrue）
+- **照合順序**: utf8mb4_unicode_ci対応
+
+```sql
+SELECT COUNT(*) 
+FROM servers 
+WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+```
+
+### `selectPendingBlockRequests(DbSession dbSession, String registrationId, int limit)`
+- **機能**: 指定エージェントのpendingなブロック要求リストを取得
+- **戻り���**: List<Map<String, Object>>（ブロック要求情報のリスト）
+- **フィールドマッピング**: 
+  - `request_id` → `"id"`
+  - `ip_address` → `"ipAddress"`
+  - `duration` → `"duration"`
+  - `reason` → `"reason"`
+  - `chain_name` → `"chainName"`
+
+```sql
+SELECT request_id, ip_address, duration, reason, chain_name
+FROM agent_block_requests
+WHERE registration_id = ? AND status = 'pending'
+ORDER BY created_at ASC
+LIMIT ?
+```
+
+### `selectWhitelistSettings(DbSession dbSession)`
+- **機能**: settingsテーブルからホワイトリスト設定を取得
+- **戻り値**: Map<String, Object>（whitelist_mode、whitelist_ip）
+- **設定ID**: 固定値1のレコードを取得
+
+```sql
+SELECT whitelist_mode, whitelist_ip
+FROM settings
+WHERE id = 1
+```
+
+### `existsUrlRegistryEntry(DbSession dbSession, String serverName, String method, String fullUrl)`
+- **機能**: url_registryテーブルに指定URLエントリが存在するか判定
+- **戻り値**: boolean（存在すればtrue）
+- **判定条件**: server_name + method + full_urlの組み合わせ
+
+```sql
+SELECT COUNT(*) FROM url_registry
+WHERE server_name = ? AND method = ? AND full_url = ?
+```
+
+### `selectIsWhitelistedFromUrlRegistry(DbSession dbSession, String serverName, String method, String fullUrl)`
+- **機能**: url_registryテーブルからis_whitelisted値を取得
+- **戻り値**: Boolean（存在しない場合はnull）
+- **用途**: ホワイトリスト状態の確認
+
+```sql
+SELECT is_whitelisted FROM url_registry
+WHERE server_name = ? AND method = ? AND full_url = ?
+```
+
+### `selectRecentAccessLogsForModSecMatching(DbSession dbSession, int minutes)`
+- **機能**: ModSecurity照合用の最近のアクセスログを取得
+- **戻り値**: List<Map<String, Object>>（アクセスログ情報のリスト、最大1000件）
+- **対象**: blocked_by_modsec = falseの未処理ログのみ
+- **並び順**: access_time降順
+- **用途**: 時間差で到着するModSecurityアラートとの照合
+
+```sql
+SELECT id, server_name, method, full_url, access_time
+FROM access_log
+WHERE access_time >= NOW() - INTERVAL ? MINUTE
+AND blocked_by_modsec = false
+ORDER BY access_time DESC
+LIMIT 1000
+```
 
 ## DTOクラス
-- `public record ServerInfo(int id, String description, String logPath)`
-  - サーバー情報DTO。Java recordで実装。
 
-## ロジック
-- **完全DbService委譲**: すべてのメソッドがDbServiceインスタンスを受け取り、内部的にDbServiceのメソッドに委譲。
-- **Connection引数完全排除**: v2.0.0でConnection引数を使用するメソッドを完全廃止。
-- **統一性重視**: 古いConnection引数方式との互換性を維持せず、一気に入れ替えで統一性を確保。
-- **例外処理**: SQLException は呼び出し元でハンドリング。
-- **結果処理**: データが見つからない場合はOptional.empty()、false、nullを適切に返却。
-- **ModSecurityアラート照合**: 定期的なアラート照合により、時間差で到着するModSecurityアラートとアクセスログの関連付けを強化。
-
-## 使用例（v2.1.0完全版）
-
-### 新しいDbService専用版
+### `ServerInfo record`
 ```java
-try (DbService dbService = new DbService(url, properties)) {
+public record ServerInfo(int id, String description, String logPath) {}
+```
+- **用途**: サーバー情報の格納・受け渡し
+- **Java record**: 不変性・型安全性を保証
+
+## エラーハンドリング
+
+### 例外処理階層
+1. **各メソッド**: SQLException → RuntimeExceptionでラップ
+2. **DbSession**: Connection管理・トランザクション管理を自動化
+3. **結果処理**: データが見つからない場合の適切な戻り値設定
+
+### 戻り値パターン
+- **存在判定**: boolean（true/false）
+- **単一レコード**: Optional<T>（存在しない場合はOptional.empty()）
+- **複数レコード**: List<Map<String, Object>>（空の場合は空のList）
+- **設定値**: Map<String, Object>（設定が存在しない場合は空のMap）
+- **nullable値**: Boolean（存在しない場合はnull）
+
+## DbSessionでの使用方法
+```java
+// 標準的な��用パターン
+try {
     // サーバー情報取得
-    Optional<DbSelect.ServerInfo> info = DbSelect.selectServerInfoByName(dbService, "web-server-01");
+    Optional<DbSelect.ServerInfo> serverInfo = 
+        DbSelect.selectServerInfoByName(dbSession, "web-server-01");
+    
+    if (serverInfo.isPresent()) {
+        DbSelect.ServerInfo info = serverInfo.get();
+        System.out.println("Server ID: " + info.id());
+        System.out.println("Description: " + info.description());
+        System.out.println("Log Path: " + info.logPath());
+    }
     
     // 存在確認
-    boolean exists = DbSelect.existsServerByName(dbService, "web-server-01");
+    boolean exists = DbSelect.existsServerByName(dbSession, "web-server-01");
     
     // ブロック要求取得
-    List<Map<String, Object>> requests = DbSelect.selectPendingBlockRequests(dbService, "agent-123", 10);
+    List<Map<String, Object>> blockRequests = 
+        DbSelect.selectPendingBlockRequests(dbSession, "agent-123", 10);
     
     // ホワイトリスト設定取得
-    Map<String, Object> settings = DbSelect.selectWhitelistSettings(dbService);
+    Map<String, Object> whitelistSettings = 
+        DbSelect.selectWhitelistSettings(dbSession);
     
     // URL存在確認
-    boolean urlExists = DbSelect.existsUrlRegistryEntry(dbService, "web-server-01", "GET", "/api/users");
+    boolean urlExists = DbSelect.existsUrlRegistryEntry(
+        dbSession, "web-server-01", "GET", "/api/users");
     
     // ホワイトリスト状態取得
-    Boolean isWhitelisted = DbSelect.selectIsWhitelistedFromUrlRegistry(dbService, "web-server-01", "GET", "/api/users");
+    Boolean isWhitelisted = DbSelect.selectIsWhitelistedFromUrlRegistry(
+        dbSession, "web-server-01", "GET", "/api/users");
     
-    // ModSecurity照合用の最近のアクセスログ取得（v2.1.0新機能）
-    List<Map<String, Object>> recentLogs = DbSelect.selectRecentAccessLogsForModSecMatching(dbService, 5);
+    // ModSecurity照合用の最近のアクセスログ取得
+    List<Map<String, Object>> recentLogs = 
+        DbSelect.selectRecentAccessLogsForModSecMatching(dbSession, 5);
+        
+} catch (SQLException e) {
+    // DbSessionが自動的にエラーハンドリング
 }
 ```
 
-### ModSecurity定期照合での使用例（v2.1.0新機能）
+## ModSecurity定期照合での使用例
+
+### AgentTcpServerでの定期的なアラート照合処理
 ```java
-// AgentTcpServerでの定期的なアラート照合処理
 public void performPeriodicAlertMatching() {
     try {
         // 最近5分以内の未処理アクセスログを取得
         List<Map<String, Object>> recentAccessLogs = 
-            DbSelect.selectRecentAccessLogsForModSecMatching(dbService, 5);
+            DbSelect.selectRecentAccessLogsForModSecMatching(dbSession, 5);
         
         for (Map<String, Object> accessLog : recentAccessLogs) {
             Long accessLogId = (Long) accessLog.get("id");
@@ -96,32 +193,95 @@ public void performPeriodicAlertMatching() {
             
             if (!matchingAlerts.isEmpty()) {
                 // 一致したアラートをデータベースに保存
-                dbService.updateAccessLogModSecStatus(accessLogId, true);
-                // ...アラート保存処理
+                DbUpdate.updateAccessLogModSecStatus(dbSession, accessLogId, true);
+                
+                // アラート詳細をmodsec_alertsテーブルに保存
+                for (ModSecurityAlert alert : matchingAlerts) {
+                    DbRegistry.insertModSecAlert(dbSession, accessLogId, alert.toMap());
+                }
             }
         }
     } catch (SQLException e) {
-        AppLogger.error("定期的ModSecurityアラート一致チェックでエラー: " + e.getMessage());
+        AppLogger.error("ModSecurity照合処理でエラー: " + e.getMessage());
     }
 }
 ```
 
-## 移行完了方針
-- **v2.1.0**: ModSecurityアラート照合機能を強化、定期的な照合処理を追加
-- **v2.0.0**: Connection引数を完全廃止、DbService専用に統一
-- **互換性なし**: 古いConnection引数方式は完全削除済み
-- **統一性確保**: 無駄を省き、一貫したAPI設計を実現
+## パフォーマンス考慮事項
+- **インデックス活用**: server_name、method、full_url、access_time等の検索条件にインデックス必須
+- **LIMIT句使用**: 大量データ取得時の制限（最大1000件等）
+- **時間範囲指定**: ModSecurity照合用のaccess_time範囲指定で効率化
+- **照合順序**: utf8mb4_unicode_ci対応でマルチバイト文字の正確な処理
+
+## セキュリティ対策
+- **SQLインジェクション対策**: 全パラメータのプリペアドステートメントバインド
+- **データサニタイズ**: 入力値の適切な検証・変換
+- **アクセス制御**: 認証済みセッションでのみアクセス可能
+
+## 運用・設定
+
+### 監視ポイント
+- **検索性能**: 複雑なクエリのレスポンス時間監視
+- **ModSecurity照合頻度**: 定期照合処理の実行状況
+- **データ整合性**: Optional.empty()やnull戻り値の適切な処理
+
+### トラブルシューティング
+- **文字エンコーディング**: utf8mb4_unicode_ci照合順序の確認
+- **インデックス不足**: EXPLAIN文による実行計画確認
+- **大量データ**: LIMIT句による制限の適切な設定
 
 ## 注意事項
-- **DbService必須**: すべてのメソッドでDbServiceインスタンスが必要。
-- **Connection引数廃止**: v2.0.0でConnection引数を使用するメソッドは完全削除済み。
-- **SELECT対象追加時**: 本クラスの対応も必ず追加すること。
-- **ModSecurityアラート照合**: `selectRecentAccessLogsForModSecMatching`は定期的な照合処理でのみ使用し、通常のログ取得には使用しないこと。
-- **仕様変更時**: 本仕様書・実装・db_schema_spec.md・CHANGELOG.mdを同時更新。
+- **読み取り専用**: SELECT処理のみ、UPDATE/INSERT/DELETEは他クラスに委譲
+- **新テーブル追加時**: 本クラスへの検索メソッド追加も検討
+- **外部キー制約**: 関連テーブル間の整合性を考慮した検索条件
+- **null安全処理**: Optional、Boolean（null許可）の適切な使用
 
 ## バージョン履歴
-- **v2.1.0** (2025-08-13): ModSecurityアラート照合機能を強化、selectRecentAccessLogsForModSecMatchingメソッドを追加
-- **v2.0.0** (2025-01-11): Connection引数を完全廃止、DbService専用に統一。互換性なし一気切り替え完了
-- **v1.2.0** (2025-01-11): DbServiceとDbSessionを使用したConnection引数なしメソッドを追加
-- **v1.1.0** (2025-01-11): ビルドエラー修正完了
-- **v1.0.0**: 初期実装
+- **v1.0.0**: 初期実装（Connection引数方式）
+- **v1.5.0**: DbService統合対応
+- **v2.0.0**: Connection引数方式完全廃止、DbService専用
+- **v2.1.0**: **DbSession対応、ModSecurity照合機能強化、utf8mb4_unicode_ci対応**
+
+---
+
+## 実装参考
+
+### Optional戻り値パターン
+```java
+return dbSession.executeWithResult(conn -> {
+    try {
+        // SQL実行
+        if (rs.next()) {
+            return Optional.of(new ServerInfo(...));
+        }
+        return Optional.empty();
+    } catch (SQLException e) {
+        throw new RuntimeException(e);
+    }
+});
+```
+
+### リスト戻り値パターン
+```java
+List<Map<String, Object>> results = new ArrayList<>();
+while (rs.next()) {
+    Map<String, Object> row = new HashMap<>();
+    row.put("key", rs.getString("column"));
+    results.add(row);
+}
+return results;
+```
+
+### DbSession連携パターン
+```java
+public static ReturnType methodName(DbSession dbSession, Parameters...) throws SQLException {
+    return dbSession.executeWithResult(conn -> {
+        try (var pstmt = conn.prepareStatement(sql)) {
+            // パラメータ設定
+            // 結果処理
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+    });
+}
+```

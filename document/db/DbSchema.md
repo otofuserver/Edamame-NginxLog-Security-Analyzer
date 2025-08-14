@@ -1,8 +1,8 @@
 # Edamame NginxLog Security Analyzer データベース仕様書（新フォーマット）
 
 ## バージョン情報
-- **db_schema_spec.md version**: v2.8.3  # action_toolsカラム(tool_type, is_enabled, config_json)追加・順序修正
-- **最終更新**: 2025-08-13
+- **db_schema_spec.md version**: v2.8.5  # settingsテーブルbackend_version/frontend_versionカラム廃止
+- **最終更新**: 2025-01-14
 - ※DB関連の仕様変更時は必ず本ファイルを更新し、バージョン情報も修正すること
 - ※変更履歴は CHANGELOG.md に記録
 
@@ -88,18 +88,14 @@
 | last_log_received | DATETIME | | 最終ログ受信日時 |
 
 ### settings
-- システム設定・保存日数・バージョン管理
+- システム設定・保存日数管理
 
-| カラム名                                | 型 | 説明 |
-|-------------------------------------|---|---|
-| id                                  | INT | 固定値: 1（単一レコード管理） |
-| whitelist_mode                      | BOOLEAN | ホワイトリスト有効フラグ |
-| whitelist_ip                        | VARCHAR(370) | ホワイトリストIPアドレス（カンマ区切りで複数指定可） |
-| backend_version                     | VARCHAR(50) | バックエンドバージョン情報 |
-| frontend_version                    | VARCHAR(50) | フロントエンドバージョン情報 |
-| access_log_retention_days           | INT | アクセスログ保存日数 |
-| login_history_retention_days        | INT | ログイン履歴保存日数 |
-| action_execution_log_retention_days | INT | アクション実行履歴保存日数 |
+| カラム名 | 型 | 説明 |
+|---|---|---|
+| id | INT | 固定値: 1（単一レコード管理） |
+| whitelist_mode | BOOLEAN | ホワイトリスト有効フラグ |
+| whitelist_ip | VARCHAR(370) | ホワイトリストIPアドレス（カンマ区切りで複数指定可） |
+| log_retention_days | INT | ログ保存日数（全ログテーブル統一） |
 
 ### users
 - フロントエンド認証用ユーザー管理
@@ -198,7 +194,7 @@
 ### agent_servers
 - エージェント登録サーバー管理
 - 
-- **自動削除仕様**: `access_log_retention_days`で指定された日数より古い`last_heartbeat`かつ`status != 'active'`のレコードは自動削除バッチで削除される
+- **自動削除仕様**: `log_retention_days`で指定された日数より古い`last_heartbeat`かつ`status != 'active'`のレコードは自動削除バッチで削除される
 
 | カラム名 | 型 | 制約・照合順序 | 説明 |
 |---|---|---|---|
@@ -265,70 +261,383 @@
 
 # DbSchema.java 仕様書
 
+## 概要
+**バージョン**: v2.1.0  
+**更新日**: 2025-01-14
+
 ## 役割
-- データベーススキーマ管理クラス。
-- DBの初期テーブル構造作成・カラム存在確認・追加・削除・移行・自動同期を提供。
-- 主要全テーブルのスキーマ自動整合（カラム追加・削除・移行）を一括実行。
+- データベーススキーマ管理・自動同期クラス
+- テーブル構造の自動作成・カラム追加・削除・移行処理
+- 既存DBからの円滑なバージョンアップ対応
+- エージェント管理システム対応の拡張スキーマ
 
-## 主なメソッド
-- `public static void syncAllTablesSchema(DbService dbService)`
-  - 主要全テーブルのスキーマ自動整合（カラム追加・削除・移行）を一括実行する。
-- `public static void autoSyncTableColumns(DbService dbService, String tableName, Map<String, String> idealColumnDefs, Map<String, String> migrateMap)`
-  - テーブルごとに理想カラム定義・移行マップを受け取り、カラム追加・削除・データ移行を自動実行する。
-- `private static void addMissingColumns(DbService dbService, String tableName, Set<String> columnsToAdd, Map<String, String> columnDefs)`
-  - 不足カラムを追加する。
-- `private static void dropExtraColumns(DbService dbService, String tableName, Set<String> columnsToDelete)`
-  - 不要カラムを削除する。
-- `private static void migrateColumnData(DbService dbService, String toTable, String fromTable, String fromCol, String toCol)`
-  - 旧カラムから新カラムへデータ移行を行う。
-- `private static void alterColumnTypeIfNeeded(DbService dbService, String tableName, Map<String, String> idealColumnDefs, Set<String> targetColumns)`
-  - カラム型の違いを検出し、型や制約が異なる場合はALTER TABLEで型・制約を自動修正する。AUTO_INCREMENT復元機能も含む。
-- `private static boolean tableExists(Connection conn, String tableName)`
-  - テーブル存在チェックを行う。
-- `private static void addColumn(Connection conn, String tableName, String columnName, String columnDef)`
-  - テーブルにカラムを追加する。
-- `private static Set<String> getTableColumns(Connection conn, String tableName)`
-  - テーブルのカラム一覧を取得する。
-- `private static Map<String, Set<String>> compareTableColumns(Set<String> existingColumns, Set<String> idealColumns)`
-  - カラム差分（追加・削除・一致）を判定する。
-- `private static List<String[]> getRelatedForeignKeys(Connection conn, String tableName, String columnName)`
-  - 指定カラムに関係する外部キー制約をすべて取得（参照元・参照先両方）する。
-- `private static boolean isColumnDefinitionMatch(String colType, String colNull, String colKey, String colDefault, String colExtra, String idealDef)`
-  - SHOW COLUMNSの情報と理想定義を「型＋制約セット」として正規化し、完全一致判定を行う。
-- `private static String normalizeType(String type)`
-  - 型名・サイズ・符号（unsigned）を正規化し、表記ゆれを吸収する。BOOLEAN型の特別処理を含む。
-- `private static String extractType(String def)`
-  - 理想定義から型名＋サイズ＋符号部分のみを抽出する。
-- `private static String[] normalizeConstraints(String colNull, String colKey, String colDefault, String colExtra)`
-  - SHOW COLUMNSの制約情報（NOT NULL, AUTO_INCREMENT, PRIMARY KEY, UNIQUE, DEFAULT）を正規化し配列化する。
-- `private static String[] normalizeIdealConstraints(String idealDef)`
-  - 理想定義から制約セット（NOT NULL, AUTO_INCREMENT, PRIMARY KEY, UNIQUE, DEFAULT）を正規化し配列化する。PRIMARY KEY/AUTO_INCREMENTの自動NOT NULL付与を含む。
-- `private static String extractDefaultValue(String def)`
-  - カラム定義からデフォルト値を抽出する。
-- `private static String normalizeDefaultValue(String defaultValue)`
-  - デフォルト値を正規化（BOOLEAN型の0/1⇔false/true変換、CURRENT_TIMESTAMP関数正規化を含む）する。
-- `private static boolean isBooleanType(String type)`
-  - BOOLEAN型かどうかを判定する（boolean, tinyint(1)を対象）。
+## DbSession対応実装（v2.1.0～）
+- **DbSessionパターンに完全対応**：Connection管理・例外処理を自動化
+- **Connection引数方式は完全廃止**：DbSessionを受け取る方式に統一
+- トランザクション管理・ログ出力はDbSessionが担当
 
-## ロジック
-- テーブルが存在しない場合は理想カラム定義でCREATE TABLE。
-- 既存テーブルはSHOW COLUMNSで現状取得→理想定義と比較→不足カラム追加・不要カラム削除。
-- 型・制約の不一致がある場合はALTER TABLEで自動修正（外部キー制約の一時削除・再作成を含む）。
-- AUTO_INCREMENT制約が失われている場合は既存データの最大ID値を取得して安全に復元。
-- PRIMARY KEY/AUTO_INCREMENTには自動的にNOT NULL制約が付与されることを考慮した比較ロジック。
-- 旧カラム→新カラムへのデータ移行も自動実行（migrateMap指定時）。
-- 主要全テーブル（access_log, url_registry, modsec_alerts, servers, settings, users, roles, login_history, sessions, action_execution_log, agent_servers, agent_block_requests）に対応。
-- ログ出力はINFO/DEBUGで明確に記録。
+## 主要メソッド
+
+### `syncAllTablesSchema(DbSession dbSession)`
+- **機能**: 全テーブルのスキーマ自動整合を一括実行
+- **対象テーブル**: 15テーブル（基本ログ管理＋エージェント管理＋認証管理）
+- **自動処理**: テーブル作成・カラム追加・削除・データ移行・型修正
+- **例外処理**: SQLException → RuntimeExceptionでラップ
+
+### `autoSyncTableColumns(DbSession, String, Map<String,String>, Map<String,String>)`
+- **機能**: 個別テーブルのカラム構成自動同期
+- **引数**:
+  - `tableName`: 対象テーブル名
+  - `columnDefs`: 理想的なカラム定義（カラム名→型定義）
+  - `migrateMap`: 旧カラム名→新カラム名のマッピング（null許可）
+- **処理フロー**: 
+  1. テーブル存在確認→新規作成
+  2. 既存カラム一覧取得→差分判定
+  3. 不足カラム追加→データ移行→不要カラム削除→型修正
+
+## データベーススキーマ詳細
+
+### 基本ログ管理テーブル
+
+#### access_log（アクセスログ）
+```sql
+CREATE TABLE access_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    server_name VARCHAR(100) NOT NULL DEFAULT 'default',
+    method VARCHAR(10) NOT NULL,
+    full_url TEXT NOT NULL,
+    status_code INT NOT NULL,
+    ip_address VARCHAR(45) NOT NULL,
+    access_time DATETIME NOT NULL,
+    blocked_by_modsec BOOLEAN DEFAULT FALSE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    source_path VARCHAR(500),
+    collected_at TIMESTAMP NULL,
+    agent_registration_id VARCHAR(255) NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### url_registry（URL登録管理）
+```sql
+CREATE TABLE url_registry (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    server_name VARCHAR(100) NOT NULL DEFAULT 'default',
+    method VARCHAR(10) NOT NULL,
+    full_url TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_whitelisted BOOLEAN DEFAULT FALSE,
+    attack_type VARCHAR(50) DEFAULT 'none',
+    user_final_threat BOOLEAN DEFAULT NULL,
+    user_threat_note TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### modsec_alerts（ModSecurityアラート）
+```sql
+CREATE TABLE modsec_alerts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    server_name VARCHAR(100) NOT NULL DEFAULT 'default',
+    access_log_id BIGINT NOT NULL,
+    rule_id VARCHAR(20),
+    severity VARCHAR(20),
+    message TEXT,              -- 旧msgから移行
+    data_value TEXT,          -- 旧dataから移行
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    detected_at DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### servers（サーバー管理）
+```sql
+CREATE TABLE servers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    server_name VARCHAR(100) NOT NULL UNIQUE COLLATE utf8mb4_unicode_ci,
+    server_description TEXT COLLATE utf8mb4_unicode_ci,    -- 旧descriptionから移行
+    log_path VARCHAR(500) COLLATE utf8mb4_unicode_ci DEFAULT '',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    last_log_received DATETIME                             -- 旧last_activity_atか���移行
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### settings（システム設定）
+```sql
+CREATE TABLE settings (
+    id INT PRIMARY KEY,
+    whitelist_mode BOOLEAN DEFAULT FALSE,
+    whitelist_ip VARCHAR(370) DEFAULT '',
+    log_retention_days INT DEFAULT 365    -- 統一保存日数（旧個別設定から移行）
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+### 認証・セッション管理テーブル
+
+#### users（ユーザー管理）
+```sql
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    username VARCHAR(50) NOT NULL UNIQUE,
+    email VARCHAR(255) NOT NULL DEFAULT '',
+    password_hash VARCHAR(255) NOT NULL,
+    role_id INT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### roles（ロール管理）
+```sql
+CREATE TABLE roles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    role_name VARCHAR(50) NOT NULL UNIQUE,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### login_history（ログイン履歴）
+```sql
+CREATE TABLE login_history (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    login_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    ip_address VARCHAR(45) NOT NULL,
+    user_agent TEXT,
+    success BOOLEAN NOT NULL DEFAULT TRUE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### sessions（セッション管理）
+```sql
+CREATE TABLE sessions (
+    session_id VARCHAR(64) PRIMARY KEY,
+    username VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+### エージェント管理テーブル
+
+#### agent_servers（エージェントサーバー管理）
+```sql
+CREATE TABLE agent_servers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    registration_id VARCHAR(255) UNIQUE NOT NULL,
+    agent_name VARCHAR(255) NOT NULL,         -- 旧server_nameから移行
+    agent_ip VARCHAR(45) NOT NULL,           -- 旧server_ipから移行
+    hostname VARCHAR(255),
+    os_name VARCHAR(100),
+    os_version VARCHAR(100),
+    java_version VARCHAR(50),
+    nginx_log_paths TEXT,
+    iptables_enabled BOOLEAN DEFAULT TRUE,
+    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'active',
+    agent_version VARCHAR(50),
+    tcp_connection_count INT DEFAULT 0,
+    last_log_count INT DEFAULT 0,
+    total_logs_received BIGINT DEFAULT 0,
+    description TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### agent_block_requests（エージェントブロック要求）
+```sql
+CREATE TABLE agent_block_requests (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    request_id VARCHAR(255) UNIQUE NOT NULL,
+    registration_id VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(45) NOT NULL,
+    duration INT NOT NULL DEFAULT 3600,
+    reason TEXT,
+    chain_name VARCHAR(50) DEFAULT 'INPUT',
+    status VARCHAR(20) DEFAULT 'pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP NULL,
+    result_message TEXT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+### アクション管理テーブル
+
+#### action_tools（アクション実行ツール）
+```sql
+CREATE TABLE action_tools (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tool_name VARCHAR(100) NOT NULL UNIQUE,
+    tool_type VARCHAR(50) NOT NULL,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    config_json TEXT,
+    description TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### action_rules（アクション実行ルール）
+```sql
+CREATE TABLE action_rules (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    rule_name VARCHAR(100) NOT NULL UNIQUE,
+    target_server VARCHAR(100) NOT NULL,
+    condition_type VARCHAR(50) NOT NULL,
+    condition_params TEXT,
+    action_tool_id INT NOT NULL,
+    action_params TEXT,
+    is_enabled BOOLEAN DEFAULT TRUE,
+    priority INT DEFAULT 100,
+    last_executed DATETIME,
+    execution_count INT DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+#### action_execution_log（アクション実行ログ）
+```sql
+CREATE TABLE action_execution_log (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    rule_id INT NOT NULL,
+    server_name VARCHAR(100) NOT NULL,
+    trigger_event VARCHAR(255) NOT NULL,
+    execution_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    execution_result TEXT,
+    execution_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    processing_duration_ms INT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+```
+
+## 自動スキーマ同期機能
+
+### カラム追加・削除処理
+- **自動判定**: 理想定義と既存構造の差分を自動検出
+- **安全な削除**: 不要カラムの自動削除（データ消失リスク）
+- **型修正**: カラム型・サイズの自動調整
+
+### データ移行処理
+- **同一テーブル内移行**: 旧カラム→新カラムのデータコピー
+- **条件付き移行**: NULL/空文字の場合のみ上書き
+- **別テーブル間移行**: IDベースの関連付け移行（拡張可能）
+
+### カラム移行マッピング例
+```java
+// modsec_alerts テーブル
+modsecMigrate.put("msg", "message");           // msg → message
+modsecMigrate.put("data", "data_value");       // data → data_value
+
+// servers テーブル  
+serversMigrate.put("description", "server_description");     // description → server_description
+serversMigrate.put("last_activity_at", "last_log_received"); // last_activity_at → last_log_received
+
+// settings テーブル（統一化）
+settingsMigrate.put("access_log_retention_days", "log_retention_days");
+settingsMigrate.put("login_history_retention_days", "log_retention_days");
+settingsMigrate.put("action_execution_log_retention_days", "log_retention_days");
+
+// agent_servers テーブル
+agentServersMigrate.put("server_name", "agent_name");        // server_name → agent_name
+agentServersMigrate.put("server_ip", "agent_ip");           // server_ip → agent_ip
+```
+
+## エラーハンドリング
+
+### 例外処理階層
+1. **個別メソッド**: SQLException → RuntimeExceptionでラップ
+2. **syncAllTablesSchema**: 全体エラーをキャッチしてERRORログ出力
+3. **DbSession**: Connection管理・トランザクション管理を自動化
+
+### ログ出力レベル
+- **INFO**: テーブル作成・カラム追加・削除・データ移行完了時
+- **DEBUG**: 既存テーブル確認時
+- **ERROR**: SQL実行エラー・致命的例外
+
+## パフォーマンス考慮事項
+- **インクリメンタル同期**: 必要な変更のみ実行
+- **バッチ処理**: 複数カラムの一括処理
+- **型修正最適化**: matched カラムのみ対象
+
+## セキュリティ対策
+- **文字エンコーディング**: utf8mb4_unicode_ci統一
+- **SQLインジェクション対策**: 動的SQL構築時の適切なエスケープ
+- **権限制御**: 管理者権限でのスキーマ変更のみ許可
+
+## 運用・設定
+
+### 初回セットアップ
+```java
+// 標準的な使用パターン
+try {
+    DbSchema.syncAllTablesSchema(dbSession);
+    AppLogger.info("データベーススキーマ同期完了");
+} catch (SQLException e) {
+    AppLogger.error("スキーマ同期エラー: " + e.getMessage());
+}
+```
+
+### バージョンアップ時
+- **自動移行**: 旧バージョンからの円滑なアップグレード
+- **後方互換性**: 既存データの保持・適切な移行
+- **ロールバック**: 必要に応じた手動復旧対応
 
 ## 注意事項
-- テーブル・カラム追加/削除/リネーム時は必ず理想カラム定義・移行マップを更新すること。
-- 仕様変更時は本仕様書・実装・db_schema_spec.md・CHANGELOG.mdを同時更新。
-- 例外時はcatchでエラーログを出力し、必要に応じてリトライ。
+- **データ消失リスク**: 不要カラム削除時の確認
+- **型変更影響**: 既存データとの互換性確認
+- **外部キー制約**: 関連テーブル間の整合性維持
+- **大量データ**: 移行処理時のパフォーマンス影響
+
+## デバッグ・トラブルシューティング
+
+### よくある問題
+1. **外部キー制約エラー**: 関連テーブルの作成順序
+2. **文字エンコーディング問題**: utf8mb4統一の確認
+3. **型変更エラー**: 既存データとの互換性確認
+
+### ログ確認ポイント
+- スキーマ同期完了メッセージの確認
+- カラム追加・削除・移行の件数確認
+- エラー時の詳細SQL例外メッセージ
+
+## バージョン履歴
+- **v1.0.0**: 初期実装（基本テーブルのみ）
+- **v1.5.0**: 自動カラム同期機能追加
+- **v2.0.0**: Connection引数方式廃止、DbService専用
+- **v2.1.0**: **DbSession対応、エージェント管理テーブル追加、カラム移行機能強化**
 
 ---
 
-### 参考：実装例
-- syncAllTablesSchemaはpublic staticメソッドとして実装。
-- テーブルごとにLinkedHashMapで理想カラム定義を記述。
-- カラム移行はHashMapで旧→新カラム名を指定。
-- ログ出力はINFO/DEBUGで明確に記録。
+## 実装参考
+
+### テーブル定義パターン
+```java
+var tableDefs = new java.util.LinkedHashMap<String, String>();
+tableDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
+tableDefs.put("name", "VARCHAR(100) NOT NULL");
+tableDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+autoSyncTableColumns(dbSession, "table_name", tableDefs, null);
+```
+
+### カラム移行パターン
+```java
+var migrateMap = new java.util.HashMap<String, String>();
+migrateMap.put("old_column", "new_column");
+autoSyncTableColumns(dbSession, "table_name", tableDefs, migrateMap);
+```
+
+### DbSession連携パターン
+```java
+dbSession.execute(conn -> {
+    try {
+        // スキーマ同期処理
+        DbSchema.syncAllTablesSchema(dbSession);
+    } catch (SQLException e) {
+        AppLogger.error("スキーマ同期エラー: " + e.getMessage());
+        throw new RuntimeException(e);
+    }
+});
+```

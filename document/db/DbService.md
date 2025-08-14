@@ -1,207 +1,381 @@
 # DbService.java 仕様書
 
+## 概要
+**バージョン**: v2.1.0  
+**更新日**: 2025-01-14
+
 ## 役割
-- データベース操作の統合サービスクラス。
-- DbSessionを内部で管理し、従来のConnection引数なしでDB操作を提供。
-- 既存のDb*クラス（DbSelect, DbUpdate, DbRegistry, DbSchema, DbInitialData, DbDelete）の全メソッドを統合し、Connection引数を完全に排除。
-- AutoCloseableインターフェースを実装し、try-with-resourcesでの安全なリソース管理を提供。
+- データベース操作の統合サービスクラス（Static版）
+- グローバルなDbSessionを管理し、staticメソッドでDB操作を提供
+- 既存のDb*クラス（DbSelect, DbUpdate, DbRegistry, DbSchema, DbInitialData, DbDelete）の全メソッドを統合し、Connection引数を完全に排除
+- **1つのDBにのみアクセスすることを前提とした設計**
+- アプリケーション全体で単一のデータベース接続を共有
 
-## 主なメソッド（v2.1.0 - ModSecurityアラート照合機能強化）
+## 設計思想
 
-### コンストラクタ・接続管理
-- `public DbService(String url, Properties properties)`
-  - コンストラクタ。内部でDbSessionインスタンスを作成し、データベース接続を管理。
-- `public boolean isConnected()`
-  - 接続状態をチェック。接続中の場合true。
-- `public void setAutoCommit(boolean autoCommit) throws SQLException`
-  - AutoCommitモードを設定。内部のDbSessionに委譲。
-- `public void commit() throws SQLException`
-  - 手動コミット。内部のDbSessionに委譲。
-- `public void rollback() throws SQLException`
-  - 手動ロールバック。内部のDbSessionに委譲。
-- `public void close()`
-  - リソースのクリーンアップ。内部のDbSessionを安全にクローズ。
+### Static化の利点
+- **グローバル接続管理**: アプリケーション全体で単一のDbSessionを共有
+- **簡潔なAPI**: `DbService.methodName()`で直接呼び出し可能
+- **初期化一回限り**: アプリケーション起動時の一度の初期化で全機能利用可能
+- **リソース効率**: 不要なインスタンス生成を回避
 
-### SELECT操作（DbSelect統合）
-- `public Optional<DbSelect.ServerInfo> selectServerInfoByName(String serverName) throws SQLException`
-  - サーバー名でサーバー情報を取得。Connection引数なしでDbSelect.selectServerInfoByNameを呼び出し。
-- `public boolean existsServerByName(String serverName) throws SQLException`
-  - サーバー名で存在有無を取得。Connection引数なしでDbSelect.existsServerByNameを呼び出し。
-- `public List<Map<String, Object>> selectPendingBlockRequests(String registrationId, int limit) throws SQLException`
-  - 指定registrationIdのpendingなブロック要求リストを取得。
-- `public Map<String, Object> selectWhitelistSettings() throws SQLException`
-  - settingsテーブルからホワイトリスト設定を取得。
-- `public boolean existsUrlRegistryEntry(String serverName, String method, String fullUrl) throws SQLException`
-  - url_registryテーブルに指定のエントリが存在するか判定。
-- `public Boolean selectIsWhitelistedFromUrlRegistry(String serverName, String method, String fullUrl) throws SQLException`
-  - url_registryテーブルからis_whitelistedを取得。
-- `public List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(int minutes) throws SQLException`
-  - **[v2.1.0新機能]** 最近の指定分数以内のアクセスログを取得（ModSecurity照合用）。
-  - `blocked_by_modsec = false`の未処理ログのみを抽出し、AgentTcpServerの定期的なアラート照合に使用。
+### 設計制約
+- **シングルトンパターン**: グローバルなDbSessionインスタンスを1つのみ管理
+- **初期化必須**: 使用前に`initialize()`の呼び出しが必要
+- **スレッドセーフティ**: synchronized による初期化・シャットダウンの同期化
 
-### UPDATE操作（DbUpdate統合）
-- `public void updateServerInfo(String serverName, String description, String logPath)`
-  - サーバー情報を更新。例外は内部でキャッチしログ出力。
-- `public void updateServerLastLogReceived(String serverName)`
-  - サーバーの最終ログ受信時刻を更新。例外は内部でキャッチしログ出力。
-- `public int updateAgentHeartbeat(String registrationId)`
-  - エージェントのハートビートを更新。戻り値は更新された行数。
-- `public int updateAgentLogStats(String registrationId, int logCount)`
-  - エージェントのログ処理統計を更新。戻り値は更新された行数。
-- `public int deactivateAgent(String registrationId)`
-  - 特定エージェントをinactive状態に変更。戻り値は更新された行数。
-- `public void deactivateAllAgents()`
-  - 全アクティブエージェントをinactive状態に変更。例外は内部でキャッチしログ出力。
-- `public int updateUrlWhitelistStatus(String serverName, String method, String fullUrl)`
-  - URLをホワイトリスト状態に更新。戻り値は更新された行数。
-- `public int updateAccessLogModSecStatus(Long accessLogId, boolean blockedByModSec) throws SQLException`
-  - **[v2.1.0強化]** access_logのModSecurityブロック状態を更新。定期的なアラート照合での使用が増加。
+## 主要メソッド詳細
 
-### INSERT/REGISTRY操作（DbRegistry統合）
-- `public void registerOrUpdateServer(String serverName, String description, String logPath)`
-  - サーバー情報を登録または更新。例外は内部でキャッチしログ出力。
-- `public String registerOrUpdateAgent(Map<String, Object> serverInfo)`
-  - エージェントサーバーを登録または更新。成功時は登録ID、失敗時はnull。
-- `public Long insertAccessLog(Map<String, Object> parsedLog)`
-  - access_logテーブルにログを保存。成功時は登録されたID、失敗時はnull。
-- `public boolean registerUrlRegistryEntry(String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType)`
-  - url_registryテーブルに新規URLを登録。成功時はtrue、失敗時はfalse。
-- `public void insertModSecAlert(Long accessLogId, Map<String, Object> modSecInfo)`
-  - **[v2.1.0強化]** modsec_alertsテーブ��にModSecurityアラートを保存。
-  - 型安全性を向上し、`severity`フィールドのInteger/String両対応を実現。
+### 初期化・ライフサイクル管理
 
-### スキーマ・初期化操作（DbSchema・DbInitialData統合）
-- `public void syncAllTablesSchema() throws SQLException`
-  - 全テーブルのスキーマ自動同期。DbSchema.syncAllTablesSchemaを呼び出し。
-- `public void initializeDefaultData(String appVersion) throws SQLException`
-  - 初期データを挿入。DbInitialData.initializeDefaultDataを呼び出し。
+#### `initialize(String url, Properties properties)`
+- **機能**: DbServiceの初期化（アプリケーション起動時に1回だけ呼び出し）
+- **引数**: データベースURL、接続プロパティ
+- **例外**: IllegalStateException（既に初期化済みの場合）
+- **スレッドセーフ**: synchronized により同期化
 
-### メンテナンス操作（DbDelete統合）
-- `public void runLogCleanupBatch()`
-  - ログ自動削除バッチ処理。例外は内部でキャッチしログ出力。
-
-### トランザクション操作
-- `public void executeInTransaction(Runnable operations) throws SQLException`
-  - トランザクション内で複数のDB操作を実行。内部のDbSessionに委譲。
-
-## ロジック（v2.1.0更新）
-- **Connection管理の完全隠蔽**: 呼び出し元はConnection オブジェクトを一切意識する必要がない。
-- **統一されたAPI**: 既存のDb*クラスの全メソッドを一つのクラスで提供。
-- **自動エラーハンドリング**: SQLException を適切にログ出力し、デフォルト値を返却。
-- **内部委譲**: 実際のDB操作は既存のDb*クラスのstaticメソッドに委譲し、Connection引数のみを自動で渡す。
-- **例外処理の統一**: SELECT系メソッドはSQLExceptionをスロー、UPDATE/INSERT系メソッドは例外をキャッチしてログ出力後にデフォルト値を返却。
-- **トランザクション管理**: executeInTransaction()で複数操作の原子性を保証。
-- **リソース管理**: AutoCloseableでDbSessionの適切なクリーンアップを保証。
-- **ModSecurityアラート照合**: 定期的な照合機能により、時間差で到着するアラートとログの関連付けを強化。
-
-## エラーハンドリング方針
-### SELECT系メソッド
-- SQLExceptionをそのままスローし、呼び出し元で処理。
-- データが見つからない場合はOptional.empty()、false、nullを適切に返却。
-
-### UPDATE/INSERT系メソッド
-- SQLExceptionを内部でキャッチし、ERRORログを出力。
-- デフォルト値（0、false、null等）を返却して処理を継続可能にする。
-- 戻り値で処理結果を判定可能（更新行数、成功/失敗フラグ等）。
-
-### スキーマ・初期化系メソッド
-- SQLExceptionをそのままスローし、アプリケーション起動時の致命的エラーとして扱う。
-
-## 使用例（v2.1.0強化版）
-
-### ModSecurityアラート定期照合での使用（v2.1.0新機能）
 ```java
-// AgentTcpServerでの定期的なアラート照合処理
-try (DbService dbService = new DbService(url, properties)) {
-    // 最近5分以内の未処理アクセスログを取得
-    List<Map<String, Object>> recentAccessLogs = 
-        dbService.selectRecentAccessLogsForModSecMatching(5);
+public static synchronized void initialize(String url, Properties properties) {
+    if (initialized) {
+        throw new IllegalStateException("DbService is already initialized");
+    }
+    globalSession = new DbSession(url, properties);
+    initialized = true;
+}
+```
+
+#### `shutdown()`
+- **機能**: DbServiceのシャットダウン（アプリケーション終了時に呼び出し）
+- **処理**: globalSessionのクローズ、初期化状態リセット
+- **スレッドセーフ**: synchronized により同期化
+
+#### `isInitialized()`
+- **機能**: 初期化状態���確認
+- **戻り値**: boolean（初期化済みの場合true）
+
+#### `checkInitialized()` - プライベートメソッド
+- **機能**: 内部使用の初期化チェック
+- **例外**: IllegalStateException（未初期化の場合）
+
+### SELECT操作（DbSelectに完全委譲）
+
+#### `selectServerInfoByName(String serverName)`
+- **機能**: サーバー名でサーバー情報を取得
+- **戻り値**: Optional<DbSelect.ServerInfo>
+- **委譲先**: DbSelect.selectServerInfoByName(globalSession, serverName)
+
+#### `existsServerByName(String serverName)`
+- **機能**: サーバー名で存在有無を判定
+- **戻り値**: boolean
+- **委譲先**: DbSelect.existsServerByName(globalSession, serverName)
+
+#### `selectPendingBlockRequests(String registrationId, int limit)`
+- **機能**: 指定エージェントのpendingなブロック要求リストを取得
+- **戻り値**: List<Map<String, Object>>
+- **委譲先**: DbSelect.selectPendingBlockRequests(globalSession, registrationId, limit)
+
+#### `selectWhitelistSettings()`
+- **機能**: settingsテーブルからホワイトリスト設定を取得
+- **戻り値**: Map<String, Object>
+- **委譲先**: DbSelect.selectWhitelistSettings(globalSession)
+
+#### `existsUrlRegistryEntry(String serverName, String method, String fullUrl)`
+- **機能**: url_registryテーブルに指定URLエントリが存在するか判定
+- **戻り値**: boolean
+- **委譲先**: DbSelect.existsUrlRegistryEntry(globalSession, serverName, method, fullUrl)
+
+#### `selectIsWhitelistedFromUrlRegistry(String serverName, String method, String fullUrl)`
+- **機能**: url_registryテーブルからis_whitelisted値を取得
+- **戻り値**: Boolean（null許可）
+- **委譲先**: DbSelect.selectIsWhitelistedFromUrlRegistry(globalSession, serverName, method, fullUrl)
+
+#### `selectRecentAccessLogsForModSecMatching(int minutes)`
+- **機���**: ModSecurity照合用の最近のアクセスログを取得
+- **戻り値**: List<Map<String, Object>>
+- **用途**: AgentTcpServerでの定期的なアラート照合処理
+- **委譲先**: DbSelect.selectRecentAccessLogsForModSecMatching(globalSession, minutes)
+
+### UPDATE操作（DbUpdateに完全委譲）
+
+#### `updateServerInfo(String serverName, String description, String logPath)`
+- **機能**: サーバー情報の更新
+- **委譲先**: DbUpdate.updateServerInfo(globalSession, serverName, description, logPath)
+
+#### `updateServerLastLogReceived(String serverName)`
+- **機能**: サーバーの最終ログ受信時刻のみ更新
+- **委譲先**: DbUpdate.updateServerLastLogReceived(globalSession, serverName)
+
+#### `updateAgentHeartbeat(String registrationId)`
+- **機能**: エージェントのハートビート更新
+- **戻り値**: int（更新された行数）
+- **委譲先**: DbUpdate.updateAgentHeartbeat(globalSession, registrationId)
+
+#### `updateAgentLogStats(String registrationId, int logCount)`
+- **機能**: エージェントのログ処理統計更新
+- **戻り値**: int（更新された行数）
+- **委譲先**: DbUpdate.updateAgentLogStats(globalSession, registrationId, logCount)
+
+#### `updateAccessLogModSecStatus(Long accessLogId, boolean blockedByModSec)`
+- **機能**: access_logのModSecurityブロック状態更新
+- **戻り値**: int（更新された行数）
+- **重要性**: ModSecurityキューベース関連付けシステムの核心機能
+- **委譲先**: DbUpdate.updateAccessLogModSecStatus(globalSession, accessLogId, blockedByModSec)
+
+#### `deactivateAgent(String registrationId)`
+- **機能**: 特定エージェントのinactive状態への変更
+- **戻り値**: int（更新された行数）
+- **委譲先**: DbUpdate.deactivateAgent(globalSession, registrationId)
+
+#### `deactivateAllAgents()`
+- **機能**: 全アクティブエージェントのinactive状態への変更
+- **委譲先**: DbUpdate.deactivateAllAgents(globalSession)
+
+#### `updateUrlWhitelistStatus(String serverName, String method, String fullUrl)`
+- **機能**: URLのホワイトリスト状態更新
+- **戻り値**: int（更新された行数）
+- **委譲先**: DbUpdate.updateUrlWhitelistStatus(globalSession, serverName, method, fullUrl)
+
+### INSERT/REGISTRY操作（DbRegistryに完全委譲）
+
+#### `registerOrUpdateServer(String serverName, String description, String logPath)`
+- **機能**: サーバー情報の登録または更新
+- **委譲先**: DbRegistry.registerOrUpdateServer(globalSession, serverName, description, logPath)
+
+#### `registerOrUpdateAgent(Map<String, Object> serverInfo)`
+- **機能**: エージェントサーバーの登録または更新
+- **戻り値**: String（登録ID、失敗時はnull）
+- **委譲先**: DbRegistry.registerOrUpdateAgent(globalSession, serverInfo)
+
+#### `insertAccessLog(Map<String, Object> parsedLog)`
+- **機能**: access_logテーブルへのログ保存
+- **戻り値**: Long（登録されたID、失敗時はnull）
+- **委譲先**: DbRegistry.insertAccessLog(globalSession, parsedLog)
+
+#### `registerUrlRegistryEntry(String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType)`
+- **機能**: url_registryテーブルへの新規URL登録
+- **戻り値**: boolean（成功時true）
+- **委譲先**: DbRegistry.registerUrlRegistryEntry(globalSession, serverName, method, fullUrl, isWhitelisted, attackType)
+
+#### `insertModSecAlert(Long accessLogId, Map<String, Object> modSecInfo)`
+- **機能**: modsec_alertsテーブルへのModSecurityアラート保存
+- **委譲先**: DbRegistry.insertModSecAlert(globalSession, accessLogId, modSecInfo)
+
+### スキーマ・初期化操作
+
+#### `syncAllTablesSchema()`
+- **機能**: 全テーブルのスキーマ自動同期
+- **委譲先**: DbSchema.syncAllTablesSchema(globalSession)
+
+#### `initializeDefaultData(String appVersion)`
+- **機能**: 初期データの挿入
+- **委譲先**: DbInitialData.initializeDefaultData(globalSession, appVersion)
+
+### メンテナンス操作
+
+#### `runLogCleanupBatch()`
+- **機能**: ログ自動削除バッチ処理
+- **例外処理**: 内部でキャッチし、上位でハンドリング
+- **委譲先**: DbDelete.runLogCleanupBatch(globalSession)
+
+### トランザクション・接続管理
+
+#### `executeInTransaction(Runnable operations)`
+- **機能**: トランザクシ��ン内での複数DB操作実行
+- **引数**: Runnable（ラムダ式）
+- **委譲先**: globalSession.executeInTransaction()
+
+#### `getConnection()`
+- **機能**: 内部DbSessionから直接Connection取得
+- **用途**: 既存クラスとの互換性維持
+- **戻り値**: Connection インスタンス
+
+#### `isConnected()`
+- **機能**: 接続状態チェック
+- **戻り値**: boolean（接続中の場合true）
+
+#### `setAutoCommit(boolean autoCommit)`
+- **機能**: AutoCommitモード設定
+- **委譲先**: globalSession.setAutoCommit()
+
+#### `commit()` / `rollback()`
+- **機能**: 手動コミット・ロールバック
+- **委譲先**: globalSession.commit() / globalSession.rollback()
+
+## 使用パターン
+
+### アプリケーション起動時の初期化
+```java
+// メインクラスでの初期化
+public static void main(String[] args) {
+    Properties props = loadDatabaseProperties();
     
-    for (Map<String, Object> accessLog : recentAccessLogs) {
-        Long accessLogId = (Long) accessLog.get("id");
-        String serverName = (String) accessLog.get("server_name");
-        String method = (String) accessLog.get("method");
-        String fullUrl = (String) accessLog.get("full_url");
-        LocalDateTime accessTime = (LocalDateTime) accessLog.get("access_time");
+    try {
+        // DbService初期化
+        DbService.initialize(databaseUrl, props);
         
-        // ModSecurityアラートキューから一致するアラートを検索
-        List<ModSecurityAlert> matchingAlerts = 
-            modSecurityQueue.findMatchingAlerts(serverName, method, fullUrl, accessTime);
+        // スキーマ同期
+        DbService.syncAllTablesSchema();
         
-        if (!matchingAlerts.isEmpty()) {
-            // access_logのblocked_by_modsecをtrueに更新
-            dbService.updateAccessLogModSecStatus(accessLogId, true);
+        // 初期データ投入
+        DbService.initializeDefaultData("2.1.0");
+        
+        // アプリケーション処理開始
+        startApplication();
+        
+    } finally {
+        // 終了時のクリーンアップ
+        DbService.shutdown();
+    }
+}
+```
+
+### 基本的なDB操作
+```java
+// SELECT操作
+Optional<ServerInfo> serverInfo = DbService.selectServerInfoByName("web-server-01");
+boolean exists = DbService.existsServerByName("web-server-01");
+List<Map<String, Object>> blockRequests = DbService.selectPendingBlockRequests("agent-123", 10);
+
+// UPDATE操作
+DbService.updateServerInfo("web-server-01", "本番Webサーバー", "/var/log/nginx/");
+int updated = DbService.updateAgentHeartbeat("agent-123");
+
+// INSERT操作
+DbService.registerOrUpdateServer("web-server-01", "Webサーバー", "/var/log/nginx/");
+Long accessLogId = DbService.insertAccessLog(parsedLogMap);
+```
+
+### トランザクション処理
+```java
+// 複数操作を1つのトランザクションで実行
+DbService.executeInTransaction(() -> {
+    // 複数のDB操作
+    DbService.registerOrUpdateServer(serverName, description, logPath);
+    DbService.updateServerLastLogReceived(serverName);
+    DbService.insertAccessLog(parsedLogMap);
+    // すべて成功時に自動コミット、例外時は自動ロールバック
+});
+```
+
+### ModSecurity照合処理での活用
+```java
+// AgentTcpServerでの定期照合処理
+public void performPeriodicAlertMatching() {
+    try {
+        // 最近のアクセスログを取得
+        List<Map<String, Object>> recentLogs = 
+            DbService.selectRecentAccessLogsForModSecMatching(5);
+        
+        for (Map<String, Object> log : recentLogs) {
+            Long accessLogId = (Long) log.get("id");
             
-            // 一致したアラートをmodsec_alertsテーブルに保存
-            for (ModSecurityAlert alert : matchingAlerts) {
-                Map<String, Object> alertData = new HashMap<>();
-                alertData.put("rule_id", alert.ruleId());
-                alertData.put("message", alert.message());
-                alertData.put("data_value", alert.dataValue());
-                alertData.put("severity", alert.severity()); // Integer/String両対応
-                alertData.put("server_name", alert.serverName());
-                alertData.put("raw_log", alert.rawLog());
-                alertData.put("detected_at", alert.detectedAt().toString());
+            // ModSecurityキューから一致するアラートを検索
+            List<ModSecAlert> matchingAlerts = findMatchingAlerts(log);
+            
+            if (!matchingAlerts.isEmpty()) {
+                // ブロック状態を更新
+                int updated = DbService.updateAccessLogModSecStatus(accessLogId, true);
                 
-                dbService.insertModSecAlert(accessLogId, alertData);
+                // アラート保存
+                for (ModSecAlert alert : matchingAlerts) {
+                    DbService.insertModSecAlert(accessLogId, alert.toMap());
+                }
             }
+        }
+    } catch (SQLException e) {
+        AppLogger.error("ModSecurity照合処理エラー: " + e.getMessage());
+    }
+}
+```
+
+## エラーハンドリング
+
+### 例外処理方針
+- **SELECT系メソッド**: SQLExceptionをそのままスロー、呼び出し元で処理
+- **UPDATE/INSERT系メソッド**: SQLExceptionをそのままスロー、呼び出し元で処理
+- **初期化チェック**: 全メソッドでIllegalStateExceptionによる未初期化検出
+
+### 初期化状態管理
+```java
+private static void checkInitialized() {
+    if (!initialized || globalSession == null) {
+        throw new IllegalStateException("DbService is not initialized. Call DbService.initialize() first.");
+    }
+}
+```
+
+## パフォーマンス考慮事項
+- **単一接続共有**: グローバルDbSessionによる効率的なリソース利用
+- **遅延初期化**: DbSessionの実際の接続は初回使用時まで遅延
+- **完全委譲**: 実際の処理は既存のDb*クラスに委譲し、オーバーヘッド最小化
+- **トランザクション最適化**: executeInTransaction()による適切な範囲制御
+
+## セキュリティ対策
+- **接続情報保護**: Properties経由での安全な管理
+- **SQLインジェクション対策**: 各Db*クラスでのPreparedStatement使用
+- **リソースリーク防止**: shutdown()による確実なクリーンアップ
+- **アクセス制御**: staticメソッドによる統一的なアクセス管理
+
+## 注意事項・制限事項
+- **初期化必須**: 使用前に必ずinitialize()を呼び出すこと
+- **シングルトン設計**: 複数データベースへの同時接続は非対応
+- **スレッドセーフティ**: 初期化・シャットダウン以外はDbSessionに依存
+- **例外処理必須**: 全メソッドでSQLExceptionの適切なハンドリングが必要
+
+## バージョン履歴
+- **v1.0.0**: 初期実装（インスタンスベース、AutoCloseable対応）
+- **v2.0.0**: DbSessionとの完全統合
+- **v2.1.0**: **Static化、グローバルDbSession管理、初期化・シャットダウン機能追加**
+
+---
+
+## 実装参考
+
+### アプリケーション初期化パターン
+```java
+public class Application {
+    public static void main(String[] args) {
+        try {
+            // 1. DbService初期化
+            DbService.initialize(DATABASE_URL, properties);
+            
+            // 2. 必要な初期化処理
+            if (DbService.isInitialized()) {
+                DbService.syncAllTablesSchema();
+                DbService.initializeDefaultData("2.1.0");
+            }
+            
+            // 3. アプリケーション開始
+            startMainApplication();
+            
+        } catch (Exception e) {
+            AppLogger.error("アプリケーション起動エラー: " + e.getMessage());
+        } finally {
+            // 4. クリーンアップ
+            DbService.shutdown();
         }
     }
 }
 ```
 
-### 基本的な使用方法
+### DB操作の標準パターン
 ```java
-// Connection引数が完全に不要
-try (DbService db = new DbService(url, props)) {
-    // SELECT操作
-    Optional<ServerInfo> info = db.selectServerInfoByName("web-server-01");
-    boolean exists = db.existsServerByName("web-server-01");
+try {
+    // 単発操作
+    Optional<ServerInfo> info = DbService.selectServerInfoByName(serverName);
+    int updated = DbService.updateAgentHeartbeat(registrationId);
     
-    // UPDATE操作
-    db.updateServerLastLogReceived("web-server-01");
-    int updated = db.updateAgentHeartbeat("agent-123");
-    
-    // INSERT操作
-    Long accessLogId = db.insertAccessLog(logData);
-    String agentId = db.registerOrUpdateAgent(agentInfo);
-}
-```
-
-### トランザクション操作
-```java
-try (DbService db = new DbService(url, props)) {
-    // 複数操作をトランザクションで実行
-    db.executeInTransaction(() -> {
-        Long accessLogId = db.insertAccessLog(logData);
-        db.updateServerLastLogReceived("web-server-01");
-        db.registerUrlRegistryEntry("web-server-01", "GET", "/api/users", false, "none");
+    // トランザクション操作
+    DbService.executeInTransaction(() -> {
+        DbService.insertAccessLog(logData);
+        DbService.updateServerLastLogReceived(serverName);
     });
+    
+} catch (SQLException e) {
+    AppLogger.error("DB操作エラー: " + e.getMessage());
+    // エラーハンドリング
+} catch (IllegalStateException e) {
+    AppLogger.error("DbService未初期化: " + e.getMessage());
+    // 初期化エラーハンドリング
 }
 ```
-
-## 注意事項（v2.1.0更新）
-- **既存Db*クラスとの併用**: 既存のDb*クラスは下位互換性のため残存。段階的移行が可能。
-- **スレッドセーフティ**: 同一インスタンスを複数スレッドで共有しないこと。
-- **リソース管理**: try-with-resourcesでの使用を強く推奨。
-- **例外処理**: SELECT系とUPDATE/INSERT系で例外処理方針が異なることに注意。
-- **トランザクション境界**: executeInTransaction()内では他のトランザクション操作を呼び出さないこと。
-- **ModSecurityアラート照合**: `selectRecentAccessLogsForModSecMatching`は定期的な照合処理専用メソッド。
-- **型安全性**: `insertModSecAlert`メソッドは`severity`フィールドでInteger/String両方の型に対応。
-
-## パフォーマンス考慮事項（v2.1.0更新）
-- **接続再利用**: 同一DbServiceインスタンス内ではConnection を再利用。
-- **定期照合の最適化**: `selectRecentAccessLogsForModSecMatching`は最大1000件に制限し、パフォーマン��を維持。
-- **遅延初期化**: 実際にDB操作が必要になるまで接続を確立しない。
-- **自動リトライ**: 接続失敗時の自動リトライにより可用性を向上。
-
-## セキュリティ要件
-- **Connection情報の隠蔽**: 呼び出し元にConnection オブジェクトを直接公開しない。
-- **トランザクション管理**: 自動的なcommit/rollbackによりデータ整合性を保証。
-- **例外情報の適切な処理**: SQLExceptionの詳細を適切にログ出力し、セキュリティ情報の漏洩を防止。
-
-## バージョン履歴
-- **v2.1.0** (2025-08-13): ModSecurityアラート照合機能を強化、selectRecentAccessLogsForModSecMatchingメソッドを追加、insertModSecAlertの型安全性を向上
-- **v2.0.0** (2025-01-11): Connection引数を完全廃止、DbService専用に統一。互換性なし一気切り替え完了
-- **v1.1.0** (2025-01-11): ビルドエラー修正完了
-- **v1.0.0**: 初期実装

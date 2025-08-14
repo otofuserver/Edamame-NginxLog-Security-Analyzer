@@ -1,7 +1,7 @@
 package com.edamame.security.agent;
 
 import com.edamame.security.*;
-import com.edamame.security.db.DbService;
+import  static com.edamame.security.db.DbService.*;
 import com.edamame.security.modsecurity.ModSecurityQueue;
 import com.edamame.security.modsecurity.ModSecHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,7 +23,7 @@ import com.edamame.security.tools.UrlCodec;
  * エージェントTCP通信サーバー
  * ポート2591でエージェントからのTCP接続を受け付け、
  * カスタムバイナリプロトコルで通信を行う
- * v2.0.0: DbService/DbSessionパター���に完全移行
+ * v2.0.0: DbService/DbSessionパターンに完全移行
  * v3.0.0: ModSecurityキュー管理をNginxLogToMysqlに移行
  *
  * @author Edamame Team
@@ -37,7 +37,6 @@ public class AgentTcpServer {
     private static final int SOCKET_TIMEOUT = 300000; // 5分間（ミリ秒）
 
     private final int port;
-    private final DbService dbService;
     private final ObjectMapper objectMapper;
     private final ExecutorService threadPool;
     private final Map<String, AgentSession> activeSessions;
@@ -53,31 +52,29 @@ public class AgentTcpServer {
     /**
      * コンストラクタ
      *
-     * @param dbService データベースサービス
+
      * @param modSecurityQueue ModSecurityアラートキュー
      */
-    public AgentTcpServer(DbService dbService, ModSecurityQueue modSecurityQueue) {
-        this(DEFAULT_PORT, dbService, modSecurityQueue);
+    public AgentTcpServer(ModSecurityQueue modSecurityQueue) {
+        this(DEFAULT_PORT,modSecurityQueue);
     }
 
     /**
      * コンストラクタ（ポート指定）
      *
      * @param port リスニングポート
-     * @param dbService データベースサービス
      * @param modSecurityQueue ModSecurityアラートキュー
      */
-    public AgentTcpServer(int port, DbService dbService, ModSecurityQueue modSecurityQueue) {
+    public AgentTcpServer(int port, ModSecurityQueue modSecurityQueue) {
         this.port = port;
-        this.dbService = dbService;
         this.modSecurityQueue = modSecurityQueue;
         this.objectMapper = new ObjectMapper();
         this.threadPool = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
         this.activeSessions = new ConcurrentHashMap<>();
 
         try {
-            this.actionEngine = new ActionEngine(dbService);
-            this.whitelistManager = new WhitelistManager(dbService);
+            this.actionEngine = new ActionEngine();
+            this.whitelistManager = new WhitelistManager();
         } catch (Exception e) {
             AppLogger.error("ActionEngine initialization failed: " + e.getMessage());
             throw new RuntimeException("Failed to initialize ActionEngine", e);
@@ -508,7 +505,7 @@ public class AgentTcpServer {
             Map<String, Object> serverInfo = objectMapper.readValue(serverInfoJson, new TypeReference<>() {});
 
             // DbServiceを使用してエージェント登録
-            String registrationId = dbService.registerOrUpdateAgent(serverInfo);
+            String registrationId = registerOrUpdateAgent(serverInfo);
 
             if (registrationId != null) {
                 session.setRegistrationId(registrationId);
@@ -548,7 +545,7 @@ public class AgentTcpServer {
             }
 
             // DbServiceを使用してエージェントをinactive化
-            int affected = dbService.deactivateAgent(registrationId);
+            int affected = deactivateAgent(registrationId);
 
             if (affected > 0) {
                 session.sendResponse(RESPONSE_SUCCESS, "Unregistered successfully");
@@ -588,8 +585,8 @@ public class AgentTcpServer {
             }
 
             // DbServiceを使用してハートビート更新
-            int updated = dbService.updateAgentHeartbeat(registrationId);
-            
+            int updated = updateAgentHeartbeat(registrationId);
+
             if (updated > 0) {
                 session.sendResponse(RESPONSE_SUCCESS, "Heartbeat acknowledged");
             } else {
@@ -605,31 +602,35 @@ public class AgentTcpServer {
     /**
      * ログバッチ処理
      */
-    public void handleLogBatch(AgentSession session, byte[] data) throws IOException {
+    private void handleLogBatch(AgentSession session, byte[] data) throws IOException {
         try {
-            String jsonData = new String(data, StandardCharsets.UTF_8);
-            Map<String, Object> logBatch = objectMapper.readValue(jsonData, new TypeReference<Map<String, Object>>() {});
-
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> logs = (List<Map<String, Object>>) logBatch.get("logs");
-
-            if (logs == null || logs.isEmpty()) {
-                session.sendResponse(RESPONSE_SUCCESS, "No logs to process");
+            String registrationId = session.getRegistrationId();
+            if (registrationId == null) {
+                session.sendResponse(RESPONSE_ERROR, "Not registered");
                 return;
             }
 
-            // ログをデータベースに保存（実際の実装では access_log テーブルに保存）
-            int processedCount = processLogEntries(session, logs);
+            // ログバッチデータ（JSON）を解析
+            String jsonData = new String(data, StandardCharsets.UTF_8);
+            Map<String, Object> logBatch = objectMapper.readValue(jsonData, new TypeReference<>() {});
+            
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> logs = (List<Map<String, Object>>) logBatch.get("logs");
 
-            // 統計を更新
-            String registrationId = session.getRegistrationId();
-            if (registrationId != null) {
-                // DbServiceを使用してログ統計更新
-                dbService.updateAgentLogStats(registrationId, processedCount);
+            if (logs != null && !logs.isEmpty()) {
+                // processLogEntriesメソッドを呼び出してログ処理を実行
+                int processedCount = processLogEntries(session, logs);
+
+                // ログ処理統計を更新
+                if (processedCount > 0) {
+                    updateAgentLogStats(registrationId, processedCount);
+                }
+                
+                session.sendResponse(RESPONSE_SUCCESS, "Processed " + processedCount + " logs");
+                AppLogger.debug("Processed " + processedCount + " logs from agent: " + registrationId);
+            } else {
+                session.sendResponse(RESPONSE_SUCCESS, "No logs to process");
             }
-
-            AppLogger.info("Processed " + processedCount + " log entries from " + session.getAgentName());
-            session.sendResponse(RESPONSE_SUCCESS, "Processed " + processedCount + " logs");
 
         } catch (Exception e) {
             AppLogger.error("Log batch processing error: " + e.getMessage());
@@ -658,14 +659,14 @@ public class AgentTcpServer {
             }
 
             // DbServiceを使用してブロック要求を取得
-            List<Map<String, Object>> blockRequests = dbService.selectPendingBlockRequests(registrationId, 10);
-            
+            List<Map<String, Object>> blockRequests = selectPendingBlockRequests(registrationId, 10);
+
             // レスポンス構築
             Map<String, Object> response = new HashMap<>();
             response.put("requests", blockRequests);
             String responseJson = objectMapper.writeValueAsString(response);
             session.sendResponse(RESPONSE_SUCCESS, responseJson);
-            
+
             // 明確なログ出力
             if (blockRequests.isEmpty()) {
                 AppLogger.debug("No block requests found for " + session.getAgentName() + " (registration: " + registrationId + ")");
@@ -697,6 +698,9 @@ public class AgentTcpServer {
 
         // 重複チェック用のSet（同一リクエストの重複処理を防ぐ）
         Set<String> processedRequests = new HashSet<>();
+        
+        // 処理したサーバー名を記録（重複登録防止）
+        Set<String> processedServers = new HashSet<>();
 
         for (Map<String, Object> logData : logs) {
             try {
@@ -707,6 +711,17 @@ public class AgentTcpServer {
 
                 // エージェントから受け取ったサーバー名をそのまま使用
                 String actualServerName = serverName;
+
+                // サーバー自動登録処理（新規サーバーの場合）
+                if (actualServerName != null && !processedServers.contains(actualServerName)) {
+                    try {
+                        registerOrUpdateServer(actualServerName, "エージェント自動登録", sourcePath);
+                        processedServers.add(actualServerName);
+                        AppLogger.debug("サーバー自動登録/更新: " + actualServerName);
+                    } catch (Exception e) {
+                        AppLogger.warn("サーバー自動登録エラー: " + actualServerName + " - " + e.getMessage());
+                    }
+                }
 
                 // ModSecurityエラーログの処理（error.logからの情報）
                 if (sourcePath != null && sourcePath.contains("error.log")) {
@@ -728,7 +743,7 @@ public class AgentTcpServer {
                     continue;
                 }
 
-                Map<String, Object> parsedLog = null;
+                Map<String, Object> parsedLog;
 
                 // エージェントからの解析済みデータを直接処理する場合
                 if (rawLogLine == null || rawLogLine.trim().isEmpty()) {
@@ -777,13 +792,30 @@ public class AgentTcpServer {
                 parsedLog.put("blocked_by_modsec", false);
 
                 // DbServiceを使用してaccess_logテーブルに保存
-                Long accessLogId = dbService.insertAccessLog(parsedLog);
+                Long accessLogId = insertAccessLog(parsedLog);
                 if (accessLogId != null) {
                     processedCount++;
                     AppLogger.debug("access_log保存成功: ID=" + accessLogId + " (" + parsedLog.get("method") + " " + parsedLog.get("full_url") + ")");
 
-                    // ModSecurityアラートキューから一致するアラートを検索
+                    // サーバーのlast_log_received時刻を更新
+                    try {
+                        updateServerLastLogReceived(actualServerName);
+                        AppLogger.debug("サーバー最終ログ受信時刻更新: " + actualServerName);
+                    } catch (Exception e) {
+                        AppLogger.warn("サーバー最終ログ受信時刻更新エラー: " + actualServerName + " - " + e.getMessage());
+                    }
+
+                    // 既存URLの再アクセス時にホワイトリスト状態を再評価
                     String method = (String) parsedLog.get("method");
+                    String clientIp = (String) parsedLog.get("ip_address");
+
+                    if (actualServerName != null && method != null && fullUrl != null && clientIp != null) {
+                        whitelistManager.updateExistingUrlWhitelistStatusOnAccess(
+                            actualServerName, method, fullUrl, clientIp
+                        );
+                    }
+
+                    // ModSecurityアラートキューから一致するアラートを検索
                     LocalDateTime accessTime = (LocalDateTime) parsedLog.get("access_time");
 
                     List<ModSecurityQueue.ModSecurityAlert> matchingAlerts =
@@ -793,11 +825,11 @@ public class AgentTcpServer {
                         AppLogger.info("ModSecurityアラート一致検出: " + matchingAlerts.size() + "件, access_log ID=" + accessLogId);
 
                         // access_logのblocked_by_modsecをtrueに更新
-                        dbService.updateAccessLogModSecStatus(accessLogId, true);
+                        updateAccessLogModSecStatus(accessLogId, true);
 
                         // 一致したアラートをmodsec_alertsテーブルに保存
                         for (ModSecurityQueue.ModSecurityAlert alert : matchingAlerts) {
-                            ModSecHandler.saveModSecurityAlertToDatabase(accessLogId, alert, dbService);
+                            ModSecHandler.saveModSecurityAlertToDatabase(accessLogId, alert);
                             AppLogger.debug("ModSecurityアラート保存: access_log ID=" + accessLogId +
                                           ", ルール=" + alert.ruleId() + ", メッセージ=" + alert.message());
                         }
@@ -1008,6 +1040,22 @@ public class AgentTcpServer {
                 return;
             }
 
+            // 既存URLの重複チェックを実行
+            boolean urlExists = existsUrlRegistryEntry(serverName, method, fullUrl);
+
+            if (urlExists) {
+                // 既存URLの場合は登録をスキップ
+                AppLogger.debug("既存URL検出、登録スキップ: " + serverName + " - " + method + " " + fullUrl);
+
+                // 既存URLの再アクセス時にホワイトリスト状態を再評価
+                if (clientIp != null) {
+                    whitelistManager.updateExistingUrlWhitelistStatusOnAccess(
+                        serverName, method, fullUrl, clientIp
+                    );
+                }
+                return;
+            }
+
             // 攻撃パターン識別を実行
             String attackType = AttackPattern.detectAttackTypeYaml(fullUrl,
                 "/app/config/attack_patterns.yaml", "/app/config/attack_patterns_override.yaml");
@@ -1016,10 +1064,12 @@ public class AgentTcpServer {
             boolean isWhitelisted = whitelistManager.determineWhitelistStatus(clientIp);
 
             // DbServiceを使用して新規URL登録
-            boolean registered = dbService.registerUrlRegistryEntry(serverName, method, fullUrl, isWhitelisted, attackType);
+            boolean registered = registerUrlRegistryEntry(serverName, method, fullUrl, isWhitelisted, attackType);
             if (registered) {
                 if (isWhitelisted) {
                     AppLogger.info("ホワイトリストURL登録: " + serverName + " - " + method + " " + fullUrl + " from " + clientIp);
+                } else {
+                    AppLogger.info("新規URL登録: " + serverName + " - " + method + " " + fullUrl + " (攻撃タイプ: " + attackType + ")");
                 }
             } else {
                 AppLogger.error("URL登録失敗: " + serverName + " - " + method + " " + fullUrl);

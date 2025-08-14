@@ -10,14 +10,14 @@ import java.sql.*;
 public class DbSchema {
 
     /**
-     * 主要全テーブルのスキーマ自動整合（DbService使用）
-     * @param dbService データベースサービス
+     * 主要全テーブルのスキーマ自動整合
+     * @param dbSession データベースセッション
      * @throws SQLException SQL例外
      */
-    public static void syncAllTablesSchema(DbService dbService) throws SQLException {
-        dbService.getSession().execute(conn -> {
+    public static void syncAllTablesSchema(DbSession dbSession) throws SQLException {
+        dbSession.execute(conn -> {
             try {
-                syncAllTablesSchemaInternal(dbService);
+                syncAllTablesSchemaInternal(dbSession);
             } catch (SQLException e) {
                 AppLogger.log("スキーマ同期でエラー: " + e.getMessage(), "ERROR");
                 throw new RuntimeException(e);
@@ -28,7 +28,7 @@ public class DbSchema {
     /**
      * 内部実装：主要全テーブルのスキーマ自動整合を一括実行する
      */
-    private static void syncAllTablesSchemaInternal(DbService dbService) throws SQLException {
+    private static void syncAllTablesSchemaInternal(DbSession dbSession) throws SQLException {
         // access_log
         var accessLogDefs = new java.util.LinkedHashMap<String, String>();
         accessLogDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
@@ -43,7 +43,7 @@ public class DbSchema {
         accessLogDefs.put("source_path", "VARCHAR(500)");
         accessLogDefs.put("collected_at", "TIMESTAMP NULL");
         accessLogDefs.put("agent_registration_id", "VARCHAR(255) NULL");
-        autoSyncTableColumns(dbService, "access_log", accessLogDefs, null);
+        autoSyncTableColumns(dbSession, "access_log", accessLogDefs, null);
 
         // url_registry
         var urlRegistryDefs = new java.util.LinkedHashMap<String, String>();
@@ -57,11 +57,12 @@ public class DbSchema {
         urlRegistryDefs.put("attack_type", "VARCHAR(50) DEFAULT 'none'");
         urlRegistryDefs.put("user_final_threat", "BOOLEAN DEFAULT NULL");
         urlRegistryDefs.put("user_threat_note", "TEXT");
-        autoSyncTableColumns(dbService, "url_registry", urlRegistryDefs, null);
+        autoSyncTableColumns(dbSession, "url_registry", urlRegistryDefs, null);
 
         // modsec_alerts
         var modsecDefs = new java.util.LinkedHashMap<String, String>();
         modsecDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
+        modsecDefs.put("server_name", "VARCHAR(100) NOT NULL DEFAULT 'default'");
         modsecDefs.put("access_log_id", "BIGINT NOT NULL");
         modsecDefs.put("rule_id", "VARCHAR(20)");
         modsecDefs.put("severity", "VARCHAR(20)");
@@ -69,12 +70,11 @@ public class DbSchema {
         modsecDefs.put("data_value", "TEXT");
         modsecDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         modsecDefs.put("detected_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
-        modsecDefs.put("server_name", "VARCHAR(100) NOT NULL DEFAULT 'default'");
         // 旧カラム名からの移行
         var modsecMigrate = new java.util.HashMap<String, String>();
         modsecMigrate.put("msg", "message");
         modsecMigrate.put("data", "data_value");
-        autoSyncTableColumns(dbService, "modsec_alerts", modsecDefs, modsecMigrate);
+        autoSyncTableColumns(dbSession, "modsec_alerts", modsecDefs, modsecMigrate);
 
         // servers
         var serversDefs = new java.util.LinkedHashMap<String, String>();
@@ -90,19 +90,20 @@ public class DbSchema {
         var serversMigrate = new java.util.HashMap<String, String>();
         serversMigrate.put("description", "server_description");
         serversMigrate.put("last_activity_at", "last_log_received");
-        autoSyncTableColumns(dbService, "servers", serversDefs, serversMigrate);
+        autoSyncTableColumns(dbSession, "servers", serversDefs, serversMigrate);
 
         // settings
         var settingsDefs = new java.util.LinkedHashMap<String, String>();
         settingsDefs.put("id", "INT PRIMARY KEY");
         settingsDefs.put("whitelist_mode", "BOOLEAN DEFAULT FALSE");
         settingsDefs.put("whitelist_ip", "VARCHAR(370) DEFAULT ''");
-        settingsDefs.put("backend_version", "VARCHAR(50) DEFAULT ''");
-        settingsDefs.put("frontend_version", "VARCHAR(50) DEFAULT ''");
-        settingsDefs.put("access_log_retention_days", "INT DEFAULT 365");
-        settingsDefs.put("login_history_retention_days", "INT DEFAULT 365");
-        settingsDefs.put("action_execution_log_retention_days", "INT DEFAULT 365");
-        autoSyncTableColumns(dbService, "settings", settingsDefs, null);
+        settingsDefs.put("log_retention_days", "INT DEFAULT 365");
+        // 旧カラム名からの移行
+        var settingsMigrate = new java.util.HashMap<String, String>();
+        settingsMigrate.put("access_log_retention_days", "log_retention_days");
+        settingsMigrate.put("login_history_retention_days", "log_retention_days");
+        settingsMigrate.put("action_execution_log_retention_days", "log_retention_days");
+        autoSyncTableColumns(dbSession, "settings", settingsDefs, settingsMigrate);
 
         // users
         var usersDefs = new java.util.LinkedHashMap<String, String>();
@@ -114,7 +115,7 @@ public class DbSchema {
         usersDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         usersDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
         usersDefs.put("is_active", "BOOLEAN DEFAULT TRUE");
-        autoSyncTableColumns(dbService, "users", usersDefs, null);
+        autoSyncTableColumns(dbSession, "users", usersDefs, null);
 
         // roles
         var rolesDefs = new java.util.LinkedHashMap<String, String>();
@@ -123,7 +124,7 @@ public class DbSchema {
         rolesDefs.put("description", "TEXT");
         rolesDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         rolesDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
-        autoSyncTableColumns(dbService, "roles", rolesDefs, null);
+        autoSyncTableColumns(dbSession, "roles", rolesDefs, null);
 
         // login_history
         var loginHistoryDefs = new java.util.LinkedHashMap<String, String>();
@@ -133,7 +134,7 @@ public class DbSchema {
         loginHistoryDefs.put("ip_address", "VARCHAR(45) NOT NULL");
         loginHistoryDefs.put("user_agent", "TEXT");
         loginHistoryDefs.put("success", "BOOLEAN NOT NULL DEFAULT TRUE");
-        autoSyncTableColumns(dbService, "login_history", loginHistoryDefs, null);
+        autoSyncTableColumns(dbSession, "login_history", loginHistoryDefs, null);
 
         // sessions
         var sessionsDefs = new java.util.LinkedHashMap<String, String>();
@@ -141,7 +142,7 @@ public class DbSchema {
         sessionsDefs.put("username", "VARCHAR(255) NOT NULL");
         sessionsDefs.put("expires_at", "DATETIME NOT NULL");
         sessionsDefs.put("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
-        autoSyncTableColumns(dbService, "sessions", sessionsDefs, null);
+        autoSyncTableColumns(dbSession, "sessions", sessionsDefs, null);
 
         // action_execution_log
         var actionExecutionLogDefs = new java.util.LinkedHashMap<String, String>();
@@ -153,7 +154,7 @@ public class DbSchema {
         actionExecutionLogDefs.put("execution_result", "TEXT");
         actionExecutionLogDefs.put("execution_time", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
         actionExecutionLogDefs.put("processing_duration_ms", "INT");
-        autoSyncTableColumns(dbService, "action_execution_log", actionExecutionLogDefs, null);
+        autoSyncTableColumns(dbSession, "action_execution_log", actionExecutionLogDefs, null);
 
         // エージェント管理用テーブル
 
@@ -181,7 +182,7 @@ public class DbSchema {
         var agentServersMigrate = new java.util.HashMap<String, String>();
         agentServersMigrate.put("server_name", "agent_name");
         agentServersMigrate.put("server_ip", "agent_ip");
-        autoSyncTableColumns(dbService, "agent_servers", agentServersDefs, agentServersMigrate);
+        autoSyncTableColumns(dbSession, "agent_servers", agentServersDefs, agentServersMigrate);
 
         // agent_block_requests - エージェントブロック要求管理
         var agentBlockRequestsDefs = new java.util.LinkedHashMap<String, String>();
@@ -196,7 +197,7 @@ public class DbSchema {
         agentBlockRequestsDefs.put("created_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
         agentBlockRequestsDefs.put("processed_at", "TIMESTAMP NULL");
         agentBlockRequestsDefs.put("result_message", "TEXT");
-        autoSyncTableColumns(dbService, "agent_block_requests", agentBlockRequestsDefs, null);
+        autoSyncTableColumns(dbSession, "agent_block_requests", agentBlockRequestsDefs, null);
 
         // action_tools - アクション実行ツール定義
         var actionToolsDefs = new java.util.LinkedHashMap<String, String>();
@@ -208,7 +209,7 @@ public class DbSchema {
         actionToolsDefs.put("description", "TEXT");
         actionToolsDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         actionToolsDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
-        autoSyncTableColumns(dbService, "action_tools", actionToolsDefs, null);
+        autoSyncTableColumns(dbSession, "action_tools", actionToolsDefs, null);
 
         // action_rules - アクション自動実行ルール管理
         var actionRulesDefs = new java.util.LinkedHashMap<String, String>();
@@ -225,16 +226,21 @@ public class DbSchema {
         actionRulesDefs.put("execution_count", "INT DEFAULT 0");
         actionRulesDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         actionRulesDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
-        autoSyncTableColumns(dbService, "action_rules", actionRulesDefs, null);
+        autoSyncTableColumns(dbSession, "action_rules", actionRulesDefs, null);
 
         AppLogger.log("エージェント管理用テーブルのスキーマ同期が完了しました", "INFO");
     }
 
     /**
-     * 任意テーブルの理想カラム定義と現状を比較し、自動同期を実行（DbService使用）
+     * 指定テーブルのカラム構成を自動同期
+     * @param dbSession データベースセッション
+     * @param tableName テーブル名
+     * @param columnDefs カラム定義Map
+     * @param migrateMap カラム移行Map（旧カラム名→新カラム名）
+     * @throws SQLException SQL例外
      */
-    public static void autoSyncTableColumns(DbService dbService, String tableName, java.util.Map<String, String> idealColumnDefs, java.util.Map<String, String> migrateMap) throws SQLException {
-        dbService.getSession().execute(conn -> {
+    private static void autoSyncTableColumns(DbSession dbSession, String tableName, java.util.Map<String, String> columnDefs, java.util.Map<String, String> migrateMap) throws SQLException {
+        dbSession.execute(conn -> {
             try {
                 // ①テーブル存在チェック
                 if (!tableExists(conn, tableName)) {
@@ -242,7 +248,7 @@ public class DbSchema {
                     StringBuilder sb = new StringBuilder();
                     sb.append("CREATE TABLE ").append(tableName).append(" (");
                     int i = 0;
-                    for (var entry : idealColumnDefs.entrySet()) {
+                    for (var entry : columnDefs.entrySet()) {
                         if (i > 0) sb.append(", ");
                         sb.append(entry.getKey()).append(" ").append(entry.getValue());
                         i++;
@@ -259,34 +265,34 @@ public class DbSchema {
                 }
                 // ③既存カラム一覧取得
                 var existingColumns = getTableColumns(conn, tableName);
-                var idealColumns = idealColumnDefs.keySet();
+                var idealColumns = columnDefs.keySet();
                 // ④カラム差分判定（追加・削除）
                 var diff = compareTableColumns(existingColumns, new java.util.HashSet<>(idealColumns));
                 // ⑤不足カラム追加
-                addMissingColumns(dbService, tableName, diff.get("add"), idealColumnDefs);
+                addMissingColumns(dbSession, tableName, diff.get("add"), columnDefs);
                 // ⑥カラム移行（必要な場合のみ）
                 if (migrateMap != null) {
                     for (var entry : migrateMap.entrySet()) {
                         String fromCol = entry.getKey();
                         String toCol = entry.getValue();
                         if (existingColumns.contains(fromCol) && idealColumns.contains(toCol)) {
-                            migrateColumnData(dbService, tableName, tableName, fromCol, toCol);
+                            migrateColumnData(dbSession, tableName, tableName, fromCol, toCol);
                         }
                     }
                 }
                 // ⑦不要カラム削除
-                dropExtraColumns(dbService, tableName, diff.get("delete"));
+                dropExtraColumns(dbSession, tableName, diff.get("delete"));
                 // ⑧型の大きさ・型違いを自動で修正（matchedカラムのみ）
-                alterColumnTypeIfNeeded(dbService, tableName, idealColumnDefs, diff.get("matched"));
+                alterColumnTypeIfNeeded(dbSession, tableName, columnDefs, diff.get("matched"));
             } catch (SQLException e) {
-                AppLogger.log("テーブル同期でエラー: " + e.getMessage(), "ERROR");
+                AppLogger.error("テーブル " + tableName + " のスキーマ同期エラー: " + e.getMessage());
                 throw new RuntimeException(e);
             }
         });
     }
 
     /**
-     * テーブルが存在するかチェック
+     * テーブル存在確認
      */
     private static boolean tableExists(Connection conn, String tableName) throws SQLException {
         try (PreparedStatement pstmt = conn.prepareStatement("SHOW TABLES LIKE ?")) {
@@ -297,7 +303,7 @@ public class DbSchema {
     }
 
     /**
-     * テーブルにカラムを追加
+     * テーブル作成
      */
     private static void addColumn(Connection conn, String tableName, String columnName, String columnDef) throws SQLException {
         String sql = String.format("ALTER TABLE %s ADD COLUMN %s %s", tableName, columnName, columnDef);
@@ -340,8 +346,8 @@ public class DbSchema {
     /**
      * テーブルに不足カラムを追加
      */
-    private static void addMissingColumns(DbService dbService, String tableName, java.util.Set<String> columnsToAdd, java.util.Map<String, String> columnDefs) throws SQLException {
-        dbService.getSession().execute(conn -> {
+    private static void addMissingColumns(DbSession dbSession, String tableName, java.util.Set<String> columnsToAdd, java.util.Map<String, String> columnDefs) throws SQLException {
+        dbSession.execute(conn -> {
             try {
                 for (String col : columnsToAdd) {
                     if (columnDefs.containsKey(col)) {
@@ -358,8 +364,8 @@ public class DbSchema {
     /**
      * テーブルから不要カラムを削除
      */
-    private static void dropExtraColumns(DbService dbService, String tableName, java.util.Set<String> columnsToDelete) throws SQLException {
-        dbService.getSession().execute(conn -> {
+    private static void dropExtraColumns(DbSession dbService, String tableName, java.util.Set<String> columnsToDelete) throws SQLException {
+        dbService.execute(conn -> {
             try {
                 for (String col : columnsToDelete) {
                     try (Statement stmt = conn.createStatement()) {
@@ -376,8 +382,8 @@ public class DbSchema {
     /**
      * カラムデータ移行（旧カラム→新カラム、移行元テーブル指定可）
      */
-    private static void migrateColumnData(DbService dbService, String toTable, String fromTable, String fromCol, String toCol) throws SQLException {
-        dbService.getSession().execute(conn -> {
+    private static void migrateColumnData(DbSession dbSession, String toTable, String fromTable, String fromCol, String toCol) throws SQLException {
+        dbSession.execute(conn -> {
             try {
                 String sql;
                 if (toTable.equals(fromTable)) {
@@ -401,8 +407,8 @@ public class DbSchema {
     /**
      * テーブルのカラム型の違いを検出し、型や大きさが異なる場合はALTER TABLEで型を修正する
      */
-    private static void alterColumnTypeIfNeeded(DbService dbService, String tableName, java.util.Map<String, String> idealColumnDefs, java.util.Set<String> targetColumns) throws SQLException {
-        dbService.getSession().execute(conn -> {
+    private static void alterColumnTypeIfNeeded(DbSession dbSession, String tableName, java.util.Map<String, String> idealColumnDefs, java.util.Set<String> targetColumns) throws SQLException {
+        dbSession.execute(conn -> {
             String sql = "SHOW COLUMNS FROM " + tableName;
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                 ResultSet rs = pstmt.executeQuery();
@@ -743,3 +749,4 @@ public class DbSchema {
     }
 
 }
+

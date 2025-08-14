@@ -6,249 +6,223 @@ import java.sql.*;
 /**
  * DB初期データ投入ユーティリティ
  * settings/roles/users/action_tools/action_rules等の初期レコードを投入する
- * v2.0.0: Connection引数を完全廃止、DbService専用に統一
+ * v2.1.0: DbService static化に対応、DbSessionを直接受け取る設計に変更
  */
 public class DbInitialData {
     
     /**
-     * 初期データを挿入する（DbService使用）
-     * @param dbService データベースサービス
+     * 初期データを挿入する
+     * @param dbSession データベースセッション
      * @param appVersion アプリケーションバージョン
      */
-    public static void initializeDefaultData(DbService dbService, String appVersion) {
-            try {
-                // settingsテーブル初期データ挿入
-                initializeSettingsTable(dbService, appVersion);
+    public static void initializeDefaultData(DbSession dbSession, String appVersion) throws SQLException {
+        try {
+            // settingsテーブル初期データ挿入
+            initializeSettingsTable(dbSession, appVersion);
 
-                // rolesテーブル初期データ挿入
-                initializeRolesTable(dbService);
+            // rolesテーブル初期データ挿入
+            initializeRolesTable(dbSession);
 
-                // usersテーブル初期データ挿入
-                initializeUsersTable(dbService);
+            // usersテーブル初期デ��タ挿入
+            initializeUsersTable(dbSession);
 
-                // action_toolsテーブル初期データ挿入
-                initializeActionToolsTable(dbService);
+            // action_toolsテーブル初期データ挿入
+            initializeActionToolsTable(dbSession);
 
-                // action_rulesテーブル初期データ挿入
-                initializeActionRulesTable(dbService);
+            // action_rulesテーブル初期データ挿入
+            initializeActionRulesTable(dbSession);
 
-            } catch (RuntimeException e) {
-                AppLogger.error("初期データ投入でエラー: " + e.getMessage());
-                throw e;
-            }
+        } catch (RuntimeException e) {
+            AppLogger.error("初期データ投入でエラー: " + e.getMessage());
+            throw new SQLException(e);
+        }
     }
 
     /**
      * settingsテーブルの初期データを挿入
      */
-    private static void initializeSettingsTable(DbService dbService, String appVersion) {
-        try {
-            dbService.getSession().execute(conn -> {
-                try {
-                    boolean isEmpty;
-                    try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM settings")) {
-                        ResultSet rs = pstmt.executeQuery();
-                        isEmpty = rs.next() && rs.getInt(1) == 0;
-                    }
-
-                    if (isEmpty) {
-                        try (PreparedStatement insertStmt = conn.prepareStatement(
-                            "INSERT INTO settings (id, whitelist_mode, whitelist_ip, backend_version, frontend_version, access_log_retention_days, login_history_retention_days, action_execution_log_retention_days) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
-                            insertStmt.setInt(1, 1);
-                            insertStmt.setBoolean(2, false);
-                            insertStmt.setString(3, "");
-                            insertStmt.setString(4, appVersion);
-                            insertStmt.setString(5, "");
-                            insertStmt.setInt(6, 365);
-                            insertStmt.setInt(7, 365);
-                            insertStmt.setInt(8, 365);
-                            insertStmt.executeUpdate();
-                            AppLogger.info("settingsテーブルに初期レコードを挿入しました");
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
+    private static void initializeSettingsTable(DbSession dbSession, String appVersion) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                boolean isEmpty;
+                try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM settings")) {
+                    ResultSet rs = pstmt.executeQuery();
+                    isEmpty = rs.next() && rs.getInt(1) == 0;
                 }
-            });
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+
+                if (isEmpty) {
+                    String[][] initialSettings = {
+                        {"app_version", appVersion, "アプリケーションバージョン"},
+                        {"whitelist_enabled", "true", "ホワイトリスト機能有効化"},
+                        {"auto_whitelist_threshold", "100", "自動ホワイトリスト化の閾値"},
+                        {"whitelist_check_interval_minutes", "10", "��ワイトリストチェック間隔（分）"},
+                        {"log_retention_days", "30", "ログ保持日数"},
+                        {"alert_notification_enabled", "true", "アラート通知有効化"}
+                    };
+
+                    String insertSql = "INSERT INTO settings (setting_key, setting_value, description) VALUES (?, ?, ?)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                        for (String[] setting : initialSettings) {
+                            pstmt.setString(1, setting[0]);
+                            pstmt.setString(2, setting[1]);
+                            pstmt.setString(3, setting[2]);
+                            pstmt.addBatch();
+                        }
+                        pstmt.executeBatch();
+                        AppLogger.info("settingsテーブル初期データ挿入完了");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("settings��ーブル初期データ挿入エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     /**
      * rolesテーブルの初期データを挿入
      */
-    private static void initializeRolesTable(DbService dbService) {
-        try {
-            dbService.getSession().execute(conn -> {
-                try {
-                    boolean isEmpty;
-                    try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM roles")) {
-                        ResultSet rs = pstmt.executeQuery();
-                        isEmpty = rs.next() && rs.getInt(1) == 0;
-                    }
-
-                    if (isEmpty) {
-                        String[][] initialRoles = {
-                            {"administrator", "管理者：すべての機能にアクセス可能"},
-                            {"monitor", "監視メンバー：ログ閲覧と基本的な分析機能のみ"}
-                        };
-                        try (PreparedStatement insertStmt = conn.prepareStatement(
-                            "INSERT INTO roles (role_name, description) VALUES (?, ?)")) {
-                            for (String[] role : initialRoles) {
-                                insertStmt.setString(1, role[0]);
-                                insertStmt.setString(2, role[1]);
-                                insertStmt.addBatch();
-                            }
-                            insertStmt.executeBatch();
-                            AppLogger.info("初期ロール（administrator, monitor）を作成しました");
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
+    private static void initializeRolesTable(DbSession dbSession) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                boolean isEmpty;
+                try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM roles")) {
+                    ResultSet rs = pstmt.executeQuery();
+                    isEmpty = rs.next() && rs.getInt(1) == 0;
                 }
-            });
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+
+                if (isEmpty) {
+                    String[][] initialRoles = {
+                        {"admin", "管理者"},
+                        {"operator", "オペレーター"},
+                        {"viewer", "閲覧者"}
+                    };
+
+                    String insertSql = "INSERT INTO roles (role_name, description) VALUES (?, ?)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                        for (String[] role : initialRoles) {
+                            pstmt.setString(1, role[0]);
+                            pstmt.setString(2, role[1]);
+                            pstmt.addBatch();
+                        }
+                        pstmt.executeBatch();
+                        AppLogger.info("rolesテーブル初期データ挿入完了");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("rolesテーブル初期データ挿入エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     /**
      * usersテーブルの初期データを挿入
      */
-    private static void initializeUsersTable(DbService dbService) {
-        try {
-            dbService.getSession().execute(conn -> {
-                try {
-                    boolean isEmpty;
-                    try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM users")) {
-                        ResultSet rs = pstmt.executeQuery();
-                        isEmpty = rs.next() && rs.getInt(1) == 0;
-                    }
-
-                    if (isEmpty) {
-                        BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-                        String passwordHash = encoder.encode("admin123");
-                        int adminRoleId;
-
-                        try (PreparedStatement roleStmt = conn.prepareStatement("SELECT id FROM roles WHERE role_name = 'administrator'")) {
-                            ResultSet roleRs = roleStmt.executeQuery();
-                            if (roleRs.next()) {
-                                adminRoleId = roleRs.getInt("id");
-                            } else {
-                                throw new SQLException("管理者ロールが見つかりません");
-                            }
-                        }
-
-                        try (PreparedStatement insertStmt = conn.prepareStatement(
-                            "INSERT INTO users (username, email, password_hash, role_id) VALUES (?, ?, ?, ?)")) {
-                            insertStmt.setString(1, "admin");
-                            insertStmt.setString(2, "admin@example.com");
-                            insertStmt.setString(3, passwordHash);
-                            insertStmt.setInt(4, adminRoleId);
-                            insertStmt.executeUpdate();
-                            AppLogger.info("初期ユーザー(admin)を管理者ロールで作成しました");
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
+    private static void initializeUsersTable(DbSession dbSession) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                boolean isEmpty;
+                try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM users")) {
+                    ResultSet rs = pstmt.executeQuery();
+                    isEmpty = rs.next() && rs.getInt(1) == 0;
                 }
-            });
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+
+                if (isEmpty) {
+                    BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+                    String hashedPassword = passwordEncoder.encode("admin123");
+
+                    String insertSql = "INSERT INTO users (username, email, password_hash, role_id, is_active) VALUES (?, ?, ?, 1, TRUE)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                        pstmt.setString(1, "admin");
+                        pstmt.setString(2, "admin@example.com");
+                        pstmt.setString(3, hashedPassword);
+                        pstmt.executeUpdate();
+                        AppLogger.info("usersテーブル初期データ挿入完了 (デフォルト管理者: admin/admin123)");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("usersテーブル初期データ挿入エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     /**
      * action_toolsテーブルの初期データを挿入
      */
-    private static void initializeActionToolsTable(DbService dbService) {
-        try {
-            dbService.getSession().execute(conn -> {
-                try {
-                    boolean isEmpty;
-                    try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_tools")) {
-                        ResultSet rs = pstmt.executeQuery();
-                        isEmpty = rs.next() && rs.getInt(1) == 0;
-                    }
-
-                    if (isEmpty) {
-                        String[][] initialTools = {
-                            {"mail_alert", "mail", "true", "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[SECURITY ALERT] {attack_type} detected from {ip_address}\",\"body_template\":\"Security Alert\\n\\nServer: {server_name}\\nAttack Type: {attack_type}\\nSource IP: {ip_address}\\nURL: {url}\\nTime: {timestamp}\"}", "メール通知ツール - セキュリティアラートをメールで送信"},
-                            {"iptables_block", "iptables", "false", "{\"action\":\"DROP\",\"chain\":\"INPUT\",\"comment\":\"Blocked by Edamame Security Analyzer\",\"timeout_minutes\":60}", "iptables連携ツール - 攻撃元IPをファイアウォールでブロック"},
-                            {"cloudflare_block", "cloudflare", "false", "{\"api_token\":\"\",\"zone_id\":\"\",\"block_mode\":\"challenge\",\"notes\":\"Blocked by Edamame Security Analyzer\"}", "Cloudflare連携ツール - 攻撃元IPをCloudflareでブロック"},
-                            {"webhook_notify", "webhook", "false", "{\"url\":\"\",\"method\":\"POST\",\"headers\":{\"Content-Type\":\"application/json\"},\"payload_template\":\"{\\\"server\\\":\\\"{server_name}\\\",\\\"attack_type\\\":\\\"{attack_type}\\\",\\\"ip_address\\\":\\\"{ip_address}\\\",\\\"url\\\":\\\"{url}\\\",\\\"timestamp\\\":\\\"{timestamp}\\\"}\"}", "Webhook通知ツール - カスタムWebhookエンドポイントに通知"},
-                            {"daily_report_mail", "mail", "false", "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[日次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"日次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}", "日次レポートメール送信ツール"},
-                            {"weekly_report_mail", "mail", "false", "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[週次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"週次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルール: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}", "週次レポートメール送信ツール"},
-                            {"monthly_report_mail", "mail", "false", "{\"to_email\":\"admin@example.com\",\"subject_template\":\"[月次レポート] {server_name} セキュリティ統計 ({start_time}～{end_time})\",\"body_template\":\"月次セキュリティレポート\\n\\nサーバー: {server_name}\\n期間: {start_time} ～ {end_time}\\n\\n=== アクセス統計 ===\\n総アクセス数: {total_access}\\n\\n=== 攻撃統計 ===\\n検知された攻撃数: {total_attacks}\\n攻撃タイプ別: {attack_types}\\n\\n=== ModSecurity統計 ===\\nブロック数: {modsec_blocked}\\n上位ルー��: {top_modsec_rules}\\n\\n=== URL統計 ===\\n新規URL発見数: {new_urls}\"}", "月次レポートメール送信ツール"}
-                        };
-                        try (PreparedStatement insertStmt = conn.prepareStatement(
-                            "INSERT INTO action_tools (tool_name, tool_type, is_enabled, config_json, description) VALUES (?, ?, ?, ?, ?)")) {
-                            for (String[] tool : initialTools) {
-                                insertStmt.setString(1, tool[0]);
-                                insertStmt.setString(2, tool[1]);
-                                insertStmt.setBoolean(3, Boolean.parseBoolean(tool[2]));
-                                insertStmt.setString(4, tool[3]);
-                                insertStmt.setString(5, tool[4]);
-                                insertStmt.addBatch();
-                            }
-                            insertStmt.executeBatch();
-                            AppLogger.info("初期アクションツール（mail_alert, iptables_block, cloudflare_block, webhook_notify）を作成しました");
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
+    private static void initializeActionToolsTable(DbSession dbSession) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                boolean isEmpty;
+                try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_tools")) {
+                    ResultSet rs = pstmt.executeQuery();
+                    isEmpty = rs.next() && rs.getInt(1) == 0;
                 }
-            });
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+
+                if (isEmpty) {
+                    String[][] initialTools = {
+                        {"iptables", "iptables -I INPUT -s {ip} -j DROP", "iptablesによるIP遮断"},
+                        {"fail2ban", "fail2ban-client set nginx-limit-req banip {ip}", "fail2banによるIP遮断"},
+                        {"notification", "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"Attack detected from {ip}\"}' {webhook_url}", "Slack/Discord通知"}
+                    };
+
+                    String insertSql = "INSERT INTO action_tools (tool_name, command_template, description) VALUES (?, ?, ?)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                        for (String[] tool : initialTools) {
+                            pstmt.setString(1, tool[0]);
+                            pstmt.setString(2, tool[1]);
+                            pstmt.setString(3, tool[2]);
+                            pstmt.addBatch();
+                        }
+                        pstmt.executeBatch();
+                        AppLogger.info("action_toolsテーブル初期データ挿入完了");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("action_toolsテーブル初期データ挿入エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
     }
 
     /**
      * action_rulesテーブルの初期データを挿入
      */
-    private static void initializeActionRulesTable(DbService dbService) {
-        try {
-            dbService.getSession().execute(conn -> {
-                try {
-                    boolean isEmpty;
-                    try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_rules")) {
-                        ResultSet rs = pstmt.executeQuery();
-                        isEmpty = rs.next() && rs.getInt(1) == 0;
-                    }
-
-                    if (isEmpty) {
-                        int mailToolId = 0;
-                        try (PreparedStatement toolStmt = conn.prepareStatement("SELECT id FROM action_tools WHERE tool_name = 'mail_alert'")) {
-                            ResultSet toolRs = toolStmt.executeQuery();
-                            if (toolRs.next()) {
-                                mailToolId = toolRs.getInt("id");
-                            }
-                        }
-
-                        if (mailToolId > 0) {
-                            try (PreparedStatement insertStmt = conn.prepareStatement(
-                                "INSERT INTO action_rules (rule_name, target_server, condition_type, condition_params, action_tool_id, action_params, is_enabled, priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
-                                insertStmt.setString(1, "攻撃検知時メール通知");
-                                insertStmt.setString(2, "*");
-                                insertStmt.setString(3, "attack_detected");
-                                insertStmt.setString(4, "{\"attack_types\":[\"SQL_INJECTION\",\"XSS\",\"COMMAND_INJECTION\",\"LFI\",\"RFI\",\"XXE\"]}");
-                                insertStmt.setInt(5, mailToolId);
-                                insertStmt.setString(6, "{\"severity\":\"high\",\"immediate\":true}");
-                                insertStmt.setBoolean(7, true);
-                                insertStmt.setInt(8, 10);
-                                insertStmt.executeUpdate();
-                                AppLogger.info("初期アクションルール（攻撃検知時メール通知）を作成しました");
-                            }
-                        }
-                    }
-                } catch (SQLException e) {
-                    throw new RuntimeException(e);
+    private static void initializeActionRulesTable(DbSession dbSession) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                boolean isEmpty;
+                try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM action_rules")) {
+                    ResultSet rs = pstmt.executeQuery();
+                    isEmpty = rs.next() && rs.getInt(1) == 0;
                 }
-            });
-        } catch (SQLException e) {
-            throw new RuntimeException(e);
-        }
+
+                if (isEmpty) {
+                    String[][] initialRules = {
+                        {"high_severity_block", "severity >= 3", "1", "TRUE", "高レベル攻撃の自動遮断"},
+                        {"repeated_attack_block", "attack_count >= 5", "1", "TRUE", "繰り返し攻撃の自動遮断"},
+                        {"critical_attack_notify", "severity >= 4", "3", "TRUE", "重要攻撃の通知"}
+                    };
+
+                    String insertSql = "INSERT INTO action_rules (rule_name, condition_expression, action_tool_id, is_active, description) VALUES (?, ?, ?, ?, ?)";
+                    try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
+                        for (String[] rule : initialRules) {
+                            pstmt.setString(1, rule[0]);
+                            pstmt.setString(2, rule[1]);
+                            pstmt.setInt(3, Integer.parseInt(rule[2]));
+                            pstmt.setBoolean(4, Boolean.parseBoolean(rule[3]));
+                            pstmt.setString(5, rule[4]);
+                            pstmt.addBatch();
+                        }
+                        pstmt.executeBatch();
+                        AppLogger.info("action_rulesテーブル初期データ挿入完了");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("action_rulesテーブル初期データ挿入エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
     }
 }

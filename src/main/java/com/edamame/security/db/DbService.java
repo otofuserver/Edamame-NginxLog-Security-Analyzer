@@ -9,19 +9,58 @@ import java.util.Properties;
 import java.util.function.Consumer;
 
 /**
- * データベース操作の統合サービスクラス
- * DbSessionを内部で管理し、従来のConnection引数なしでDB操��を提供
+ * データベース操作の統合サービスクラス（Static版）
+ * グローバルなDbSessionを管理し、staticメソッドでDB操作を提供
+ * 1つのDBにのみアクセスすることを前提とした設計
  */
-public class DbService implements AutoCloseable {
-    private final DbSession session;
+public final class DbService {
+    private static DbSession globalSession;
+    private static boolean initialized = false;
+
+    // staticクラスのためコンストラクタを非公開
+    private DbService() {}
 
     /**
-     * コンストラクタ
+     * DbServiceを初期化（アプリケーション起動時に1回だけ呼び出し）
      * @param url データベースURL
      * @param properties 接続プロパティ
+     * @throws IllegalStateException 既に初期化済みの場合
      */
-    public DbService(String url, Properties properties) {
-        this.session = new DbSession(url, properties);
+    public static synchronized void initialize(String url, Properties properties) {
+        if (initialized) {
+            throw new IllegalStateException("DbService is already initialized");
+        }
+        globalSession = new DbSession(url, properties);
+        initialized = true;
+    }
+
+    /**
+     * DbServiceが初期化済みかチェック
+     * @return 初期化済みの場合true
+     */
+    public static boolean isInitialized() {
+        return initialized;
+    }
+
+    /**
+     * DbServiceをシャットダウン（アプリケーション終了時に呼び出し）
+     */
+    public static synchronized void shutdown() {
+        if (globalSession != null) {
+            globalSession.close();
+            globalSession = null;
+        }
+        initialized = false;
+    }
+
+    /**
+     * 初期化チェック（内部使用）
+     * @throws IllegalStateException 未初期化の場合
+     */
+    private static void checkInitialized() {
+        if (!initialized || globalSession == null) {
+            throw new IllegalStateException("DbService is not initialized. Call DbService.initialize() first.");
+        }
     }
 
     // ============= SELECT操作 =============
@@ -32,8 +71,9 @@ public class DbService implements AutoCloseable {
      * @return サーバー情報（Optional）
      * @throws SQLException SQL例外
      */
-    public Optional<DbSelect.ServerInfo> selectServerInfoByName(String serverName) throws SQLException {
-        return DbSelect.selectServerInfoByName(this, serverName);
+    public static Optional<DbSelect.ServerInfo> selectServerInfoByName(String serverName) throws SQLException {
+        checkInitialized();
+        return DbSelect.selectServerInfoByName(globalSession, serverName);
     }
 
     /**
@@ -42,8 +82,9 @@ public class DbService implements AutoCloseable {
      * @return 存在すればtrue
      * @throws SQLException SQL例外
      */
-    public boolean existsServerByName(String serverName) throws SQLException {
-        return DbSelect.existsServerByName(this, serverName);
+    public static boolean existsServerByName(String serverName) throws SQLException {
+        checkInitialized();
+        return DbSelect.existsServerByName(globalSession, serverName);
     }
 
     /**
@@ -53,8 +94,9 @@ public class DbService implements AutoCloseable {
      * @return ブロック要求リスト
      * @throws SQLException SQL例外
      */
-    public List<Map<String, Object>> selectPendingBlockRequests(String registrationId, int limit) throws SQLException {
-        return DbSelect.selectPendingBlockRequests(this, registrationId, limit);
+    public static List<Map<String, Object>> selectPendingBlockRequests(String registrationId, int limit) throws SQLException {
+        checkInitialized();
+        return DbSelect.selectPendingBlockRequests(globalSession, registrationId, limit);
     }
 
     /**
@@ -62,8 +104,9 @@ public class DbService implements AutoCloseable {
      * @return ホワイトリスト設定Map
      * @throws SQLException SQL例外
      */
-    public Map<String, Object> selectWhitelistSettings() throws SQLException {
-        return DbSelect.selectWhitelistSettings(this);
+    public static Map<String, Object> selectWhitelistSettings() throws SQLException {
+        checkInitialized();
+        return DbSelect.selectWhitelistSettings(globalSession);
     }
 
     /**
@@ -74,8 +117,9 @@ public class DbService implements AutoCloseable {
      * @return 存在すればtrue
      * @throws SQLException SQL例外
      */
-    public boolean existsUrlRegistryEntry(String serverName, String method, String fullUrl) throws SQLException {
-        return DbSelect.existsUrlRegistryEntry(this, serverName, method, fullUrl);
+    public static boolean existsUrlRegistryEntry(String serverName, String method, String fullUrl) throws SQLException {
+        checkInitialized();
+        return DbSelect.existsUrlRegistryEntry(globalSession, serverName, method, fullUrl);
     }
 
     /**
@@ -86,8 +130,9 @@ public class DbService implements AutoCloseable {
      * @return is_whitelisted値
      * @throws SQLException SQL例外
      */
-    public Boolean selectIsWhitelistedFromUrlRegistry(String serverName, String method, String fullUrl) throws SQLException {
-        return DbSelect.selectIsWhitelistedFromUrlRegistry(this, serverName, method, fullUrl);
+    public static Boolean selectIsWhitelistedFromUrlRegistry(String serverName, String method, String fullUrl) throws SQLException {
+        checkInitialized();
+        return DbSelect.selectIsWhitelistedFromUrlRegistry(globalSession, serverName, method, fullUrl);
     }
 
     /**
@@ -96,21 +141,23 @@ public class DbService implements AutoCloseable {
      * @return アクセスログのリスト
      * @throws SQLException SQL例外
      */
-    public List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(int minutes) throws SQLException {
-        return DbSelect.selectRecentAccessLogsForModSecMatching(this, minutes);
+    public static List<Map<String, Object>> selectRecentAccessLogsForModSecMatching(int minutes) throws SQLException {
+        checkInitialized();
+        return DbSelect.selectRecentAccessLogsForModSecMatching(globalSession, minutes);
     }
 
     // ============= UPDATE操作（DbUpdateに委譲） =============
 
     /**
      * サーバー情報を更新
-     * @param serverName サーバー名
+     * @param serverName サーバー��
      * @param description サーバーの説明
      * @param logPath ログファイルパス
      * @throws SQLException SQL例外
      */
-    public void updateServerInfo(String serverName, String description, String logPath) throws SQLException {
-        DbUpdate.updateServerInfo(this, serverName, description, logPath);
+    public static void updateServerInfo(String serverName, String description, String logPath) throws SQLException {
+        checkInitialized();
+        DbUpdate.updateServerInfo(globalSession, serverName, description, logPath);
     }
 
     /**
@@ -118,8 +165,9 @@ public class DbService implements AutoCloseable {
      * @param serverName サーバー名
      * @throws SQLException SQL例外
      */
-    public void updateServerLastLogReceived(String serverName) throws SQLException {
-        DbUpdate.updateServerLastLogReceived(this, serverName);
+    public static void updateServerLastLogReceived(String serverName) throws SQLException {
+        checkInitialized();
+        DbUpdate.updateServerLastLogReceived(globalSession, serverName);
     }
 
     /**
@@ -128,8 +176,9 @@ public class DbService implements AutoCloseable {
      * @return 更新された行数
      * @throws SQLException SQL例外
      */
-    public int updateAgentHeartbeat(String registrationId) throws SQLException {
-        return DbUpdate.updateAgentHeartbeat(this, registrationId);
+    public static int updateAgentHeartbeat(String registrationId) throws SQLException {
+        checkInitialized();
+        return DbUpdate.updateAgentHeartbeat(globalSession, registrationId);
     }
 
     /**
@@ -139,8 +188,9 @@ public class DbService implements AutoCloseable {
      * @return 更新された行数
      * @throws SQLException SQL例外
      */
-    public int updateAgentLogStats(String registrationId, int logCount) throws SQLException {
-        return DbUpdate.updateAgentLogStats(this, registrationId, logCount);
+    public static int updateAgentLogStats(String registrationId, int logCount) throws SQLException {
+        checkInitialized();
+        return DbUpdate.updateAgentLogStats(globalSession, registrationId, logCount);
     }
 
     /**
@@ -150,8 +200,9 @@ public class DbService implements AutoCloseable {
      * @return 更新された行数
      * @throws SQLException SQL例外
      */
-    public int updateAccessLogModSecStatus(Long accessLogId, boolean blockedByModSec) throws SQLException {
-        return DbUpdate.updateAccessLogModSecStatus(this, accessLogId, blockedByModSec);
+    public static int updateAccessLogModSecStatus(Long accessLogId, boolean blockedByModSec) throws SQLException {
+        checkInitialized();
+        return DbUpdate.updateAccessLogModSecStatus(globalSession, accessLogId, blockedByModSec);
     }
 
     /**
@@ -160,16 +211,18 @@ public class DbService implements AutoCloseable {
      * @return 更新された行数
      * @throws SQLException SQL例外
      */
-    public int deactivateAgent(String registrationId) throws SQLException {
-        return DbUpdate.deactivateAgent(this, registrationId);
+    public static int deactivateAgent(String registrationId) throws SQLException {
+        checkInitialized();
+        return DbUpdate.deactivateAgent(globalSession, registrationId);
     }
 
     /**
      * 全アクティブエージェントをinactive状態に変更
      * @throws SQLException SQL例外
      */
-    public void deactivateAllAgents() throws SQLException {
-        DbUpdate.deactivateAllAgents(this);
+    public static void deactivateAllAgents() throws SQLException {
+        checkInitialized();
+        DbUpdate.deactivateAllAgents(globalSession);
     }
 
     /**
@@ -180,11 +233,12 @@ public class DbService implements AutoCloseable {
      * @return 更新された行数
      * @throws SQLException SQL例外
      */
-    public int updateUrlWhitelistStatus(String serverName, String method, String fullUrl) throws SQLException {
-        return DbUpdate.updateUrlWhitelistStatus(this, serverName, method, fullUrl);
+    public static int updateUrlWhitelistStatus(String serverName, String method, String fullUrl) throws SQLException {
+        checkInitialized();
+        return DbUpdate.updateUrlWhitelistStatus(globalSession, serverName, method, fullUrl);
     }
 
-    // ============= INSERT/REGISTRY操作（DbRegistryに委譲） =============
+    // ============= INSERT/REGISTRY操作（DbRegistry���委譲） =============
 
     /**
      * サーバー情報を登録または更新
@@ -193,8 +247,9 @@ public class DbService implements AutoCloseable {
      * @param logPath ログファイルパス
      * @throws SQLException SQL例外
      */
-    public void registerOrUpdateServer(String serverName, String description, String logPath) throws SQLException {
-        DbRegistry.registerOrUpdateServer(this, serverName, description, logPath);
+    public static void registerOrUpdateServer(String serverName, String description, String logPath) throws SQLException {
+        checkInitialized();
+        DbRegistry.registerOrUpdateServer(globalSession, serverName, description, logPath);
     }
 
     /**
@@ -203,8 +258,9 @@ public class DbService implements AutoCloseable {
      * @return 登録ID（成功時）、null（失敗時）
      * @throws SQLException SQL例外
      */
-    public String registerOrUpdateAgent(Map<String, Object> serverInfo) throws SQLException {
-        return DbRegistry.registerOrUpdateAgent(this, serverInfo);
+    public static String registerOrUpdateAgent(Map<String, Object> serverInfo) throws SQLException {
+        checkInitialized();
+        return DbRegistry.registerOrUpdateAgent(globalSession, serverInfo);
     }
 
     /**
@@ -213,8 +269,9 @@ public class DbService implements AutoCloseable {
      * @return 登録されたaccess_logのID、失敗時はnull
      * @throws SQLException SQL例外
      */
-    public Long insertAccessLog(Map<String, Object> parsedLog) throws SQLException {
-        return DbRegistry.insertAccessLog(this, parsedLog);
+    public static Long insertAccessLog(Map<String, Object> parsedLog) throws SQLException {
+        checkInitialized();
+        return DbRegistry.insertAccessLog(globalSession, parsedLog);
     }
 
     /**
@@ -227,8 +284,9 @@ public class DbService implements AutoCloseable {
      * @return 登録成功時はtrue
      * @throws SQLException SQL例外
      */
-    public boolean registerUrlRegistryEntry(String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType) throws SQLException {
-        return DbRegistry.registerUrlRegistryEntry(this, serverName, method, fullUrl, isWhitelisted, attackType);
+    public static boolean registerUrlRegistryEntry(String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType) throws SQLException {
+        checkInitialized();
+        return DbRegistry.registerUrlRegistryEntry(globalSession, serverName, method, fullUrl, isWhitelisted, attackType);
     }
 
     /**
@@ -237,8 +295,9 @@ public class DbService implements AutoCloseable {
      * @param modSecInfo ModSecurity情報Map
      * @throws SQLException SQL例外
      */
-    public void insertModSecAlert(Long accessLogId, Map<String, Object> modSecInfo) throws SQLException {
-        DbRegistry.insertModSecAlert(this, accessLogId, modSecInfo);
+    public static void insertModSecAlert(Long accessLogId, Map<String, Object> modSecInfo) throws SQLException {
+        checkInitialized();
+        DbRegistry.insertModSecAlert(globalSession, accessLogId, modSecInfo);
     }
 
     // ============= スキーマ・初期化操作 =============
@@ -247,8 +306,9 @@ public class DbService implements AutoCloseable {
      * 全テーブルのスキーマ自動同期
      * @throws SQLException SQL例外
      */
-    public void syncAllTablesSchema() throws SQLException {
-        DbSchema.syncAllTablesSchema(this);
+    public static void syncAllTablesSchema() throws SQLException {
+        checkInitialized();
+        DbSchema.syncAllTablesSchema(globalSession);
     }
 
     /**
@@ -256,18 +316,20 @@ public class DbService implements AutoCloseable {
      * @param appVersion アプリケーションバージョン
      * @throws SQLException SQL例外
      */
-    public void initializeDefaultData(String appVersion) throws SQLException {
-        DbInitialData.initializeDefaultData(this, appVersion);
+    public static void initializeDefaultData(String appVersion) throws SQLException {
+        checkInitialized();
+        DbInitialData.initializeDefaultData(globalSession, appVersion);
     }
 
     /**
      * ログ自動削除バッチ処理
      */
-    public void runLogCleanupBatch() {
+    public static void runLogCleanupBatch() {
         try {
-            DbDelete.runLogCleanupBatch(this);
-        } finally {
-            // 例外は上位でハンドリング、catch不要
+            checkInitialized();
+            DbDelete.runLogCleanupBatch(globalSession);
+        } catch (Exception e) {
+            // 例外は上位でハンドリング、ログ出力のみ
         }
     }
 
@@ -275,14 +337,13 @@ public class DbService implements AutoCloseable {
 
     /**
      * トランザクション内で複数のDB操作を実行
-     * @param operations DB操作のリスト
+     * @param operations DB操作のラムダ式
      * @throws SQLException SQL例外
      */
-    public void executeInTransaction(Runnable operations) throws SQLException {
-        session.executeInTransaction((Consumer<Connection>) conn -> operations.run());
+    public static void executeInTransaction(Runnable operations) throws SQLException {
+        checkInitialized();
+        globalSession.executeInTransaction((Consumer<Connection>) conn -> operations.run());
     }
-
-
 
     // ============= 接続管理 =============
 
@@ -291,32 +352,20 @@ public class DbService implements AutoCloseable {
      * @return Connection インスタンス
      * @throws SQLException 接続エラー
      */
-    public Connection getConnection() throws SQLException {
-        return session.getConnection();
+    public static Connection getConnection() throws SQLException {
+        checkInitialized();
+        return globalSession.getConnection();
     }
 
     /**
      * 接続状態をチェック
      * @return 接続中の場合true
      */
-    public boolean isConnected() {
-        return session.isConnected();
-    }
-
-    /**
-     * 手動コミット
-     * @throws SQLException コミットエラー
-     */
-    public void commit() throws SQLException {
-        session.commit();
-    }
-
-    /**
-     * 手動ロールバック
-     * @throws SQLException ロールバックエラー
-     */
-    public void rollback() throws SQLException {
-        session.rollback();
+    public static boolean isConnected() {
+        if (!initialized || globalSession == null) {
+            return false;
+        }
+        return globalSession.isConnected();
     }
 
     /**
@@ -324,24 +373,26 @@ public class DbService implements AutoCloseable {
      * @param autoCommit AutoCommitモード
      * @throws SQLException 設定エラー
      */
-    public void setAutoCommit(boolean autoCommit) throws SQLException {
-        session.setAutoCommit(autoCommit);
+    public static void setAutoCommit(boolean autoCommit) throws SQLException {
+        checkInitialized();
+        globalSession.setAutoCommit(autoCommit);
     }
 
     /**
-     * 内部のDbSessionを取得（Db*クラスからの呼び出し用）
-     * @return DbSession インスタンス
+     * 手動コミット
+     * @throws SQLException SQL例外
      */
-    public DbSession getSession() {
-        return session;
+    public static void commit() throws SQLException {
+        checkInitialized();
+        globalSession.commit();
     }
-    
 
     /**
-     * リソースのクリーンアップ
+     * 手動ロールバック
+     * @throws SQLException SQL例外
      */
-    @Override
-    public void close() {
-        session.close();
+    public static void rollback() throws SQLException {
+        checkInitialized();
+        globalSession.rollback();
     }
 }

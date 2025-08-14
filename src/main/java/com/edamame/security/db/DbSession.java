@@ -109,43 +109,6 @@ public class DbSession implements AutoCloseable {
     }
 
     /**
-     * トランザクション内でDB操作を実行し、結果を返す
-     * @param operation DB操作（戻り値あり）
-     * @param <T> 戻り値の型
-     * @return 操作結果
-     * @throws SQLException DB操作エラー
-     */
-    public <T> T executeInTransactionWithResult(Function<Connection, T> operation) throws SQLException {
-        boolean originalAutoCommit = getConnection().getAutoCommit();
-        try {
-            getConnection().setAutoCommit(false);
-            T result = operation.apply(getConnection());
-            getConnection().commit();
-            AppLogger.debug("トランザクション完了（戻り値あり）");
-            return result;
-        } catch (Exception e) {
-            try {
-                getConnection().rollback();
-                AppLogger.warn("トランザクションロールバック実行");
-            } catch (SQLException rollbackEx) {
-                AppLogger.error("ロールバック失敗: " + rollbackEx.getMessage());
-                e.addSuppressed(rollbackEx);
-            }
-            if (e instanceof SQLException) {
-                throw (SQLException) e;
-            } else {
-                throw new SQLException("トランザクション実行中にエラーが発生しました", e);
-            }
-        } finally {
-            try {
-                getConnection().setAutoCommit(originalAutoCommit);
-            } catch (SQLException e) {
-                AppLogger.error("AutoCommit設定復元に失敗: " + e.getMessage());
-            }
-        }
-    }
-
-    /**
      * 単発のDB操作を実行（自動コミット）
      * @param operation DB操作
      * @throws SQLException DB操作エラー

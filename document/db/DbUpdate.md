@@ -1,132 +1,309 @@
 # DbUpdate.java 仕様書
 
+## 概要
+**バージョン**: v2.1.0  
+**更新日**: 2025-01-14
+
 ## 役割
-- データベースのレコード更新処理を担当。
-- 各テーブルのUPDATE処理・条件付き更新を実装。
-- サーバー・エージェント・統計情報などのUPDATE系処理を集約。
-- サーバー・エージェントの状態変更（active/inactive）や一括更新も担当。
-- URLレジストリのホワイトリスト状態更新も管理。
-- **ModSecurityアラート関連付けシステムのaccess_logステータス更新も対応**。
+- データベースのレコード更新処理専用クラス
+- 各テーブルのUPDATE処理・条件付き更新を実装
+- サーバー・エージェント・統計情報などのUPDATE系処理を集約
+- **INSERT系処理はDbRegistry.javaに完全移譲**
 
-## DbService専用実装（v2.0.0～）
-- **Connection引数方式は廃止**し、DbServiceインスタンスを受け取る方式に統一。
-- Connection管理・例外処理・ログ出力はDbServiceが担当。
-- 直接ConnectionやBiConsumer loggerを渡す方式はサポートしない。
+## DbSession対応実装（v2.1.0～）
+- **DbSessionパターンに完全対応**：Connection管理・例外処理を自動化
+- **Connection引数方式は完全廃止**：DbSessionを受け取る方式に統一
+- トランザクション管理・ログ出力はDbSessionが担当
 
-## 主なメソッド
-- `public static void updateServerInfo(DbService dbService, String serverName, String description, String logPath)`
-  - serversテーブルのserver_description, log_path, last_log_received, updated_atを更新。
-- `public static void updateServerLastLogReceived(DbService dbService, String serverName)`
-  - serversテーブルのlast_log_receivedをNOW()で更新。
-- `public static int updateAgentHeartbeat(DbService dbService, String registrationId)`
-  - agent_serversテーブルのlast_heartbeat, tcp_connection_countを更新。
-- `public static int updateAgentLogStats(DbService dbService, String registrationId, int logCount)`
-  - agent_serversテーブルのlast_log_count, total_logs_receivedを更新。
-- `public static int deactivateAgent(DbService dbService, String registrationId)`
-  - agent_serversテーブルのstatusを'inactive'に変更（個別エージェントの停止）。
-- `public static void deactivateAllAgents(DbService dbService)`
-  - agent_serversテーブルの全activeエージェントを一括で'inactive'に変更。
-- `public static int updateUrlWhitelistStatus(DbService dbService, String serverName, String method, String fullUrl)`
-  - url_registryテーブルのis_whitelistedをtrueに更新（ホワイトリスト化）。
-- **`public static int updateAccessLogModSecStatus(DbService dbService, Long accessLogId, boolean blockedByModSec)`**
-  - **access_logテーブルのblocked_by_modsecフラグを更新（ModSecurityキューベース関連付け用）**。
+## 主要メソッド詳細
 
-## 詳細仕様
+### `updateServerInfo(DbSession dbSession, String serverName, String description, String logPath)`
+- **機能**: サーバー情報の包括的更新
+- **更新項目**: server_description、log_path、last_log_received、updated_at
+- **照合順序**: utf8mb4_unicode_ci対応
+- **null安全処理**: description、logPath のnull値を空文字に変換
 
-### updateAccessLogModSecStatus メソッド（v3.0.0追加）
-**用途**: ModSecurityアラートとの関連付けが確認された際にaccess_logのブロック状態を更新
-**呼び出し条件**: ModSecurityキューから一致するアラートが検出された時のみ
-**更新内容**: 
-- `blocked_by_modsec = true/false`
-**戻り値**: 更新された行数（int）
-**エラー処理**: SQLException発生時はRuntimeExceptionでラップし、ERRORログ出力
-**関連システム**: ModSecurityキューベース関連付けシステム（AgentTcpServer.processLogEntries）
+```sql
+UPDATE servers
+SET server_description = ?,
+    log_path = ?,
+    last_log_received = NOW(),
+    updated_at = NOW()
+WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+```
 
-### updateUrlWhitelistStatus メソッド
-**用途**: URLをホワイトリスト状態（is_whitelisted=true）に更新
-**呼び出し条件**: whitelist_mode有効かつ指定IPからのアクセス時のみ利用
-**更新内容**: 
-- `is_whitelisted = true`
-- `updated_at = NOW()`
-**戻り値**: 更新された行数（int）
-**エラー処理**: SQLException発生時はRuntimeExceptionでラップし、ERRORログ出力
+### `updateServerLastLogReceived(DbSession dbSession, String serverName)`
+- **機能**: サーバーの最終ログ受信時刻のみ更新
+- **用途**: 定期的なログ監視処理での軽量更新
+- **警告処理**: 更新対象が見つからない場合はWARNログ出力
 
-### エージェント状態管理
-**deactivateAgent**: 特定のエージェントを個別にinactive化
-**deactivateAllAgents**: 全アクティブエージェントを一括inactive化（サーバー終了時）
-**条件**: status='active'のレコードのみ対象
+```sql
+UPDATE servers
+SET last_log_received = NOW()
+WHERE server_name = ? COLLATE utf8mb4_unicode_ci
+```
 
-## ロジック
-- 各UPDATEはプリペアドステートメントで安全に実行。
-- サーバー名・エージェントIDが未登録の場合はWARNログを出力。
-- 更新件数・失敗時はINFO/WARN/ERRORログで明確に記録。
-- 例外時はcatchでエラーログを出力し、RuntimeExceptionで再スロー。
-- ログ出力はdbService.log(message, level)でINFO/DEBUG/ERROR/WARNを明示。
-- URL更新処理では、更新対象が見つからない場合も正常終了（戻り値0）。
-- **ModSecurityブロック状態更新は、ModSecurityキューからの一致検出時のみ実行**。
+### `updateAgentHeartbeat(DbSession dbSession, String registrationId)`
+- **機能**: エージェントのハートビート更新
+- **戻り値**: 更新された行数（int）
+- **更新項目**: last_heartbeat、tcp_connection_count（インクリメント）
+- **用途**: エージェント生存確認・接続統計管理
 
-## DbServiceでの使用方法
+```sql
+UPDATE agent_servers 
+SET last_heartbeat = NOW(), 
+    tcp_connection_count = tcp_connection_count + 1 
+WHERE registration_id = ?
+```
+
+### `updateAgentLogStats(DbSession dbSession, String registrationId, int logCount)`
+- **機能**: エージェントのログ処理統計更新
+- **戻り値**: 更新された行数（int）
+- **更新項目**: total_logs_received（累積加算）、last_log_count（最新値）
+- **用途**: ログ処理量監視・統計情報管理
+
+```sql
+UPDATE agent_servers 
+SET total_logs_received = total_logs_received + ?, 
+    last_log_count = ? 
+WHERE registration_id = ?
+```
+
+### `updateAccessLogModSecStatus(DbSession dbSession, Long accessLogId, boolean blockedByModSec)`
+- **機能**: access_logのModSecurityブロック状態更新
+- **戻り値**: 更新された行数（int）
+- **用途**: ModSecurityアラートとの関連付け後のス��ータス反映
+- **重要**: ModSecurityキューベース関連付けシステムの核心機能
+
+```sql
+UPDATE access_log 
+SET blocked_by_modsec = ? 
+WHERE id = ?
+```
+
+### `deactivateAgent(DbSession dbSession, String registrationId)`
+- **機能**: 特定エージェントの個別非アクティブ化
+- **戻り値**: 更新された行数（int）
+- **用途**: 個別エージェントの手動停止・障害対応
+
+```sql
+UPDATE agent_servers 
+SET status = 'inactive' 
+WHERE registration_id = ?
+```
+
+### `deactivateAllAgents(DbSession dbSession)`
+- **機能**: 全アクティブエージェントの一括非アクティブ化
+- **対象**: status='active'のレコードのみ
+- **用途**: サーバー終了時・全体リセット時
+
+```sql
+UPDATE agent_servers 
+SET status = 'inactive' 
+WHERE status = 'active'
+```
+
+### `updateUrlWhitelistStatus(DbSession dbSession, String serverName, String method, String fullUrl)`
+- **機能**: URLのホワイトリスト状態更新
+- **戻り値**: 更新された行数（int）
+- **更新項目**: is_whitelisted（true固定）、updated_at
+- **用途**: ホワイトリスト機能でのURL安全化処理
+
+```sql
+UPDATE url_registry
+SET is_whitelisted = true, updated_at = NOW()
+WHERE server_name = ? AND method = ? AND full_url = ?
+```
+
+## エラーハンドリング
+
+### 例外処理階層
+1. **各メソッド**: SQLException → RuntimeExceptionでラップ
+2. **DbSession**: Connection管理・トランザクション管理を自動化
+3. **ログ出力**: AppLogger.info/warn/error/debugによる詳細記録
+
+### ログ出力レベル
+- **INFO**: 正常更新完了時（件数も記録）
+- **DEBUG**: 詳細なデバッグ情報（ID、更新値等）
+- **WARN**: 更新対象が見つからない場合
+- **ERROR**: SQL実行エラー・致命的例外
+
+### 戻り値パターン
+- **更新件数返却**: int戻り値（updateAgentHeartbeat、updateAgentLogStats等）
+- **void**: 更新のみ（updateServerInfo、deactivateAllAgents等）
+- **0件更新**: 正常終了（エラーではない）
+
+## DbSessionでの使用方法
 ```java
-// DbServiceから自動的に呼び出される（Connection管理不要）
-try (DbService db = new DbService(url, props, logger)) {
-    DbUpdate.updateServerInfo(db, serverName, description, logPath);
-    int updated = DbUpdate.updateAgentHeartbeat(db, registrationId);
-    DbUpdate.deactivateAllAgents(db);
+// 標準的な使用パターン
+try {
+    // サーバー情報更新
+    DbUpdate.updateServerInfo(dbSession, "web-server-01", "本番Webサーバー", "/var/log/nginx/");
     
-    // ModSecurityアラート関連付け後のステータス更新（v3.0.0追加）
-    int statusUpdated = DbUpdate.updateAccessLogModSecStatus(db, accessLogId, true);
+    // 最終ログ受信時刻のみ更新
+    DbUpdate.updateServerLastLogReceived(dbSession, "web-server-01");
+    
+    // エージェントハートビート更新
+    int heartbeatUpdated = DbUpdate.updateAgentHeartbeat(dbSession, "agent-123");
+    
+    // ログ処理統計更新
+    int statsUpdated = DbUpdate.updateAgentLogStats(dbSession, "agent-123", 50);
+    
+    // ModSecurityブロック状態更新
+    int statusUpdated = DbUpdate.updateAccessLogModSecStatus(dbSession, 12345L, true);
+    
+    // エージェント非アクティブ化
+    int deactivated = DbUpdate.deactivateAgent(dbSession, "agent-123");
+    
+    // 全エージェント非アクティブ化
+    DbUpdate.deactivateAllAgents(dbSession);
+    
+    // URLホワイトリスト化
+    int whitelistUpdated = DbUpdate.updateUrlWhitelistStatus(
+        dbSession, "web-server-01", "GET", "/api/users");
+        
+} catch (SQLException e) {
+    // DbSessionが自動的にエラーハンドリング
+}
+```
+
+## ModSecurityキューベース関連付けシステム連携
+
+### updateAccessLogModSecStatusの重要性
+このメソッドは、ModSecurityアラートとアクセスログの関連付けシステムの核心機能です。
+
+#### 処理フロー
+1. **初期保存**: アクセスログをblocked_by_modsec=falseで保存（DbRegistry）
+2. **アラート照合**: ModSecurityキューから時間・URL・サーバー名が一致するアラートを検索
+3. **ステータス更新**: 一致したアラートがある場合、本メソッドでblocked_by_modsec=trueに更新
+4. **アラート保存**: 一致したアラートをmodsec_alertsテーブルに保存（DbRegistry）
+
+#### 使用例（AgentTcpServerでの定期照合処理）
+```java
+public void performPeriodicAlertMatching() {
+    try {
+        // 最近のアクセスログを取得
+        List<Map<String, Object>> recentLogs = 
+            DbSelect.selectRecentAccessLogsForModSecMatching(dbSession, 5);
+        
+        for (Map<String, Object> log : recentLogs) {
+            Long accessLogId = (Long) log.get("id");
+            
+            // ModSecurityキューから一致するアラートを検索
+            List<ModSecAlert> matchingAlerts = 
+                modSecQueue.findMatchingAlerts(/* 条件 */);
+            
+            if (!matchingAlerts.isEmpty()) {
+                // ブロック状態を更新
+                int updated = DbUpdate.updateAccessLogModSecStatus(
+                    dbSession, accessLogId, true);
+                
+                if (updated > 0) {
+                    AppLogger.info("ModSecurityブロック状態更新: ID=" + accessLogId);
+                }
+            }
+        }
+    } catch (SQLException e) {
+        AppLogger.error("ModSecurity照合処理エラー: " + e.getMessage());
+    }
 }
 ```
 
 ## テーブル対応関係
-- **servers**: updateServerInfo, updateServerLastLogReceived
-- **agent_servers**: updateAgentHeartbeat, updateAgentLogStats, deactivateAgent, deactivateAllAgents
+- **servers**: updateServerInfo、updateServerLastLogReceived
+- **agent_servers**: updateAgentHeartbeat、updateAgentLogStats、deactivateAgent、deactivateAllAgents
+- **access_log**: updateAccessLogModSecStatus
 - **url_registry**: updateUrlWhitelistStatus
-- **access_log**: updateAccessLogModSecStatus（v3.0.0追加）
 
-## ModSecurityキューベースシステム連携（v3.0.0）
-### 処理フロー
-1. **ModSecurityアラート検出**: error.logからアラートを抽出してModSecurityQueueに追加
-2. **HTTPリクエスト処理**: access.logからリクエストを解析してaccess_logテーブルに保存（blocked_by_modsec=false）
-3. **関連付け実行**: ModSecurityQueueから時間・URL・サーバー名が一致するアラートを検索
-4. **ステータス更新**: 一致したアラートがある場合、updateAccessLogModSecStatusでblocked_by_modsec=trueに更新
-5. **アラート保存**: 一致したアラー��をmodsec_alertsテーブルに保存
+## パフォーマンス考慮事項
+- **インデックス活用**: WHERE句の条件項目にインデックス必須
+- **バッチ更新**: deactivateAllAgentsによる効率的な一括処理
+- **軽量更新**: updateServerLastLogReceivedによる最小限の更新
+- **統計計算**: agent_serversのカウ��タ更新による高速集計
 
-### 関連付け条件
-- **時間窓**: 30秒以内の一致
-- **サーバー名**: 完全一致
-- **URL**: 完全一致、パス一致、部分一致の複数レベル対応
-- **HTTPメソッド**: GET、POST、PUT、DELETE等
+## セキュリティ対策
+- **SQLインジェクション対策**: 全パラメータのプリペアドステートメントバインド
+- **データ整合性**: 適切な制約チェックと外部キー制約の維持
+- **権限制御**: 認証済みセッションでのみ更新処���を許可
+
+## 運用・設定
+
+### 監視ポイント
+- **更新成功率**: 各メソッドの戻り値による更新件数監視
+- **エージェント状態**: deactivateAgent/deactivateAllAgentsの実行状況
+- **ModSecurity照合**: updateAccessLogModSecStatusの実行頻度
+
+### トラブルシューティング
+- **0件更新**: 対象レコードの存在確認（registration_id、server_name等）
+- **外部キー制約**: 関連テーブルとの整合性確認
+- **文字エンコーディング**: utf8mb4_unicode_ci照合順序の確認
 
 ## 注意事項
-- **DbService経由での呼び出しのみサポート**: Connection引数を意識する必要がない。
-- UPDATE対象カラム・テーブル追加時は本クラスの対応も必ず追加すること。
-- 仕様変更時は本仕様書・実装・db_schema_spec.md・CHANGELOG.mdを同時更新。
-- サーバー名の照合順序（utf8mb4_unicode_ci）に必ず対応すること。
-- エージェントの状態管理（active/inactive）は本クラスで一元管理。
-- URLホワイトリスト更新は既存URLの再評価時のみ実行（新規URL登録時は除く）。
-- **ModSecurityブロック状態更新は、正確な関連付けが確認された場合のみ実行**。
-
-## エラーハンドリング
-- 例外はcatchでERRORログ出力後、RuntimeExceptionでラップして再スロー。
-- DbServiceが例外処理・ログ出力を一元管理。
-
-## セキュリティ要件
-- プリペアドステートメントでSQLインジェクション対策実装済み。
-- ホワイトリスト更新は厳格な条件チェック後のみ実行。
-- ModSecurityブロック状態更新は信頼できる関連付けロジック経由のみ実行。
-- データベース接続エラー時は適切なエラーハンドリングを実行。
+- **更新専用**: UPDATE処理のみ、INSERT/DELETE/SELECTは他クラスに委譲
+- **新テーブル追加時**: 本クラスへの更新メソッド追加も検討
+- **外部キー制約**: 更新時の関連テーブル間の整合性維持
+- **トランザクション**: 複数テーブル更新時の一貫性保証
 
 ## バージョン履歴
 - **v1.0.0**: 初期実装（Connection引数方式）
-- **v1.1.0**: DbService統合対応、Connection管理の自動化
-- **v2.0.0**: Connection引数方式を完全廃止、DbService専用に統一
-- **v3.0.0**: ModSecurityキューベース関連付けシステム対応、updateAccessLogModSecStatusメソッド追加
+- **v1.5.0**: DbService統合対応
+- **v2.0.0**: Connection引数方式完全廃止、DbService専用
+- **v2.1.0**: **DbSession対応、ModSecurityブロック状態更新機能強化**
 
 ---
 
-### 参考：実装例
-- updateServerInfo, updateServerLastLogReceived, updateAgentHeartbeat, updateAgentLogStats, deactivateAgent, deactivateAllAgents, updateUrlWhitelistStatus, updateAccessLogModSecStatus などをpublic staticで実装。
-- ログ出力はINFO/DEBUG/ERROR/WARNで明確に記録。
-- 戻り値のint型は更新行数を示し、処理結果の判定に使用。
-- DbServiceパターンにより、Connection引数を意識せずに利用可能。
+## 実装参考
+
+### 戻り値ありのUPDATEパターン
+```java
+public static int updateMethodName(DbSession dbSession, Parameters...) throws SQLException {
+    return dbSession.executeWithResult(conn -> {
+        try (var pstmt = conn.prepareStatement(sql)) {
+            // パラメータ設定
+            int updated = pstmt.executeUpdate();
+            if (updated > 0) {
+                AppLogger.info("更新成功: " + updated + " 件");
+            } else {
+                AppLogger.warn("更新対象が見つかりません");
+            }
+            return updated;
+        } catch (SQLException e) {
+            AppLogger.error("更新エラー: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
+    });
+}
+```
+
+### 戻り値なしのUPDATEパターン
+```java
+public static void updateMethodName(DbSession dbSession, Parameters...) throws SQLException {
+    dbSession.execute(conn -> {
+        try (var pstmt = conn.prepareStatement(sql)) {
+            // パラメータ設定
+            int updated = pstmt.executeUpdate();
+            AppLogger.info("更新完了: " + updated + " 件");
+        } catch (SQLException e) {
+            AppLogger.error("更新エラー: " + e.getMessage());
+            throw new RuntimeException(e);
+        }
+    });
+}
+```
+
+### DbSession連携パターン
+```java
+dbSession.execute(conn -> {
+    try {
+        String sql = "UPDATE table_name SET column = ? WHERE condition = ?";
+        try (var pstmt = conn.prepareStatement(sql)) {
+            pstmt.setString(1, value);
+            pstmt.setString(2, condition);
+            int updated = pstmt.executeUpdate();
+            // ログ処理
+        }
+    } catch (SQLException e) {
+        throw new RuntimeException(e);
+    }
+});
+```
