@@ -1,6 +1,5 @@
 package com.edamame.web.service;
 
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -10,26 +9,20 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiConsumer;
-
+import com.edamame.security.db.DbService;
+import static com.edamame.security.db.DbService.*;
+import com.edamame.security.tools.AppLogger;
 /**
  * データサービスクラス
  * データベースからの情報取得とWebフロントエンド向けデータ処理を担当
  */
 public class DataService {
-
-    private final Connection dbConnection;
-    private final BiConsumer<String, String> logFunction;
+    
 
     /**
      * コンストラクタ
-     * @param dbConnection データベース接続
-     * @param logFunction ログ出力関数
      */
-    public DataService(Connection dbConnection, BiConsumer<String, String> logFunction) {
-        this.dbConnection = dbConnection;
-        this.logFunction = logFunction != null ? logFunction :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+    public DataService() {
     }
 
     /**
@@ -64,10 +57,10 @@ public class DataService {
             // 攻撃タイプ別統計
             stats.put("attackTypes", getAttackTypeStats());
 
-            logFunction.accept("ダッシュボード統計情報取得完了", "DEBUG");
+            AppLogger.debug("ダッシュボード統計情報取得完了");
 
         } catch (Exception e) {
-            logFunction.accept("ダッシュボード統計情報取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("ダッシュボード統計情報取得エラー: " + e.getMessage());
             stats.put("error", "統計情報の取得に失敗しました");
         }
 
@@ -89,10 +82,10 @@ public class DataService {
      */
     private int getTotalAttacksToday() {
         String sql = """
-            SELECT COUNT(DISTINCT al.id) 
-            FROM access_log al 
-            JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url 
-            WHERE DATE(al.access_time) = CURDATE() 
+            SELECT COUNT(DISTINCT al.id)
+            FROM access_log al
+            JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url
+            WHERE DATE(al.access_time) = CURDATE()
             AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal')
             """;
         return executeCountQuery(sql);
@@ -122,13 +115,13 @@ public class DataService {
      * @return カウント結果
      */
     private int executeCountQuery(String sql) {
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            ResultSet rs = pstmt.executeQuery();
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
             if (rs.next()) {
                 return rs.getInt(1);
             }
         } catch (SQLException e) {
-            logFunction.accept("カウントクエリ実行エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("カウントクエリ実行エラー: " + e.getMessage());
         }
         return 0;
     }
@@ -140,40 +133,36 @@ public class DataService {
      */
     public List<Map<String, Object>> getRecentAlerts(int limit) {
         List<Map<String, Object>> alerts = new ArrayList<>();
-
         String sql = """
-            SELECT al.server_name, al.access_time, al.ip_address, al.full_url, 
-                   ur.attack_type, ma.rule_id, ma.severity
-            FROM access_log al
-            LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url AND al.server_name = ur.server_name
-            LEFT JOIN modsec_alerts ma ON al.id = ma.access_log_id
-            WHERE (al.blocked_by_modsec = TRUE OR ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal'))
-            ORDER BY al.access_time DESC
+            SELECT server_name, alert_type, severity, message, source_ip, target_url, 
+                   rule_id, is_resolved, created_at
+            FROM alerts 
+            ORDER BY created_at DESC 
             LIMIT ?
             """;
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setInt(1, limit);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Map<String, Object> alert = new HashMap<>();
+                    alert.put("serverName", rs.getString("server_name"));
+                    alert.put("alertType", rs.getString("alert_type"));
+                    alert.put("accessTime", formatDateTime(rs.getTimestamp("created_at"))); // created_atを使用
+                    alert.put("ipAddress", rs.getString("source_ip"));
+                    alert.put("url", rs.getString("target_url"));
+                    alert.put("attackType", rs.getString("alert_type")); // alert_typeを攻撃タイプとして使用
+                    alert.put("ruleId", rs.getString("rule_id"));
+                    alert.put("severity", rs.getString("severity"));
+                    alert.put("isResolved", rs.getBoolean("is_resolved"));
+                    alert.put("message", rs.getString("message"));
+                    alert.put("severityLevel", determineSeverityLevel(rs.getString("alert_type"), rs.getString("severity")));
 
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            pstmt.setInt(1, limit);
-            ResultSet rs = pstmt.executeQuery();
-
-            while (rs.next()) {
-                Map<String, Object> alert = new HashMap<>();
-                alert.put("serverName", rs.getString("server_name"));
-                alert.put("accessTime", formatDateTime(rs.getTimestamp("access_time")));
-                alert.put("ipAddress", rs.getString("ip_address"));
-                alert.put("url", rs.getString("full_url"));
-                alert.put("attackType", rs.getString("attack_type"));
-                alert.put("ruleId", rs.getString("rule_id"));
-                alert.put("severity", rs.getString("severity"));
-                alert.put("severityLevel", determineSeverityLevel(rs.getString("attack_type"), rs.getString("severity")));
-
-                alerts.add(alert);
+                    alerts.add(alert);
+                }
             }
-
         } catch (SQLException e) {
-            logFunction.accept("最新アラート取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("最新アラート取得エラー: " + e.getMessage());
         }
-
         return alerts;
     }
 
@@ -183,20 +172,16 @@ public class DataService {
      */
     public List<Map<String, Object>> getServerList() {
         List<Map<String, Object>> servers = new ArrayList<>();
-
         String sql = """
-            SELECT s.server_name, s.server_description, s.is_active, s.last_log_received,
-                   COUNT(al.id) as today_access_count
-            FROM servers s
-            LEFT JOIN access_log al ON s.server_name COLLATE utf8mb4_unicode_ci = al.server_name COLLATE utf8mb4_unicode_ci 
-                AND DATE(al.access_time) = CURDATE()
-            GROUP BY s.id, s.server_name, s.server_description, s.is_active, s.last_log_received
+            SELECT s.*, 
+                   COALESCE((SELECT COUNT(*) FROM access_log a 
+                            WHERE a.server_name COLLATE utf8mb4_unicode_ci = s.server_name COLLATE utf8mb4_unicode_ci
+                            AND DATE(a.access_time) = CURDATE()), 0) as today_access_count
+            FROM servers s 
             ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
             """;
-
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            ResultSet rs = pstmt.executeQuery();
-
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
                 Map<String, Object> server = new HashMap<>();
                 server.put("name", rs.getString("server_name"));
@@ -208,13 +193,10 @@ public class DataService {
 
                 servers.add(server);
             }
-
-            logFunction.accept("サーバー一覧取得完了（照合順序対応版）: " + servers.size() + "台", "DEBUG");
-
+            AppLogger.debug("サーバー一覧取得完了（照合順序対応版）: " + servers.size() + "台");
         } catch (SQLException e) {
-            logFunction.accept("サーバー一覧取得エラー（照合順序修正版）: " + e.getMessage(), "ERROR");
+            AppLogger.error("サーバー一覧取得エラー（照合順序修正版）: " + e.getMessage());
         }
-
         return servers;
     }
 
@@ -224,48 +206,26 @@ public class DataService {
      */
     public List<Map<String, Object>> getServerStats() {
         List<Map<String, Object>> serverStats = new ArrayList<>();
-
-        String sql = """
-            SELECT 
-                s.server_name,
-                s.server_description,
-                s.is_active,
-                s.last_log_received,
-                COUNT(al.id) as total_access,
-                COUNT(CASE WHEN ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal') THEN 1 END) as attack_count,
-                COUNT(CASE WHEN al.blocked_by_modsec = TRUE THEN 1 END) as modsec_blocks
-            FROM servers s
-            LEFT JOIN access_log al ON s.server_name COLLATE utf8mb4_unicode_ci = al.server_name COLLATE utf8mb4_unicode_ci 
-                AND DATE(al.access_time) = CURDATE()
-            LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url 
-                AND al.server_name = ur.server_name
-            GROUP BY s.id, s.server_name, s.server_description, s.is_active, s.last_log_received
-            ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
-            """;
-
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            ResultSet rs = pstmt.executeQuery();
-
+        String sql = "SELECT * FROM server_stats";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
-                Map<String, Object> serverStat = new HashMap<>();
-                serverStat.put("serverName", rs.getString("server_name"));
-                serverStat.put("serverDescription", rs.getString("server_description"));
-                serverStat.put("isActive", rs.getBoolean("is_active"));
-                serverStat.put("lastLogReceived", formatDateTime(rs.getTimestamp("last_log_received")));
-                serverStat.put("totalAccess", rs.getInt("total_access"));
-                serverStat.put("attackCount", rs.getInt("attack_count"));
-                serverStat.put("modsecBlocks", rs.getInt("modsec_blocks"));
-                serverStat.put("status", determineServerStatus(rs.getBoolean("is_active"), rs.getTimestamp("last_log_received")));
+                Map<String, Object> stat = new HashMap<>();
+                stat.put("serverName", rs.getString("server_name"));
+                stat.put("serverDescription", rs.getString("server_description"));
+                stat.put("isActive", rs.getBoolean("is_active"));
+                stat.put("lastLogReceived", formatDateTime(rs.getTimestamp("last_log_received")));
+                stat.put("totalAccess", rs.getInt("total_access"));
+                stat.put("attackCount", rs.getInt("attack_count"));
+                stat.put("modsecBlocks", rs.getInt("modsec_blocks"));
+                stat.put("status", determineServerStatus(rs.getBoolean("is_active"), rs.getTimestamp("last_log_received")));
 
-                serverStats.add(serverStat);
+                serverStats.add(stat);
             }
-
-            logFunction.accept("サーバー統計データ取得完了: " + serverStats.size() + "台", "DEBUG");
-
+            AppLogger.debug("サーバー統計データ取得完了: " + serverStats.size() + "台");
         } catch (SQLException e) {
-            logFunction.accept("サーバー統計データ取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("サーバー統計データ取得エラー: " + e.getMessage());
         }
-
         return serverStats;
     }
 
@@ -275,34 +235,20 @@ public class DataService {
      */
     public List<Map<String, Object>> getAttackTypeStats() {
         List<Map<String, Object>> attackTypes = new ArrayList<>();
-
-        String sql = """
-            SELECT ur.attack_type, COUNT(al.id) as count
-            FROM access_log al
-            JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url AND al.server_name = ur.server_name
-            WHERE DATE(al.access_time) = CURDATE()
-            AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal')
-            GROUP BY ur.attack_type
-            ORDER BY count DESC
-            LIMIT 10
-            """;
-
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            ResultSet rs = pstmt.executeQuery();
-
+        String sql = "SELECT attack_type, COUNT(*) as count FROM url_registry GROUP BY attack_type";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql);
+             ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
-                Map<String, Object> attackType = new HashMap<>();
-                attackType.put("type", rs.getString("attack_type"));
-                attackType.put("count", rs.getInt("count"));
-                attackType.put("description", getAttackTypeDescription(rs.getString("attack_type")));
+                Map<String, Object> type = new HashMap<>();
+                type.put("type", rs.getString("attack_type"));
+                type.put("count", rs.getInt("count"));
+                type.put("description", getAttackTypeDescription(rs.getString("attack_type")));
 
-                attackTypes.add(attackType);
+                attackTypes.add(type);
             }
-
         } catch (SQLException e) {
-            logFunction.accept("攻撃タイプ統計取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("攻撃タイプ統計取得エラー: " + e.getMessage());
         }
-
         return attackTypes;
     }
 
@@ -312,7 +258,6 @@ public class DataService {
      */
     public Map<String, Object> getApiStats() {
         Map<String, Object> apiStats = new HashMap<>();
-
         try {
             apiStats.put("totalAccess", getTotalAccessToday());
             apiStats.put("totalAttacks", getTotalAttacksToday());
@@ -321,10 +266,8 @@ public class DataService {
             apiStats.put("lastUpdate", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
         } catch (Exception e) {
-            logFunction.accept("API統計データ取得エラー: " + e.getMessage(), "ERROR");
-            apiStats.put("error", e.getMessage());
+            AppLogger.error("API統計データ取得エラー: " + e.getMessage());
         }
-
         return apiStats;
     }
 
@@ -397,33 +340,24 @@ public class DataService {
 
     /**
      * 攻撃タイプの説明を取得
+     * attack_patterns.yamlのキーに対応したAttackPatternの説明取得メソッドを利用
      * @param attackType 攻撃タイプ
      * @return 説明文字列
      */
     private String getAttackTypeDescription(String attackType) {
-        return switch (attackType) {
-            case "SQL_INJECTION" -> "SQLインジェクション攻撃";
-            case "XSS" -> "クロスサイトスクリプティング攻撃";
-            case "COMMAND_INJECTION" -> "コマンドインジェクション攻撃";
-            case "LFI" -> "ローカルファイルインクルード攻撃";
-            case "RFI" -> "リモートファイルインクルード攻撃";
-            case "XXE" -> "XML外部エンティティ攻撃";
-            case "DIRECTORY_TRAVERSAL" -> "ディレクトリトラバーサル攻撃";
-            case "CSRF" -> "クロスサイトリクエストフォージェリ攻撃";
-            default -> "不明な攻撃タイプ";
-        };
+        // attack_patterns.yamlのパス（環境変数またはデフォルト）
+        String yamlPath = System.getenv("ATTACK_PATTERNS_YAML_PATH");
+        if (yamlPath == null || yamlPath.isEmpty()) {
+            yamlPath = "container/config/attack_patterns.yaml";
+        }
+        return com.edamame.security.AttackPattern.getAttackTypeDescriptionYaml(attackType, yamlPath);
     }
 
     /**
-     * データベース接続状態を確認
-     * @return 接続可能ならtrue
+     * DB接続が有効かどうかを判定（static移行対応）
+     * @return 接続有効ならtrue
      */
     public boolean isConnectionValid() {
-        try {
-            return dbConnection != null && !dbConnection.isClosed() && dbConnection.isValid(5);
-        } catch (SQLException e) {
-            logFunction.accept("DB接続確認エラー: " + e.getMessage(), "ERROR");
-            return false;
-        }
+        return isConnected();
     }
 }

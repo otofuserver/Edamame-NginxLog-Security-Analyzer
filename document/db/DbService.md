@@ -1,8 +1,8 @@
 # DbService.java 仕様書
 
 ## 概要
-**バージョン**: v2.1.1  # addDefaultRoleHierarchy委譲メソッド仕様反映  
-**更新日**: 2025-08-18
+**バージョン**: v2.2.0  
+**更新日**: 2025-09-02
 
 ## 役割
 - データベース操作の統合サービスクラス（Static版）
@@ -181,6 +181,13 @@ public static synchronized void initialize(String url, Properties properties) {
 - **例外処理**: 内部でキャッチし、上位でハンドリング
 - **委譲先**: DbDelete.runLogCleanupBatch(globalSession)
 
+#### `deleteServerData(String serverName)` ←NEW
+- **機能**: 指定サーバーに関連するデータを一括削除
+- **対象テーブル**: modsec_alerts, access_log, url_registry, users_roles, roles, servers
+- **特殊処理**: rolesのinherited_roles（JSON）からも該当IDを削除
+- **トランザクション**: 全削除処理を1つのトランザクションで実行
+- **委譲先**: DbDelete.deleteServerData(globalSession, serverName)
+
 ### トランザクション・接続管理
 
 #### `executeInTransaction(Runnable operations)`
@@ -221,7 +228,7 @@ public static void main(String[] args) {
         DbService.syncAllTablesSchema();
         
         // 初期データ投入
-        DbService.initializeDefaultData("2.1.0");
+        DbService.initializeDefaultData("2.2.0");
         
         // アプリケーション処理開始
         startApplication();
@@ -247,6 +254,9 @@ int updated = DbService.updateAgentHeartbeat("agent-123");
 // INSERT操作
 DbService.registerOrUpdateServer("web-server-01", "Webサーバー", "/var/log/nginx/");
 Long accessLogId = DbService.insertAccessLog(parsedLogMap);
+
+// DELETE操作（NEW）
+DbService.deleteServerData("web-server-01");  // サーバー関連データ一括削除
 ```
 
 ### トランザクション処理
@@ -259,6 +269,31 @@ DbService.executeInTransaction(() -> {
     DbService.insertAccessLog(parsedLogMap);
     // すべて成功時に自動コミット、例外時は自動ロールバック
 });
+```
+
+### サーバーデータ削除の安全な実行パターン ←NEW
+```java
+public void safelyDeleteServer(String serverName) {
+    try {
+        // 事前確認
+        if (DbService.existsServerByName(serverName)) {
+            AppLogger.info("サーバー削除開始: " + serverName);
+            
+            // データベースバックアップ推奨（手動）
+            // createBackup(serverName);  
+            
+            // 一括削除実行
+            DbService.deleteServerData(serverName);
+            
+            AppLogger.info("サーバー削除完了: " + serverName);
+        } else {
+            AppLogger.warn("削除対象サーバーが存在しません: " + serverName);
+        }
+    } catch (Exception e) {
+        AppLogger.error("サーバー削除エラー: " + serverName + " - " + e.getMessage());
+        // エラー時は自動ロールバック済み
+    }
+}
 ```
 
 ### ModSecurity照合処理での活用
@@ -297,6 +332,7 @@ public void performPeriodicAlertMatching() {
 ### 例外処理方針
 - **SELECT系メソッド**: SQLExceptionをそのままスロー、呼び出し元で処理
 - **UPDATE/INSERT系メソッド**: SQLExceptionをそのままスロー、呼び出し元で処理
+- **DELETE系メソッド**: 内部で例外キャッチ、ログ出力後に上位へ再スロー
 - **初期化チェック**: 全メソッドでIllegalStateExceptionによる未初期化検出
 
 ### 初期化状態管理
@@ -313,24 +349,28 @@ private static void checkInitialized() {
 - **遅延初期化**: DbSessionの実際の接続は初回使用時まで遅延
 - **完全委譲**: 実際の処理は既存のDb*クラスに委譲し、オーバーヘッド最小化
 - **トランザクション最適化**: executeInTransaction()による適切な範囲制御
+- **一括削除最適化**: deleteServerData()による効率的な関連データ削除
 
 ## セキュリティ対策
 - **接続情報保護**: Properties経由での安全な管理
 - **SQLインジェクション対策**: 各Db*クラスでのPreparedStatement使用
 - **リソースリーク防止**: shutdown()による確実なクリーンアップ
 - **アクセス制御**: staticメソッドによる統一的なアクセス管理
+- **削除操作の安全性**: トランザクション管理による部分削除の防止
 
 ## 注意事項・制限事項
 - **初期化必須**: 使用前に必ずinitialize()を呼び出すこと
 - **シングルトン設計**: 複数データベースへの同時接続は非対応
 - **スレッドセーフティ**: 初期化・シャットダウン以外はDbSessionに依存
 - **例外処理必須**: 全メソッドでSQLExceptionの適切なハンドリングが必要
+- **サーバー削除の復旧不可**: deleteServerData()は取り消し不可のため慎重に実行
 
 ## バージョン履歴
 - **v1.0.0**: 初期実装（インスタンスベース、AutoCloseable対応）
 - **v2.0.0**: DbSessionとの完全統合
-- **v2.1.0**: **Static化、グローバルDbSession管理、初期化・シャットダウン機能追加**
+- **v2.1.0**: Static化、グローバルDbSession管理、初期化・シャットダウン機能追加
 - **v2.1.1**: addDefaultRoleHierarchy委譲メソッド仕様追加
+- **v2.2.0**: **サーバーデータ一括削除機能追加（deleteServerData）**
 
 ---
 
@@ -347,7 +387,7 @@ public class Application {
             // 2. 必要な初期化処理
             if (DbService.isInitialized()) {
                 DbService.syncAllTablesSchema();
-                DbService.initializeDefaultData("2.1.0");
+                DbService.initializeDefaultData("2.2.0");
             }
             
             // 3. アプリケーション開始
@@ -370,11 +410,14 @@ try {
     Optional<ServerInfo> info = DbService.selectServerInfoByName(serverName);
     int updated = DbService.updateAgentHeartbeat(registrationId);
     
-    // トランザクション操作
+    // トランザクシ���ン操作
     DbService.executeInTransaction(() -> {
         DbService.insertAccessLog(logData);
         DbService.updateServerLastLogReceived(serverName);
     });
+    
+    // サーバー削除操作（NEW）
+    DbService.deleteServerData("old-server-01");
     
 } catch (SQLException e) {
     AppLogger.error("DB操作エラー: " + e.getMessage());

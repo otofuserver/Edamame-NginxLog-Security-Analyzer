@@ -353,6 +353,15 @@ public final class DbService {
         }
     }
 
+    /**
+     * 指定サーバーに関連するデータを一括削除
+     * @param serverName 削除対象のサーバー名
+     */
+    public static void deleteServerData(String serverName) {
+        checkInitialized();
+        DbDelete.deleteServerData(globalSession, serverName);
+    }
+
     // ============= トランザクション操作 =============
 
     /**
