@@ -1,8 +1,8 @@
 # DbService.java 仕様書
 
 ## 概要
-**バージョン**: v2.1.0  
-**更新日**: 2025-01-14
+**バージョン**: v2.1.1  # addDefaultRoleHierarchy委譲メソッド仕様反映  
+**更新日**: 2025-08-18
 
 ## 役割
 - データベース操作の統合サービスクラス（Static版）
@@ -50,7 +50,7 @@ public static synchronized void initialize(String url, Properties properties) {
 - **スレッドセーフ**: synchronized により同期化
 
 #### `isInitialized()`
-- **機能**: 初期化状態���確認
+- **機能**: 初期化状態の確認
 - **戻り値**: boolean（初期化済みの場合true）
 
 #### `checkInitialized()` - プライベートメソッド
@@ -90,7 +90,7 @@ public static synchronized void initialize(String url, Properties properties) {
 - **委譲先**: DbSelect.selectIsWhitelistedFromUrlRegistry(globalSession, serverName, method, fullUrl)
 
 #### `selectRecentAccessLogsForModSecMatching(int minutes)`
-- **機���**: ModSecurity照合用の最近のアクセスログを取得
+- **機能**: ModSecurity照合用の最近のアクセスログを取得
 - **戻り値**: List<Map<String, Object>>
 - **用途**: AgentTcpServerでの定期的なアラート照合処理
 - **委譲先**: DbSelect.selectRecentAccessLogsForModSecMatching(globalSession, minutes)
@@ -134,6 +134,10 @@ public static synchronized void initialize(String url, Properties properties) {
 - **機能**: URLのホワイトリスト状態更新
 - **戻り値**: int（更新された行数）
 - **委譲先**: DbUpdate.updateUrlWhitelistStatus(globalSession, serverName, method, fullUrl)
+
+#### `addDefaultRoleHierarchy(String serverName)`
+- **機能**: rolesテーブルのinherited_roles(JSON配列)にサーバー名ごとの下位ロールIDを追加
+- **委譲先**: DbUpdate.addDefaultRoleHierarchy(globalSession, serverName)
 
 ### INSERT/REGISTRY操作（DbRegistryに完全委譲）
 
@@ -180,7 +184,7 @@ public static synchronized void initialize(String url, Properties properties) {
 ### トランザクション・接続管理
 
 #### `executeInTransaction(Runnable operations)`
-- **機能**: トランザクシ��ン内での複数DB操作実行
+- **機能**: トランザクション内での複数DB操作実行
 - **引数**: Runnable（ラムダ式）
 - **委譲先**: globalSession.executeInTransaction()
 
@@ -326,6 +330,7 @@ private static void checkInitialized() {
 - **v1.0.0**: 初期実装（インスタンスベース、AutoCloseable対応）
 - **v2.0.0**: DbSessionとの完全統合
 - **v2.1.0**: **Static化、グローバルDbSession管理、初期化・シャットダウン機能追加**
+- **v2.1.1**: addDefaultRoleHierarchy委譲メソッド仕様追加
 
 ---
 

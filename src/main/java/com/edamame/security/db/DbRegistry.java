@@ -6,6 +6,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.edamame.security.db.DbService.addDefaultRoleHierarchy;
+
 /**
  * サーバー情報の登録・更新専用ユーティリティ
  * registerOrUpdateServer, insertAccessLog, registerUrlRegistryEntry等を提供
@@ -405,6 +407,44 @@ public class DbRegistry {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    /**
+     * サーバー名に対してadmin/operator/viewerロールを追加登録する
+     * @param dbSession データベースセッション
+     * @param serverName サーバー名
+     * @throws SQLException SQL例外
+     */
+    public static void addDefaultRolesForServer(DbSession dbSession, String serverName) throws SQLException {
+        if (serverName == null || serverName.trim().isEmpty()) {
+            AppLogger.warn("ロール追加時のサーバー名がnull/空です");
+            return;
+        }
+        String[] roles = {"admin", "operator", "viewer"};
+        dbSession.execute(conn -> {
+            for (String role : roles) {
+                String roleName = serverName + "_" + role;
+                String description = serverName + "限定" + role;
+                String sql = "INSERT IGNORE INTO roles (role_name, description, inherited_roles, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())";
+                try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setString(1, roleName);
+                    pstmt.setString(2, description);
+                    pstmt.setString(3, "[]");
+                    int affected = pstmt.executeUpdate();
+                    if (affected > 0) {
+                        AppLogger.info("ロール追加: " + roleName);
+                    }
+                } catch (SQLException e) {
+                    AppLogger.error("ロール追加エラー: " + roleName + " - " + e.getMessage());
+                }
+            }
+        });
+        // 追加したロールをデフォルトロールの下位ロールとして登録
+        try {
+            addDefaultRoleHierarchy(serverName);
+        } catch (Exception e) {
+            AppLogger.warn("ロール階層自動追加エラー: " + serverName + " - " + e.getMessage());
+        }
     }
 
     /**

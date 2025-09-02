@@ -300,6 +300,26 @@ public final class DbService {
         DbRegistry.insertModSecAlert(globalSession, accessLogId, modSecInfo);
     }
 
+    /**
+     * サーバー名に対してadmin/operator/viewerロールを追加登録する
+     * @param serverName サーバー名
+     * @throws SQLException SQL例外
+     */
+    public static void addDefaultRolesForServer(String serverName) throws SQLException {
+        checkInitialized();
+        DbRegistry.addDefaultRolesForServer(globalSession, serverName);
+    }
+
+    /**
+     * サーバー名に対してadmin/operator/viewerロー���の下位ロール関係をrole_hierarchyテーブルに追加登録する
+     * @param serverName サーバー名
+     * @throws SQLException SQL例外
+     */
+    public static void addDefaultRoleHierarchy(String serverName) throws SQLException {
+        checkInitialized();
+        DbUpdate.addDefaultRoleHierarchy(globalSession, serverName);
+    }
+
     // ============= スキーマ・初期化操作 =============
 
     /**

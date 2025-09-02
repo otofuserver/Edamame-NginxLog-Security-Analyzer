@@ -1,8 +1,8 @@
 # DbInitialData.java 仕様書
 
 ## バージョン情報
-- **version**: v2.9.0  # usersテーブルrole_id廃止・users_roles中間テーブル対応
-- **最終更新**: 2025-08-14
+- **version**: v2.1.1  # roles初期データ投入仕様・履歴更新
+- **更新日**: 2025-08-18
 
 ## 概要
 - DB初期データ投入ユーティリティ
@@ -40,6 +40,13 @@
 | operator  | オペレーター|
 | viewer    | 閲覧者     |
 
+### rolesテーブル初期データ投入仕様
+- 初期ロール: admin（管理者）、operator（オペレーター）、viewer（閲覧者）
+- inherited_rolesカラムは初期値"[]"（空JSON配列）で登録
+- 実装: initializeRolesTable(DbSession dbSession)
+- 既存データがある場合はスキップ
+- 仕様変更時は本ファイル・DbUpdate.md・DbInitialData.mdも同時更新
+
 ### `initializeUsersTable(DbSession dbSession)`
 **初期管理者ユーザー**:
 - ユーザー名: `admin`
@@ -68,7 +75,7 @@
 | critical_attack_notify | severity >= 4       | 3             | TRUE      | 重要攻撃の通知 |
 
 ## 仕様変更履歴
-- v2.9.0: usersテーブルrole_id廃止・users_roles中間テーブル追加・初期データ投入ロジック修正
+- v2.1.1: roles初期データ投入仕様・addDefaultRoleHierarchy反映
 
 ## 注意事項
 - users_rolesテーブルでユーザーとロールの多対多管理

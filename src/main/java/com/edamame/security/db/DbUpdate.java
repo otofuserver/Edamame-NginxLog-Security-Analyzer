@@ -238,4 +238,74 @@ public class DbUpdate {
             }
         });
     }
+
+    /**
+     * サーバー名に対してadmin/operator/viewerロールの下位ロールIDをrolesテーブルのinherited_roles(JSON配列)に追加登録する
+     * @param dbSession データベースセッション
+     * @param serverName サーバー名
+     * @throws SQLException SQL例外
+     */
+    public static void addDefaultRoleHierarchy(DbSession dbSession, String serverName) throws SQLException {
+        if (serverName == null || serverName.trim().isEmpty()) {
+            AppLogger.warn("ロール階層追加時のサーバー名がnull/空です");
+            return;
+        }
+        String[] baseRoles = {"admin", "operator", "viewer"};
+        String[] childRoleNames = {serverName + "_admin", serverName + "_operator", serverName + "_viewer"};
+        dbSession.execute(conn -> {
+            for (int i = 0; i < baseRoles.length; i++) {
+                int childRoleId;
+                String childIdSql = "SELECT id FROM roles WHERE role_name = ?";
+                try (var childIdStmt = conn.prepareStatement(childIdSql)) {
+                    childIdStmt.setString(1, childRoleNames[i]);
+                    try (var rs = childIdStmt.executeQuery()) {
+                        if (rs.next()) {
+                            childRoleId = rs.getInt(1);
+                        } else {
+                            AppLogger.warn("下位ロールが存在しません: " + childRoleNames[i]);
+                            continue;
+                        }
+                    }
+                } catch (SQLException e) {
+                    AppLogger.error("下位ロールID取得エラー: " + childRoleNames[i] + " - " + e.getMessage());
+                    continue;
+                }
+                String selectSql = "SELECT inherited_roles FROM roles WHERE role_name = ?";
+                String updateSql = "UPDATE roles SET inherited_roles = ? , updated_at = NOW() WHERE role_name = ?";
+                try (var selectStmt = conn.prepareStatement(selectSql)) {
+                    selectStmt.setString(1, baseRoles[i]);
+                    try (var rs = selectStmt.executeQuery()) {
+                        if (rs.next()) {
+                            String inheritedJson = rs.getString(1);
+                            java.util.List<Integer> inheritedList = new java.util.ArrayList<>();
+                            if (inheritedJson != null && !inheritedJson.isBlank() && !inheritedJson.equals("[]")) {
+                                // JSON配列をパース（型安全にキャスト）
+                                @SuppressWarnings("unchecked")
+                                java.util.List<Integer> parsed = (java.util.List<Integer>) new com.fasterxml.jackson.databind.ObjectMapper().readValue(inheritedJson, java.util.List.class);
+                                inheritedList.addAll(parsed);
+                            }
+                            if (!inheritedList.contains(childRoleId)) {
+                                inheritedList.add(childRoleId);
+                                String newJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(inheritedList);
+                                try (var updateStmt = conn.prepareStatement(updateSql)) {
+                                    updateStmt.setString(1, newJson);
+                                    updateStmt.setString(2, baseRoles[i]);
+                                    int affected = updateStmt.executeUpdate();
+                                    if (affected > 0) {
+                                        AppLogger.info("ロール階層(inherited_roles)追加: " + baseRoles[i] + " → id=" + childRoleId);
+                                    }
+                                }
+                            } else {
+                                AppLogger.debug("既にinherited_rolesに存在: " + baseRoles[i] + " → id=" + childRoleId);
+                            }
+                        }
+                    } catch (Exception e) {
+                        AppLogger.error("ロール階層(inherited_roles)追加エラー: " + baseRoles[i] + " → id=" + childRoleId + " - " + e.getMessage());
+                    }
+                } catch (Exception e) {
+                    AppLogger.error("ロール階層(inherited_roles)追加エラー: " + baseRoles[i] + " → id=" + childRoleId + " - " + e.getMessage());
+                }
+            }
+        });
+    }
 }

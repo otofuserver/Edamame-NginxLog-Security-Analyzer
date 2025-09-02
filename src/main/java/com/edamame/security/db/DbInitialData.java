@@ -82,20 +82,21 @@ public class DbInitialData {
 
                 if (isEmpty) {
                     String[][] initialRoles = {
-                        {"admin", "管理者"},
-                        {"operator", "オペレーター"},
-                        {"viewer", "閲覧者"}
+                        {"admin", "管理者", "[]"},
+                        {"operator", "オペレーター", "[]"},
+                        {"viewer", "閲覧者", "[]"}
                     };
 
-                    String insertSql = "INSERT INTO roles (role_name, description) VALUES (?, ?)";
+                    String insertSql = "INSERT INTO roles (role_name, description, inherited_roles) VALUES (?, ?, ?)";
                     try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                         for (String[] role : initialRoles) {
                             pstmt.setString(1, role[0]);
                             pstmt.setString(2, role[1]);
+                            pstmt.setString(3, role[2]);
                             pstmt.addBatch();
                         }
                         pstmt.executeBatch();
-                        AppLogger.info("rolesテーブル初期データ挿入完了");
+                        AppLogger.info("rolesテーブル初期データ挿入完了 (inherited_rolesカラム対応)");
                     }
                 }
             } catch (SQLException e) {

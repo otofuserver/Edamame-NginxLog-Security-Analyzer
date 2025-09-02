@@ -1,8 +1,8 @@
 # Edamame NginxLog Security Analyzer データベース仕様書（新フォーマット）
 
 ## バージョン情報
-- **db_schema_spec.md version**: v2.9.0  # usersテーブルrole_id廃止・users_roles中間テーブル追加
-- **最終更新**: 2025-08-14
+- **db_schema_spec.md version**: v2.9.1  # rolesテーブル継承ロール仕様追加・addDefaultRoleHierarchy仕様反映
+- **最終更新**: 2025-08-18
 - ※DB関連の仕様変更時は必ず本ファイルを更新し、バージョン情報も修正すること
 - ※変更履歴は CHANGELOG.md に記録
 
@@ -121,12 +121,14 @@
 
 ### roles
 - ユーザーロール管理
+- inherited_roles: 継承する下位ロールID配列（JSON形式、複数可）。addDefaultRoleHierarchyでサーバー名付き下位ロールIDを自動追加。
 
 | カラム名 | 型 | 説明 |
 |---|---|---|
 | id | INT | 主キー、自動採番 |
 | role_name | VARCHAR(50) | ロール名（ユニーク） |
 | description | TEXT | ロール説明 |
+| inherited_roles | TEXT | 継承する下位ロールID配列（JSON形式、複数可） |
 | created_at | DATETIME | 作成日時 |
 | updated_at | DATETIME | 最終更新日時 |
 
@@ -324,7 +326,7 @@
 modsecMigrate.put("msg", "message");           // msg → message
 modsecMigrate.put("data", "data_value");       // data → data_value
 
-// servers テーブル  
+// servers テーブル
 serversMigrate.put("description", "server_description");     // description → server_description
 serversMigrate.put("last_activity_at", "last_log_received"); // last_activity_at → last_log_received
 
@@ -401,6 +403,7 @@ try {
 - **v1.5.0**: 自動カラム同期機能追加
 - **v2.0.0**: Connection引数方式廃止、DbService専用
 - **v2.1.0**: **DbSession対応、エージェント管理テーブル追加、カラム移行機能強化**
+- **v2.9.1**: rolesテーブル継承ロール仕様追加・addDefaultRoleHierarchy仕様反映
 
 #### roles（ロール管理）
 ```sql
@@ -408,6 +411,7 @@ CREATE TABLE roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     role_name VARCHAR(50) NOT NULL UNIQUE,
     description TEXT,
+    inherited_roles TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

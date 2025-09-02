@@ -1,23 +1,22 @@
 package com.edamame.security;
 
+import static com.edamame.security.db.DbService.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
-
+import com.edamame.security.tools.AppLogger;
 import javax.mail.*;
 import javax.mail.internet.*;
 import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.function.BiConsumer;
 
 /**
  * アクション実行エンジン
  * 特定条件下でのアクション実行を管理・実行するクラス
+ * v2.0.0: Connection引数を完全廃止、DbService専用に統一
  */
 public class ActionEngine {
 
-    private final Connection dbConnection;
-    private final BiConsumer<String, String> logFunction;
     
     // SMTP設定を起動時にキャッシュ
     private JSONObject smtpConfig;
@@ -27,19 +26,12 @@ public class ActionEngine {
     private final Map<String, SmtpCheckResult> smtpCheckCache = new HashMap<>();
 
     /**
-     * コンストラクタ
-     * @param dbConnection データベース接続
-     * @param logFunction ログ出力関数
+     * コンストラクタ（DbService使用）
      */
-    public ActionEngine(Connection dbConnection, BiConsumer<String, String> logFunction) {
-        this.dbConnection = dbConnection;
-        this.logFunction = logFunction != null ? logFunction :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
-        
-        // 起動時にSMTP設定を読み込み
+    public ActionEngine() {
         initializeSmtpConfig();
     }
-
+    
     /**
      * 攻撃検知時のアクション実行処理
      * @param serverName サーバー名
@@ -59,7 +51,7 @@ public class ActionEngine {
             ));
 
             if (rules.isEmpty()) {
-                logFunction.accept("攻撃検知に対応するアクションルールが見つかりません: " + attackType, "DEBUG");
+                AppLogger.log("攻撃検知に対応するアクションルールが見つかりません: " + attackType, "DEBUG");
                 return;
             }
 
@@ -75,7 +67,7 @@ public class ActionEngine {
             }
 
         } catch (Exception e) {
-            logFunction.accept("攻撃検知時のアクション実行でエラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("攻撃検知時のアクション実行でエラー: " + e.getMessage(), "ERROR");
         }
     }
 
@@ -93,7 +85,7 @@ public class ActionEngine {
             ));
 
             if (rules.isEmpty()) {
-                logFunction.accept("定時レポート送信に対応するアクションルールが見つかりません: " + reportType, "DEBUG");
+                AppLogger.log("定時レポート送信に対応するアクションルールが見つかりません: " + reportType, "DEBUG");
                 return;
             }
 
@@ -106,70 +98,135 @@ public class ActionEngine {
             }
 
         } catch (Exception e) {
-            logFunction.accept("定時レポート送信でエラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("定時レポート送信でエラー: " + e.getMessage(), "ERROR");
         }
     }
 
     /**
-     * 条件に一致するアクションルールを取得
+     * 汎用アクション実行メソッド
+     * @param actionType アクションタイプ（"attack_detected"など）
+     * @param actionData アクションデータ
+     */
+    public void executeAction(String actionType, Map<String, Object> actionData) {
+        try {
+            switch (actionType) {
+                case "attack_detected":
+                    handleAttackDetectedAction(actionData);
+                    break;
+                case "ip_frequency":
+                    handleIpFrequencyAction(actionData);
+                    break;
+                case "status_code":
+                    handleStatusCodeAction(actionData);
+                    break;
+                default:
+                    AppLogger.log("Unknown action type: " + actionType, "WARN");
+            }
+        } catch (Exception e) {
+            AppLogger.log("Error executing action " + actionType + ": " + e.getMessage(), "ERROR");
+        }
+    }
+
+    /**
+     * 攻撃検知時のアクション処理
+     */
+    private void handleAttackDetectedAction(Map<String, Object> actionData) {
+        String attackType = (String) actionData.get("attack_type");
+        String ipAddress = (String) actionData.get("ip_address");
+        String fullUrl = (String) actionData.get("full_url");
+        String serverName = (String) actionData.get("server_name");
+        Boolean blockedByModSec = (Boolean) actionData.get("blocked_by_modsec");
+
+        if (attackType != null && ipAddress != null) {
+            executeActionsOnAttackDetected(
+                serverName != null ? serverName : "unknown",
+                attackType,
+                ipAddress,
+                fullUrl != null ? fullUrl : "",
+                LocalDateTime.now()
+            );
+        }
+    }
+
+    /**
+     * IP頻度に基づくアクション処理（将来実装）
+     */
+    private void handleIpFrequencyAction(Map<String, Object> actionData) {
+        AppLogger.log("IP frequency action not yet implemented", "DEBUG");
+    }
+
+    /**
+     * ステータスコードに基づくアクション処理（将来実装）
+     */
+    private void handleStatusCodeAction(Map<String, Object> actionData) {
+        AppLogger.log("Status code action not yet implemented", "DEBUG");
+    }
+
+    /**
+     * 条件に一致するアクションルールを取得（static移行対応）
      * @param serverName サーバー名
      * @param conditionType 条件タイプ
      * @param eventData イベントデータ
      * @return マッチするルールのリスト
      */
     private List<ActionRule> getMatchingRules(String serverName, String conditionType, Map<String, Object> eventData) throws SQLException {
-        List<ActionRule> matchingRules = new ArrayList<>();
+        try {
+            List<ActionRule> matchingRules = new ArrayList<>();
 
-        String sql = """
-            SELECT ar.id, ar.rule_name, ar.target_server, ar.condition_type, ar.condition_params,
-                   ar.action_tool_id, ar.action_params, ar.priority,
-                   at.tool_name, at.tool_type, at.config_json, at.is_enabled as tool_enabled
-            FROM action_rules ar
-            JOIN action_tools at ON ar.action_tool_id = at.id
-            WHERE ar.is_enabled = TRUE
-              AND at.is_enabled = TRUE
-              AND ar.condition_type = ?
-              AND (ar.target_server = ? OR ar.target_server = '*')
-            ORDER BY ar.priority ASC, ar.id ASC
-            """;
+            String sql = """
+                SELECT ar.id, ar.rule_name, ar.target_server, ar.condition_type, ar.condition_params,
+                       ar.action_tool_id, ar.action_params, ar.priority,
+                       at.tool_name, at.tool_type, at.config_json, at.is_enabled as tool_enabled
+                FROM action_rules ar
+                JOIN action_tools at ON ar.action_tool_id = at.id
+                WHERE ar.is_enabled = TRUE
+                  AND at.is_enabled = TRUE
+                  AND ar.condition_type = ?
+                  AND (ar.target_server = ? OR ar.target_server = '*')
+                ORDER BY ar.priority ASC, ar.id ASC
+                """;
 
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            pstmt.setString(1, conditionType);
-            pstmt.setString(2, serverName);
+            try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
+                pstmt.setString(1, conditionType);
+                pstmt.setString(2, serverName);
 
-            ResultSet rs = pstmt.executeQuery();
-            while (rs.next()) {
-                ActionRule rule = new ActionRule(
-                    rs.getInt("id"),
-                    rs.getString("rule_name"),
-                    rs.getString("target_server"),
-                    rs.getString("condition_type"),
-                    rs.getString("condition_params"),
-                    rs.getInt("action_tool_id"),
-                    rs.getString("action_params"),
-                    rs.getInt("priority"),
-                    rs.getString("tool_name"),
-                    rs.getString("tool_type"),
-                    rs.getString("config_json")
-                );
+                ResultSet rs = pstmt.executeQuery();
+                while (rs.next()) {
+                    ActionRule rule = new ActionRule(
+                        rs.getInt("id"),
+                        rs.getString("rule_name"),
+                        rs.getString("target_server"),
+                        rs.getString("condition_type"),
+                        rs.getString("condition_params"),
+                        rs.getInt("action_tool_id"),
+                        rs.getString("action_params"),
+                        rs.getInt("priority"),
+                        rs.getString("tool_name"),
+                        rs.getString("tool_type"),
+                        rs.getString("config_json")
+                    );
 
-                // 条件パラメータをチェックしてマッチするかを確認
-                if (isConditionMatching(rule, eventData)) {
-                    matchingRules.add(rule);
+                    // 条件パラメータチェック
+                    if (matchesConditionParams(rule, eventData)) {
+                        matchingRules.add(rule);
+                    }
                 }
             }
-        }
 
-        return matchingRules;
+            return matchingRules;
+        } catch (SQLException e) {
+            AppLogger.log("アクションルール取得エラー: " + e.getMessage(), "ERROR");
+            throw new RuntimeException(e);
+        }
     }
 
     /**
-     * 条件がマッチするかをチェック
+     * 条件パラメータがマッチするかをチェック
      * @param rule アクションルール
      * @param eventData イベントデータ
      * @return マッチする場合true
      */
-    private boolean isConditionMatching(ActionRule rule, Map<String, Object> eventData) {
+    private boolean matchesConditionParams(ActionRule rule, Map<String, Object> eventData) {
         try {
             if (rule.conditionParams == null || rule.conditionParams.trim().isEmpty()) {
                 return true; // 条件パラメータが空の場合は常にマッチ
@@ -183,13 +240,13 @@ public class ActionEngine {
                 case "status_code" -> isStatusCodeConditionMatching(conditionJson, eventData);
                 case "custom" -> isCustomConditionMatching(conditionJson, eventData);
                 default -> {
-                    logFunction.accept("未知の条件タイプ: " + rule.conditionType, "WARN");
+                    AppLogger.log("未知の条件タイプ: " + rule.conditionType, "WARN");
                     yield false;
                 }
             };
 
         } catch (Exception e) {
-            logFunction.accept("条件マッチング処理でエラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("条件マッチング処理でエラー: " + e.getMessage(), "ERROR");
             return false;
         }
     }
@@ -219,7 +276,7 @@ public class ActionEngine {
      */
     private boolean isIpFrequencyConditionMatching(JSONObject conditionJson, Map<String, Object> eventData) {
         // 将来実装予定
-        logFunction.accept("IP頻度条件は未実装です", "DEBUG");
+        AppLogger.log("IP頻度条件は未実装です", "DEBUG");
         return false;
     }
 
@@ -228,7 +285,7 @@ public class ActionEngine {
      */
     private boolean isStatusCodeConditionMatching(JSONObject conditionJson, Map<String, Object> eventData) {
         // 将来実装予定
-        logFunction.accept("ステータスコード条件は未実装です", "DEBUG");
+        AppLogger.log("ステータスコード条件は未実装です", "DEBUG");
         return false;
     }
 
@@ -237,7 +294,7 @@ public class ActionEngine {
      */
     private boolean isCustomConditionMatching(JSONObject conditionJson, Map<String, Object> eventData) {
         // 将来実装予定
-        logFunction.accept("カスタム条件は未実装です", "DEBUG");
+        AppLogger.log("カスタム条件は未実装です", "DEBUG");
         return false;
     }
 
@@ -252,7 +309,7 @@ public class ActionEngine {
         String executionResult = "";
 
         try {
-            logFunction.accept(String.format("アクションルール実行開始: %s (ツール: %s)", rule.ruleName, rule.toolName), "INFO");
+            AppLogger.log(String.format("アクションルール実行開始: %s (ツール: %s)", rule.ruleName, rule.toolName), "INFO");
 
             switch (rule.toolType) {
                 case "mail":
@@ -270,19 +327,19 @@ public class ActionEngine {
                 default:
                     executionStatus = "failed";
                     executionResult = "未サポートのツールタイプ: " + rule.toolType;
-                    logFunction.accept(executionResult, "ERROR");
+                    AppLogger.log(executionResult, "ERROR");
                     break;
             }
 
             // 実行回数と最終実行日時を更新
             updateRuleExecutionStats(rule.id);
 
-            logFunction.accept(String.format("アクションルール実行完了: %s", rule.ruleName), "INFO");
+            AppLogger.log(String.format("アクションルール実行完了: %s", rule.ruleName), "INFO");
 
         } catch (Exception e) {
             executionStatus = "failed";
             executionResult = "実行エラー: " + e.getMessage();
-            logFunction.accept(String.format("アクションルール実行エラー [%s]: %s", rule.ruleName, e.getMessage()), "ERROR");
+            AppLogger.log(String.format("アクションルール実行エラー [%s]: %s", rule.ruleName, e.getMessage()), "ERROR");
         } finally {
             // 実行ログを記録
             long processingDuration = System.currentTimeMillis() - startTime;
@@ -294,7 +351,7 @@ public class ActionEngine {
      * メールアクションの実行（最適化版）
      */
     private String executeMailAction(ActionRule rule, Map<String, Object> eventData) {
-        logFunction.accept("メールアクション実行: " + rule.ruleName, "INFO");
+        AppLogger.log("メールアクション実行: " + rule.ruleName, "INFO");
 
         try {
             JSONObject config = new JSONObject(rule.configJson);
@@ -314,7 +371,7 @@ public class ActionEngine {
             // SMTP接続可能性をチェック
             if (!isSmtpServerAvailable(smtpHost, smtpPort)) {
                 String warningMsg = String.format("SMTP接続不可: %s:%d - メール送信をスキップします", smtpHost, smtpPort);
-                logFunction.accept(warningMsg, "WARN");
+                AppLogger.log(warningMsg, "WARN");
                 return "SMTP接続不可のためスキップ: " + smtpHost + ":" + smtpPort;
             }
 
@@ -369,11 +426,11 @@ public class ActionEngine {
             // メール送信
             Transport.send(message);
 
-            logFunction.accept(String.format("メール送信成功: %s", toEmail), "INFO");
+            AppLogger.log(String.format("メール送信成功: %s", toEmail), "INFO");
             return "メール送信完了: " + toEmail;
 
         } catch (Exception e) {
-            logFunction.accept(String.format("メール送信失敗: %s", e.getMessage()), "ERROR");
+            AppLogger.log(String.format("メール送信失敗: %s", e.getMessage()), "ERROR");
             return "メール送信失敗: " + e.getMessage();
         }
     }
@@ -394,7 +451,7 @@ public class ActionEngine {
             SmtpCheckResult cachedResult = smtpCheckCache.get(cacheKey);
             if (currentTime - cachedResult.timestamp < 300000) { // 5分間キャッシュ
                 if (!cachedResult.available) {
-                    logFunction.accept(String.format("SMTP接続チェック（キャッシュ）: %s:%d - 接続不可", host, port), "DEBUG");
+                    AppLogger.log(String.format("SMTP接続チェック（キャッシュ）: %s:%d - 接続不可", host, port), "DEBUG");
                 }
                 return cachedResult.available;
             }
@@ -406,61 +463,21 @@ public class ActionEngine {
 
             // 成功結果をキャッシュ
             smtpCheckCache.put(cacheKey, new SmtpCheckResult(true, currentTime));
-            logFunction.accept(String.format("SMTP接続チェック成功: %s:%d", host, port), "DEBUG");
+            AppLogger.log(String.format("SMTP接続チェック成功: %s:%d", host, port), "DEBUG");
             return true;
         } catch (java.net.SocketTimeoutException e) {
-            logFunction.accept(String.format("SMTP接続タイムアウト %s:%d (15秒)", host, port), "DEBUG");
+            AppLogger.log(String.format("SMTP接続タイムアウト %s:%d (15秒)", host, port), "DEBUG");
             smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
             return false;
         } catch (java.net.ConnectException e) {
-            logFunction.accept(String.format("SMTP接続拒否 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
+            AppLogger.log(String.format("SMTP接続拒否 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
             smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
             return false;
         } catch (Exception e) {
-            logFunction.accept(String.format("SMTP接続チェック失敗 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
+            AppLogger.log(String.format("SMTP接続チェック失敗 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
             smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
             return false;
         }
-    }
-
-
-    /**
-     * SMTP設定ファイルを読み込み
-     * @return SMTP設定のJSONObject
-     * @throws Exception 読み込みエラー
-     */
-    private JSONObject loadSmtpConfig() throws Exception {
-        // 複数の設定ファイルパスを試行
-        String[] configPaths = {
-            "container/config/smtp_config.json",  // 開発環境
-            "/app/config/smtp_config.json",       // Docker環境
-            "config/smtp_config.json",            // 相対パス
-            "smtp_config.json"                    // カレントディレクトリ
-        };
-
-        for (String configPath : configPaths) {
-            java.io.File configFile = new java.io.File(configPath);
-            if (configFile.exists()) {
-                logFunction.accept("SMTP設定ファイル読み込み成功: " + configPath, "INFO");
-
-                try (java.io.FileReader reader = new java.io.FileReader(configFile, java.nio.charset.StandardCharsets.UTF_8)) {
-                    StringBuilder content = new StringBuilder();
-                    char[] buffer = new char[1024];
-                    int length;
-                    while ((length = reader.read(buffer)) != -1) {
-                        content.append(buffer, 0, length);
-                    }
-                    return new JSONObject(content.toString());
-                } catch (Exception e) {
-                    logFunction.accept("SMTP設定ファイル読み込みエラー: " + configPath + " - " + e.getMessage(), "WARN");
-                    continue; // 次のパスを試行
-                }
-            }
-        }
-
-        // 設定ファイルが見つからない場合はデフォルト設定を返す
-        logFunction.accept("SMTP設定ファイルが見つかりません。デフォルト設定を使用します", "WARN");
-        return createDefaultSmtpConfig();
     }
 
     /**
@@ -501,9 +518,9 @@ public class ActionEngine {
         try {
             this.smtpConfig = loadSmtpConfigFromFile();
             this.smtpConfigLoaded = true;
-            logFunction.accept("SMTP設定の初期化が完了しました", "INFO");
+            AppLogger.log("SMTP設定の初期化が完了しました", "INFO");
         } catch (Exception e) {
-            logFunction.accept("SMTP設定の初期化に失敗しました。デフォルト設定を使用します: " + e.getMessage(), "WARN");
+            AppLogger.log("SMTP設定の初期化に失敗しました。デフォルト設定を使用します: " + e.getMessage(), "WARN");
             this.smtpConfig = createDefaultSmtpConfig();
             this.smtpConfigLoaded = true;
         }
@@ -537,7 +554,7 @@ public class ActionEngine {
         for (String configPath : configPaths) {
             java.io.File configFile = new java.io.File(configPath);
             if (configFile.exists()) {
-                logFunction.accept("SMTP設定ファイル読み込み成功: " + configPath, "INFO");
+                AppLogger.log("SMTP設定ファイル読み込み成功: " + configPath, "INFO");
 
                 try (java.io.FileReader reader = new java.io.FileReader(configFile, java.nio.charset.StandardCharsets.UTF_8)) {
                     StringBuilder content = new StringBuilder();
@@ -548,8 +565,7 @@ public class ActionEngine {
                     }
                     return new JSONObject(content.toString());
                 } catch (Exception e) {
-                    logFunction.accept("SMTP設定ファイル読み込みエラー: " + configPath + " - " + e.getMessage(), "WARN");
-                    continue; // 次のパスを試行
+                    AppLogger.log("SMTP設定ファイル読み込みエラー: " + configPath + " - " + e.getMessage(), "WARN");
                 }
             }
         }
@@ -607,7 +623,7 @@ public class ActionEngine {
      * iptablesアクションの実行
      */
     private String executeIptablesAction(ActionRule rule, Map<String, Object> eventData) {
-        logFunction.accept("iptablesアクション実行: " + rule.ruleName + " (未実装)", "WARN");
+        AppLogger.log("iptablesアクション実行: " + rule.ruleName + " (未実装)", "WARN");
         return "iptablesアクション実行予定（未実装）";
     }
 
@@ -615,7 +631,7 @@ public class ActionEngine {
      * Cloudflareアクションの実行
      */
     private String executeCloudflareAction(ActionRule rule, Map<String, Object> eventData) {
-        logFunction.accept("Cloudflareアクション実行: " + rule.ruleName + " (未実装)", "WARN");
+        AppLogger.log("Cloudflareアクション実行: " + rule.ruleName + " (未実装)", "WARN");
         return "Cloudflareアクション実行予定（未実装）";
     }
 
@@ -623,7 +639,7 @@ public class ActionEngine {
      * Webhookアクションの実行
      */
     private String executeWebhookAction(ActionRule rule, Map<String, Object> eventData) {
-        logFunction.accept("Webhookアクション実行: " + rule.ruleName + " (未実装)", "WARN");
+        AppLogger.log("Webhookアクション実行: " + rule.ruleName + " (未実装)", "WARN");
         return "Webhookアクション実行予定（未実装）";
     }
 
@@ -644,56 +660,65 @@ public class ActionEngine {
     }
 
     /**
-     * ルールの実行統計を更新
+     * ルールの実行統計を更新（static移行対応）
      */
     private void updateRuleExecutionStats(int ruleId) {
-        String sql = """
-            UPDATE action_rules
-            SET execution_count = execution_count + 1,
-                last_executed = NOW()
-            WHERE id = ?
-            """;
+        try {
+            String sql = """
+                UPDATE action_rules
+                SET execution_count = execution_count + 1,
+                    last_executed = NOW()
+                WHERE id = ?
+                """;
 
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            pstmt.setInt(1, ruleId);
-            pstmt.executeUpdate();
+            try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
+                pstmt.setInt(1, ruleId);
+                pstmt.executeUpdate();
+            }
         } catch (SQLException e) {
-            logFunction.accept("ルール実行統計更新エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("ルール実行統計更新エラー: " + e.getMessage(), "ERROR");
+        } catch (Exception e) {
+            AppLogger.log("ルール実行統計更新でエラー: " + e.getMessage(), "ERROR");
         }
     }
 
     /**
-     * 実行結果をログテーブルに記録
+     * 実行結果をログテーブルに記録（static移行対応）
      */
     private void logExecutionResult(int ruleId, String serverName, Map<String, Object> eventData,
                                   String status, String result, long durationMs) {
-        String sql = """
-            INSERT INTO action_execution_log
-            (rule_id, server_name, trigger_event, execution_status, execution_result, processing_duration_ms)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """;
+        try {
+            String sql = """
+                INSERT INTO action_execution_log
+                (rule_id, server_name, trigger_event, execution_status, execution_result, processing_duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """;
 
-        try (PreparedStatement pstmt = dbConnection.prepareStatement(sql)) {
-            pstmt.setInt(1, ruleId);
-            pstmt.setString(2, serverName);
-            pstmt.setString(3, new JSONObject(eventData).toString());
-            pstmt.setString(4, status);
-            pstmt.setString(5, result);
-            pstmt.setInt(6, (int) durationMs);
-            pstmt.executeUpdate();
+            try (PreparedStatement pstmt = getConnection().prepareStatement(sql)) {
+                pstmt.setInt(1, ruleId);
+                pstmt.setString(2, serverName);
+                pstmt.setString(3, new JSONObject(eventData).toString());
+                pstmt.setString(4, status);
+                pstmt.setString(5, result);
+                pstmt.setInt(6, (int) durationMs);
+                pstmt.executeUpdate();
+            }
         } catch (SQLException e) {
-            logFunction.accept("アクション実行ログ記録エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("アクション実行ログ記録エラー: " + e.getMessage(), "ERROR");
+        } catch (Exception e) {
+            AppLogger.log("実行ログ記録でエラー: " + e.getMessage(), "ERROR");
         }
     }
 
     /**
-     * 統計データを収集
+     * 統計データを収集（static移行対応）
      * @param targetServer 対象サーバー
      * @param reportType レポートタイプ
      * @return 統計データ
      */
     private Map<String, Object> collectStatisticsData(String targetServer, String reportType) {
         Map<String, Object> statistics = new HashMap<>();
+
 
         try {
             // 期間を計算
@@ -723,7 +748,7 @@ public class ActionEngine {
             statistics.putAll(getUrlStatistics(targetServer, startTime, endTime));
 
         } catch (Exception e) {
-            logFunction.accept("統計データ収集エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("統計データ収集エラー: " + e.getMessage(), "ERROR");
             statistics.put("error", "統計データ収集に失敗しました: " + e.getMessage());
         }
 
@@ -731,7 +756,7 @@ public class ActionEngine {
     }
 
     /**
-     * アクセス数統計を取得
+     * アクセス数統計を取得（static移行対応）
      */
     private Map<String, Object> getAccessStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
         Map<String, Object> stats = new HashMap<>();
@@ -746,7 +771,7 @@ public class ActionEngine {
                 WHERE access_time BETWEEN ? AND ?
                 """ + serverCondition;
 
-            try (PreparedStatement pstmt = dbConnection.prepareStatement(totalSql)) {
+            try (PreparedStatement pstmt = getConnection().prepareStatement(totalSql)) {
                 pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
                 pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
                 if (!"*".equals(targetServer)) {
@@ -769,7 +794,7 @@ public class ActionEngine {
                 ORDER BY count DESC
                 """;
 
-            try (PreparedStatement pstmt = dbConnection.prepareStatement(statusSql)) {
+            try (PreparedStatement pstmt = getConnection().prepareStatement(statusSql)) {
                 pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
                 pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
                 if (!"*".equals(targetServer)) {
@@ -785,14 +810,16 @@ public class ActionEngine {
             }
 
         } catch (SQLException e) {
-            logFunction.accept("アクセス統計取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("アクセス統計取得エラー: " + e.getMessage(), "ERROR");
+        } catch (Exception e) {
+            AppLogger.log("アクセス統計取得でエラー: " + e.getMessage(), "ERROR");
         }
 
         return stats;
     }
 
     /**
-     * 攻撃統計を取得
+     * 攻撃統計を取得（static移行対応）
      */
     private Map<String, Object> getAttackStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
         Map<String, Object> stats = new HashMap<>();
@@ -811,7 +838,7 @@ public class ActionEngine {
                 ORDER BY count DESC
                 """;
 
-            try (PreparedStatement pstmt = dbConnection.prepareStatement(attackSql)) {
+            try (PreparedStatement pstmt = getConnection().prepareStatement(attackSql)) {
                 pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
                 pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
                 if (!"*".equals(targetServer)) {
@@ -831,14 +858,16 @@ public class ActionEngine {
             }
 
         } catch (SQLException e) {
-            logFunction.accept("攻撃統計取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("攻撃統計取得エラー: " + e.getMessage(), "ERROR");
+        } catch (Exception e) {
+            AppLogger.log("攻撃統計取得でエラー: " + e.getMessage(), "ERROR");
         }
 
         return stats;
     }
 
     /**
-     * ModSecurity統計を取得
+     * ModSecurity統計を取得（static移行対応）
      */
     private Map<String, Object> getModSecurityStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
         Map<String, Object> stats = new HashMap<>();
@@ -854,7 +883,7 @@ public class ActionEngine {
                   AND blocked_by_modsec = TRUE
                 """ + serverCondition;
 
-            try (PreparedStatement pstmt = dbConnection.prepareStatement(blockSql)) {
+            try (PreparedStatement pstmt = getConnection().prepareStatement(blockSql)) {
                 pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
                 pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
                 if (!"*".equals(targetServer)) {
@@ -878,7 +907,7 @@ public class ActionEngine {
                 LIMIT 10
                 """;
 
-            try (PreparedStatement pstmt = dbConnection.prepareStatement(ruleSql)) {
+            try (PreparedStatement pstmt = getConnection().prepareStatement(ruleSql)) {
                 pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
                 pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
                 if (!"*".equals(targetServer)) {
@@ -894,14 +923,16 @@ public class ActionEngine {
             }
 
         } catch (SQLException e) {
-            logFunction.accept("ModSecurity統計取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("ModSecurity統計取得エラー: " + e.getMessage(), "ERROR");
+        } catch (Exception e) {
+            AppLogger.log("ModSecurity統計取得でエラー: " + e.getMessage(), "ERROR");
         }
 
         return stats;
     }
 
     /**
-     * URL統計を取得
+     * URL統計を取得（static移行対応）
      */
     private Map<String, Object> getUrlStatistics(String targetServer, LocalDateTime startTime, LocalDateTime endTime) {
         Map<String, Object> stats = new HashMap<>();
@@ -916,7 +947,7 @@ public class ActionEngine {
                 WHERE created_at BETWEEN ? AND ?
                 """ + serverCondition;
 
-            try (PreparedStatement pstmt = dbConnection.prepareStatement(newUrlSql)) {
+            try (PreparedStatement pstmt = getConnection().prepareStatement(newUrlSql)) {
                 pstmt.setTimestamp(1, Timestamp.valueOf(startTime));
                 pstmt.setTimestamp(2, Timestamp.valueOf(endTime));
                 if (!"*".equals(targetServer)) {
@@ -930,7 +961,9 @@ public class ActionEngine {
             }
 
         } catch (SQLException e) {
-            logFunction.accept("URL統計取得エラー: " + e.getMessage(), "ERROR");
+            AppLogger.log("URL統計取得エラー: " + e.getMessage(), "ERROR");
+        } catch (Exception e) {
+            AppLogger.log("URL統計取得でエラー: " + e.getMessage(), "ERROR");
         }
 
         return stats;

@@ -128,6 +128,7 @@ public class DbSchema {
         rolesDefs.put("id", "INT AUTO_INCREMENT PRIMARY KEY");
         rolesDefs.put("role_name", "VARCHAR(50) NOT NULL UNIQUE");
         rolesDefs.put("description", "TEXT");
+        rolesDefs.put("inherited_roles", "TEXT"); // 継承する下位ロールID配列（JSON形式）
         rolesDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         rolesDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
         autoSyncTableColumns(dbSession, "roles", rolesDefs, null);
@@ -254,10 +255,21 @@ public class DbSchema {
                     StringBuilder sb = new StringBuilder();
                     sb.append("CREATE TABLE ").append(tableName).append(" (");
                     int i = 0;
+                    java.util.List<String> tableConstraints = new java.util.ArrayList<>();
                     for (var entry : columnDefs.entrySet()) {
+                        String colName = entry.getKey();
+                        String colDef = entry.getValue();
+                        if (colName.equalsIgnoreCase("PRIMARY KEY") || colName.equalsIgnoreCase("UNIQUE") || colName.toLowerCase().startsWith("constraint")) {
+                            tableConstraints.add(colName + " " + colDef);
+                            continue;
+                        }
                         if (i > 0) sb.append(", ");
-                        sb.append(entry.getKey()).append(" ").append(entry.getValue());
+                        sb.append(colName).append(" ").append(colDef);
                         i++;
+                    }
+                    // テーブ���制約（PRIMARY KEY等）を末尾に追加
+                    for (String constraint : tableConstraints) {
+                        sb.append(", ").append(constraint);
                     }
                     sb.append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
                     try (Statement stmt = conn.createStatement()) {
@@ -356,6 +368,11 @@ public class DbSchema {
         dbSession.execute(conn -> {
             try {
                 for (String col : columnsToAdd) {
+                    // PRIMARY KEY/UNIQUE/CONSTRAINTはカラム追加対象外
+                    String colLower = col.toLowerCase();
+                    if (colLower.equals("primary key") || colLower.equals("unique") || colLower.startsWith("constraint")) {
+                        continue;
+                    }
                     if (columnDefs.containsKey(col)) {
                         addColumn(conn, tableName, col, columnDefs.get(col));
                         AppLogger.log(tableName + "テーブルに" + col + "カラムを追加しました", "INFO");
@@ -427,7 +444,7 @@ public class DbSchema {
                     String colDefault = rs.getString("Default");
                     String colExtra = rs.getString("Extra");
                     String idealDef = idealColumnDefs.get(colName);
-                    if (isColumnDefinitionMatch(colType, colNull, colKey, colDefault, colExtra, idealDef)) {
+                    if (isColumnDefinitionMatch(tableName, colName, colType, colNull, colKey, colDefault, colExtra, idealDef)) {
                         continue;
                     }
                     // --- 外部キー依存関係を自動検出し一時解除 ---
@@ -723,35 +740,50 @@ public class DbSchema {
 
     /**
      * SHOW COLUMNSの情報と理想定義を「型＋制約セット」として正規化し、完全一致判定する
+     * MySQLの型表現の揺れ（INT/INT(11)、BOOLEAN/TINYINT(1)等）や制約順序・余計な空白も吸収して比較
+     * 複合主キーの場合（users_roles.user_id/role_id）はPRI制約を除外して比較
      */
-    private static boolean isColumnDefinitionMatch(String colType, String colNull, String colKey, String colDefault, String colExtra, String idealDef) {
-        // 型名・サイズ・符号を小文字化して比較
+    private static boolean isColumnDefinitionMatch(String tableName, String colName, String colType, String colNull, String colKey, String colDefault, String colExtra, String idealDef) {
         String normType = normalizeType(colType).toLowerCase().trim();
         String normIdealType = normalizeType(extractType(idealDef)).toLowerCase().trim();
-
-        // 型の比較（BOOLEANとtinyint(1)は同一視）
-        if (!normType.equals(normIdealType)) {
-            if (!(isBooleanType(normType) && isBooleanType(normIdealType))) {
-                return false;
-            }
+        boolean typeMatch = false;
+        // INT/INT(11)は同一視
+        if (normType.startsWith("int") && normIdealType.startsWith("int")) {
+            normType = "int";
+            normIdealType = "int";
+            typeMatch = true;
         }
-
-        // 制約セットを正規化して比較（小文字化・trim・ソート）
+        // BOOLEAN/TINYINT(1)は同一視
+        if (isBooleanType(normType) && isBooleanType(normIdealType)) {
+            normType = normIdealType = "boolean";
+            typeMatch = true;
+        }
+        if (!normType.equals(normIdealType)) {
+            AppLogger.log("[DbSchema] 型不一致: actual=" + normType + ", ideal=" + normIdealType + " (colType=" + colType + ", idealDef=" + idealDef + ")", "DEBUG");
+            return false;
+        }
+        // 制約セットを正規化して比較（小文字化・trim・順序無視）
         String[] actualSet = normalizeConstraints(colNull, colKey, colDefault, colExtra);
         String[] idealSet = normalizeIdealConstraints(idealDef);
-
-        // 制約セットの正規化を徹底
-        for (int i = 0; i < actualSet.length; i++) {
-            actualSet[i] = actualSet[i].toLowerCase().trim();
+        java.util.Set<String> actualSetNorm = new java.util.HashSet<>();
+        java.util.Set<String> idealSetNorm = new java.util.HashSet<>();
+        for (String s : actualSet) actualSetNorm.add(s.toLowerCase().replaceAll("\\s+", " ").trim());
+        for (String s : idealSet) idealSetNorm.add(s.toLowerCase().replaceAll("\\s+", " ").trim());
+        // INT型のNOT NULL/NULLの違いのみで、PRIMARY KEYが複合主キーの場合は許容
+        if (normType.equals("int") && actualSetNorm.contains("not null") && idealSetNorm.contains("not null")) {
+            actualSetNorm.remove("not null");
+            idealSetNorm.remove("not null");
         }
-        for (int i = 0; i < idealSet.length; i++) {
-            idealSet[i] = idealSet[i].toLowerCase().trim();
+        // users_rolesテーブルのuser_id/role_idは複合主キーなのでPRI制約を除外
+        if ("users_roles".equals(tableName) && ("user_id".equals(colName) || "role_id".equals(colName))) {
+            actualSetNorm.remove("primary key");
+            idealSetNorm.remove("primary key");
         }
-
-        java.util.Arrays.sort(actualSet);
-        java.util.Arrays.sort(idealSet);
-
-        return java.util.Arrays.equals(actualSet, idealSet);
+        if (!actualSetNorm.equals(idealSetNorm)) {
+            AppLogger.log("[DbSchema] 制約不一致: actual=" + actualSetNorm + ", ideal=" + idealSetNorm + " (colType=" + colType + ", idealDef=" + idealDef + ")", "DEBUG");
+            return false;
+        }
+        return true;
     }
 
 }

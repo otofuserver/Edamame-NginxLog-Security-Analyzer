@@ -1,8 +1,8 @@
 # DbUpdate.java 仕様書
 
 ## 概要
-**バージョン**: v2.1.0  
-**更新日**: 2025-01-14
+**バージョン**: v2.1.1  # addDefaultRoleHierarchy仕様・履歴更新  
+**更新日**: 2025-08-18
 
 ## 役割
 - データベースのレコード更新処理専用クラス
@@ -114,6 +114,17 @@ UPDATE url_registry
 SET is_whitelisted = true, updated_at = NOW()
 WHERE server_name = ? AND method = ? AND full_url = ?
 ```
+
+### `addDefaultRoleHierarchy(DbSession dbSession, String serverName)`
+- **機能**: rolesテーブルのinherited_roles(JSON配列)にサーバー名ごとの下位ロールIDを追加登録
+- **引数**: dbSession: データベースセッション, serverName: サーバー名
+- **ロジック**:
+  1. baseRoles（admin/operator/viewer）ごとに、serverName付き下位ロール（serverName_admin等）のIDを取得
+  2. inherited_roles（JSON配列）に下位ロールIDを追加（JacksonでJSON処理）
+  3. 既存の場合は重複追加しない
+  4. ログ出力・例外処理あり
+- **注意事項**: rolesテーブルのrole_nameがadmin/operator/viewerのレコードのみ対象。JSON配列の型安全な処理を行うこと。
+- **例外処理**: SQLException → RuntimeExceptionでラップ、Jackson例外もcatchしてログ出力
 
 ## エラーハンドリング
 
@@ -245,10 +256,7 @@ public void performPeriodicAlertMatching() {
 - **トランザクション**: 複数テーブル更新時の一貫性保証
 
 ## バージョン履歴
-- **v1.0.0**: 初期実装（Connection引数方式）
-- **v1.5.0**: DbService統合対応
-- **v2.0.0**: Connection引数方式完全廃止、DbService専用
-- **v2.1.0**: **DbSession対応、ModSecurityブロック状態更新機能強化**
+- **v2.1.1**: addDefaultRoleHierarchy仕様追加
 
 ---
 
