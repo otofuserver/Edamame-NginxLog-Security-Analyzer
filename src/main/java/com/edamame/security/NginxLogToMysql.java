@@ -2,6 +2,7 @@ package com.edamame.security;
 
 import com.edamame.security.agent.AgentTcpServer;
 import com.edamame.security.db.DbService;
+import static com.edamame.security.db.DbService.*;
 import com.edamame.security.modsecurity.ModSecurityQueue;
 import com.edamame.security.modsecurity.ModSecHandler;
 import com.edamame.web.WebApplication;
@@ -62,7 +63,6 @@ public class NginxLogToMysql {
     private static final long LOG_CLEANUP_INTERVAL = 24 * 60 * 60 * 1000L; // 24時間
 
     // グローバル変数
-    private static DbService dbService = null;  // Connection手動管理から DbService に変更
     private static boolean whitelistMode = false;
     private static String whitelistIp = "";
     private static final AtomicBoolean isRunning = new AtomicBoolean(true);
@@ -139,58 +139,6 @@ public class NginxLogToMysql {
     }
 
     /**
-     * DbServiceを初期化し、データベース接続を確立
-     * @return DbService インスタンス（失敗時はnull）
-     */
-    private static DbService initializeDbService() {
-        AppLogger.log("データベースサービス初期化中...", "INFO");
-
-        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                Map<String, String> config = loadDbConfig();
-
-                String url = String.format("jdbc:mysql://%s/%s?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Tokyo&characterEncoding=UTF-8&useUnicode=true",
-                    config.get("host"), config.get("database"));
-
-                Properties props = new Properties();
-                props.setProperty("user", config.get("user"));
-                props.setProperty("password", config.get("password"));
-                props.setProperty("useUnicode", "true");
-                props.setProperty("characterEncoding", "UTF-8");
-                props.setProperty("autoReconnect", "true");
-                props.setProperty("useSSL", "false");
-                props.setProperty("allowPublicKeyRetrieval", "true");
-
-                DbService service = new DbService(url, props);
-
-                if (attempt > 1) {
-                    AppLogger.log(String.format("DbService接続が復旧しました（リトライ #%d）", attempt), "RECOVERED");
-                } else {
-                    AppLogger.log("DbServiceが正常に初期化されました", "INFO");
-                }
-
-                return service;
-
-            } catch (Exception e) {
-                AppLogger.log(String.format("DbService初期化試行 #%d 失敗: %s", attempt, e.getMessage()), "ERROR");
-
-                if (attempt < MAX_RETRIES) {
-                    try {
-                        Thread.sleep(RETRY_DELAY * 1000L);
-                    } catch (InterruptedException ie) {
-                        Thread.currentThread().interrupt();
-                        AppLogger.log("リトライ待機中に割り込まれました", "WARN");
-                        break;
-                    }
-                }
-            }
-        }
-
-        AppLogger.log("すべてのDbService初期化試行が失敗しました", "CRITICAL");
-        return null;
-    }
-
-    /**
      * アプリケーションの初期化処理
      * @return 初期化成功可否
      */
@@ -198,10 +146,26 @@ public class NginxLogToMysql {
         AppLogger.log(String.format("%s %s 起動中...", APP_NAME, APP_VERSION), "INFO");
         AppLogger.log(APP_AUTHOR, "INFO");
 
-        // DbService初期化
-        dbService = initializeDbService();
-        if (dbService == null) {
-            AppLogger.log("データベースサービスの初期化に失敗しました。アプリケーションを終了します。", "CRITICAL");
+        // DbService初期化（static移行により直接初期化）
+        try {
+            Map<String, String> config = loadDbConfig();
+            String url = String.format("jdbc:mysql://%s/%s?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Tokyo&characterEncoding=UTF-8&useUnicode=true",
+                config.get("host"), config.get("database"));
+
+            Properties props = new Properties();
+            props.setProperty("user", config.get("user"));
+            props.setProperty("password", config.get("password"));
+            props.setProperty("useUnicode", "true");
+            props.setProperty("characterEncoding", "UTF-8");
+            props.setProperty("autoReconnect", "true");
+            props.setProperty("useSSL", "false");
+            props.setProperty("allowPublicKeyRetrieval", "true");
+
+            // DbServiceの静的初期化
+            initialize(url, props);
+            AppLogger.log("データベースサービスの初期化が完了しました", "INFO");
+        } catch (Exception e) {
+            AppLogger.log("データベースサービスの初期化に失敗しました: " + e.getMessage(), "CRITICAL");
             return false;
         }
 
@@ -211,9 +175,9 @@ public class NginxLogToMysql {
             return false;
         }
 
-        // DBスキーマの自動同期・移行を実行（DbService使用）
+        // DBスキーマの自動同期・移行を実行（static method使用）
         try {
-            dbService.syncAllTablesSchema();
+            syncAllTablesSchema();
             AppLogger.log("DBスキーマの自動同期・移行が完了しました", "INFO");
         } catch (Exception e) {
             AppLogger.log("DBスキーマ自動同期・移行でエラー: " + e.getMessage(), "CRITICAL");
@@ -222,22 +186,22 @@ public class NginxLogToMysql {
 
         // 起動時の前回セッションクリーンアップ（エージェント一括inactive化）
         try {
-            dbService.deactivateAllAgents();
+            deactivateAllAgents();
             AppLogger.log("起動時クリーンアップ: 前回セッションの全エージェントをinactive状態に変更しました", "INFO");
         } catch (Exception e) {
             AppLogger.log("起動時エージェント一括inactive化でエラー: " + e.getMessage(), "WARN");
             // エラーでも処理続行（致命的ではない）
         }
 
-        // 初期データ投入（DbService使用）
+        // 初期データ投入（static method使用）
         try {
-            dbService.initializeDefaultData(APP_VERSION);
+            initializeDefaultData(APP_VERSION);
         } catch (Exception e) {
             AppLogger.log("初期データ投入に失敗しました: " + e.getMessage(), "ERROR");
             return false;
         }
 
-        // ホワイトリスト設定を読み込み（DbService使用）
+        // ホワイトリスト設定を読み込み（static method使用）
         loadWhitelistSettings();
 
         // 攻撃パターンファイルの自動更新を起動時に試行
@@ -265,7 +229,7 @@ public class NginxLogToMysql {
 
         // ActionEngineの初期化（DbService使用）
         try {
-            actionEngine = new ActionEngine(dbService);
+            actionEngine = new ActionEngine();
             AppLogger.log("ActionEngine初期化完了", "INFO");
         } catch (Exception e) {
             AppLogger.log("ActionEngine初期化でエラー: " + e.getMessage(), "ERROR");
@@ -274,7 +238,7 @@ public class NginxLogToMysql {
 
         // エージェントTCPサーバーの初期化（ModSecurityキューを渡す）
         try {
-            agentTcpServer = new AgentTcpServer(dbService, modSecurityQueue);
+            agentTcpServer = new AgentTcpServer(modSecurityQueue);
             agentTcpServer.start();
             AppLogger.log("エージェントTCPサーバー起動完了 (ポート: 2591)", "INFO");
         } catch (Exception e) {
@@ -296,8 +260,8 @@ public class NginxLogToMysql {
             AppLogger.log("Webフロントエンドは無効に設定されています", "INFO");
         }
 
-        // 起動時にログ自動削除バッチも実行（DbService使用）
-        dbService.runLogCleanupBatch();
+        // 起動時にログ自動削除バッチも実行（static method使用）
+        runLogCleanupBatch();
         AppLogger.log("起動時にログ自動削除バッチを実行しました", "INFO");
 
         AppLogger.log("初期化処理が完了しました", "INFO");
@@ -312,8 +276,8 @@ public class NginxLogToMysql {
         try {
             AppLogger.log("Webフロントエンド初期化中...", "INFO");
 
-            // WebApplicationインスタンスを作成（DbService使用）
-            webApplication = new WebApplication(dbService);
+            // WebApplicationインスタンスを作成（static移行により引数なし）
+            webApplication = new WebApplication();
 
             // 初期化
             if (!webApplication.initialize()) {
@@ -351,11 +315,11 @@ public class NginxLogToMysql {
     }
 
     /**
-     * ホワイトリスト設定をDBから読み込み（DbService使用）
+     * ホワイトリスト設定をDBから読み込み（static method使用）
      */
     private static void loadWhitelistSettings() {
         try {
-            Map<String, Object> settings = dbService.selectWhitelistSettings();
+            Map<String, Object> settings = selectWhitelistSettings();
             if (settings != null) {
                 whitelistMode = (Boolean) settings.get("whitelist_mode");
                 whitelistIp = (String) settings.get("whitelist_ip");
@@ -397,10 +361,14 @@ public class NginxLogToMysql {
             }
         }
 
-        // DbServiceのクローズ（SQLExceptionは発生しない）
-        if (dbService != null) {
-            dbService.close();
-            AppLogger.log("データベース接続を閉じました", "INFO");
+        // DbServiceのクローズ（static移行に対応）
+        try {
+            if (DbService.isInitialized()) {
+                DbService.shutdown();
+                AppLogger.log("データベース接続を閉じました", "INFO");
+            }
+        } catch (Exception e) {
+            AppLogger.log("データベース接続のクローズ中にエラー: " + e.getMessage(), "WARN");
         }
 
         AppLogger.log("クリーンアップが完了しました", "INFO");
@@ -443,16 +411,13 @@ public class NginxLogToMysql {
                     break;
                 } catch (Exception e) {
                     AppLogger.log("メインループでエラーが発生しました: " + e.getMessage(), "ERROR");
-                    if (e instanceof SQLException) {
-                        // DB接続エラーの場合は再接続を試行
-                        dbService = null;
-                        Thread.sleep(5000);
-                    }
+                    // DB接続エラーの場合は継続（static移行によりDbServiceインスタンス管理不要）
+                    Thread.sleep(5000);
                 }
             }
 
         } catch (Exception e) {
-            AppLogger.log("予期��ないエラーが発生しました: " + e.getMessage(), "CRITICAL");
+            AppLogger.log("予期しないエラーが発生しました: " + e.getMessage(), "CRITICAL");
             AppLogger.log("エラー詳細: " + e.getClass().getSimpleName() + " - " + e.toString(), "ERROR");
         } finally {
             cleanup();
@@ -460,23 +425,13 @@ public class NginxLogToMysql {
     }
 
     /**
-     * 定期メンテナンス処理（v1.1.0版：DbService使用）
+     * 定期メンテナンス処理（static移行版）
      */
     private static void performMaintenanceTasks() {
         try {
-            // DbService接続状態チェック
-            if (dbService == null || !dbService.isConnected()) {
-                AppLogger.log("DbServiceが利用できません。再初期化を試行します。", "WARN");
-                dbService = initializeDbService();
-                if (dbService == null) {
-                    AppLogger.log("DbServiceの初期化に失敗しました", "ERROR");
-                    return;
-                }
-            }
-
-            // 24時間ごとにログ自動削除バッチを実行（DbService使用）
+            // 24時間ごとにログ自動削除バッチを実行（static method使用）
             if (System.currentTimeMillis() - lastLogCleanupTime > LOG_CLEANUP_INTERVAL) {
-                dbService.runLogCleanupBatch();
+                runLogCleanupBatch();
                 lastLogCleanupTime = System.currentTimeMillis();
                 AppLogger.log("定期メンテナンス: ログ自動削除バッチを実行しました", "INFO");
             }
@@ -518,8 +473,8 @@ public class NginxLogToMysql {
             // クリーンアップタスクを開始
             modSecurityQueue.startCleanupTask(modSecTaskExecutor);
 
-            // 定期的アラート照合タスクを開始
-            ModSecHandler.startPeriodicAlertMatching(modSecTaskExecutor, modSecurityQueue, dbService);
+            // 定期的アラート照合タスクを開始（static移行によりDbServiceインスタンス不要）
+            ModSecHandler.startPeriodicAlertMatching(modSecTaskExecutor, modSecurityQueue);
 
             AppLogger.log("ModSecurityキューとタスク初期化完了", "INFO");
             return true;
