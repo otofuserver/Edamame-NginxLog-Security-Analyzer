@@ -1,7 +1,7 @@
 package com.edamame.security.agent;
 
 import com.edamame.security.*;
-import  static com.edamame.security.db.DbService.*;
+import static com.edamame.security.db.DbService.*;
 import com.edamame.security.modsecurity.ModSecurityQueue;
 import com.edamame.security.modsecurity.ModSecHandler;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -482,7 +482,7 @@ public class AgentTcpServer {
     }
 
     /**
-     * サーバー登録処理
+     * agentサーバー登録処理
      */
     private void handleServerRegistration(AgentSession session, byte[] data) throws IOException {
         try {
@@ -534,7 +534,7 @@ public class AgentTcpServer {
     }
 
     /**
-     * サーバー登録解除処理
+     * agentサーバー登録解除処理
      */
     private void handleServerUnregistration(AgentSession session, byte[] data) throws IOException {
         try {
@@ -716,6 +716,14 @@ public class AgentTcpServer {
                 if (actualServerName != null && !processedServers.contains(actualServerName)) {
                     try {
                         registerOrUpdateServer(actualServerName, "エージェント自動登録", sourcePath);
+
+                        // サーバー名に対してadmin/operator/viewerロールを追加
+                        try {
+                            addDefaultRolesForServer(actualServerName);
+                        } catch (Exception e) {
+                            AppLogger.warn("ロール自動追加エラー: " + actualServerName + " - " + e.getMessage());
+                        }
+
                         processedServers.add(actualServerName);
                         AppLogger.debug("サーバー自動登録/更新: " + actualServerName);
                     } catch (Exception e) {
