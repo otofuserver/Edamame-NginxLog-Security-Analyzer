@@ -122,3 +122,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - リアルタイム監視アラート機能の拡張
 - 攻撃パターンのカスタマイズ機能拡張
 - Webダッシュボードの機能追加
+
