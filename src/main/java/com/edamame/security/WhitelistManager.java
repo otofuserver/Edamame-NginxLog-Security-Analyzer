@@ -1,5 +1,6 @@
 package com.edamame.security;
 
+import com.edamame.security.db.DbService;
 import com.edamame.security.tools.AppLogger;
 
 import java.sql.*;
@@ -16,15 +17,12 @@ import java.util.Map;
  * @version 1.0.0
  */
 public class WhitelistManager {
-
-    private final com.edamame.security.db.DbService dbService;
+    
 
     /**
      * コンストラクタ
-     * @param dbService DBサービス
      */
-    public WhitelistManager(com.edamame.security.db.DbService dbService) {
-        this.dbService = dbService;
+    public WhitelistManager() {
     }
 
     /**
@@ -34,7 +32,7 @@ public class WhitelistManager {
      */
     public boolean determineWhitelistStatus(String clientIp) {
         try {
-            Map<String, Object> whitelistSettings = dbService.selectWhitelistSettings();
+            Map<String, Object> whitelistSettings = DbService.selectWhitelistSettings();
             if (whitelistSettings != null) {
                 boolean whitelistMode = Boolean.TRUE.equals(whitelistSettings.get("whitelist_mode"));
                 String whitelistIp = (String) whitelistSettings.get("whitelist_ip");
@@ -66,10 +64,14 @@ public class WhitelistManager {
 
     /**
      * 既存URLの再アクセス時にホワイトリスト状態を再評価（必要時のみ更新）
+     * @param serverName サーバー名
+     * @param method HTTPメソッド
+     * @param fullUrl フルURL
+     * @param clientIp クライアントIPアドレス
      */
     public void updateExistingUrlWhitelistStatusOnAccess(String serverName, String method, String fullUrl, String clientIp) {
         try {
-            Boolean currentWhitelistStatus = dbService.selectIsWhitelistedFromUrlRegistry(serverName, method, fullUrl);
+            Boolean currentWhitelistStatus = DbService.selectIsWhitelistedFromUrlRegistry(serverName, method, fullUrl);
             if (currentWhitelistStatus == null) {
                 return;
             }
@@ -78,12 +80,12 @@ public class WhitelistManager {
                                  " (既に安全判定済み、変更なし, IP: " + clientIp + ")");
                 return;
             }
-            Map<String, Object> whitelistSettings = dbService.selectWhitelistSettings();
+            Map<String, Object> whitelistSettings = DbService.selectWhitelistSettings();
             if (whitelistSettings != null) {
                 boolean whitelistMode = Boolean.TRUE.equals(whitelistSettings.get("whitelist_mode"));
                 String whitelistIp = (String) whitelistSettings.get("whitelist_ip");
                 if (whitelistMode && whitelistIp != null && whitelistIp.equals(clientIp)) {
-                    int affected = dbService.updateUrlWhitelistStatus(serverName, method, fullUrl);
+                    int affected = DbService.updateUrlWhitelistStatus(serverName, method, fullUrl);
                     if (affected > 0) {
                         AppLogger.info("再アクセス時URL安全判定: " + serverName + " - " + method + " " + fullUrl +
                                          " → safe (安全IPからアクセス: " + clientIp + ")");
