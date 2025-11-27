@@ -33,7 +33,7 @@ public class SetupSecureConfig {
 
     // ツール固有の定数
     private static final String TOOL_NAME = "Edamame SetupSecureConfig";
-    private static final String TOOL_VERSION = "V1.0";
+    private static final String TOOL_VERSION = "V1.1";
     private static final String TOOL_AUTHOR = "Edamame Security Team";
     private static final Logger logger = Logger.getLogger(SetupSecureConfig.class.getName());
 
@@ -103,6 +103,7 @@ public class SetupSecureConfig {
 
         Map<String, String> config = new HashMap<>();
         config.put("host", getEnvOrInput("TEST_MYSQL_HOST", "MySQLホスト名: ", false));
+        config.put("port", getEnvOrInput("TEST_MYSQL_PORT", "MySQLポート番号: ", false));
         config.put("user", getEnvOrInput("TEST_MYSQL_USER", "MySQLユーザー名: ", false));
         config.put("password", getEnvOrInput("TEST_MYSQL_PASS", "MySQLパスワード: ", true));
         config.put("database", getEnvOrInput("TEST_MYSQL_DB", "データベース名: ", false));

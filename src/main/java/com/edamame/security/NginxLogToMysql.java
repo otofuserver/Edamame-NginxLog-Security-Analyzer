@@ -149,8 +149,13 @@ public class NginxLogToMysql {
         // DbService初期化（static移行により直接初期化）
         try {
             Map<String, String> config = loadDbConfig();
-            String url = String.format("jdbc:mysql://%s/%s?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Tokyo&characterEncoding=UTF-8&useUnicode=true",
-                config.get("host"), config.get("database"));
+            String host = config.get("host");
+            String port = (config.get("port") != null && !config.get("port").trim().isEmpty()) ? config.get("port").trim() : "3306";
+            String database = config.get("database");
+
+            String url = String.format(
+                "jdbc:mysql://%s:%s/%s?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Tokyo&characterEncoding=UTF-8&useUnicode=true",
+                host, port, database);
 
             Properties props = new Properties();
             props.setProperty("user", config.get("user"));
@@ -161,9 +166,11 @@ public class NginxLogToMysql {
             props.setProperty("useSSL", "false");
             props.setProperty("allowPublicKeyRetrieval", "true");
 
+            AppLogger.log("データベースへの接続を試行("+url+")", "INFO");
+
             // DbServiceの静的初期化
             initialize(url, props);
-            AppLogger.log("データベースサービスの初期化が完了しました", "INFO");
+            AppLogger.log("データベースサービスの初期化が完了しました (host=" + host + ", port=" + port + ")", "INFO");
         } catch (Exception e) {
             AppLogger.log("データベースサービスの初期化に失敗しました: " + e.getMessage(), "CRITICAL");
             return false;
