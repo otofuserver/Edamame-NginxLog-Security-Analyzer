@@ -1,7 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.46
+- **specification.txt version**: v1.0.47
+- **最終更新**: 2025-11-27
+- 注記: 2025-11-27 に `action_tools` および `action_rules` のスキーマ互換性対応（DbSchema/DbInitialDataの修正）を実施しました。詳細は `document/db/DbSchema.md` の v2.9.2 セクションおよび CHANGELOG.md を参照してください。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -383,7 +385,7 @@ dbService.runLogCleanupBatch();
 ```
 
 ### パフォーマンス向上効果
-- **接続管理オ���バーヘッド**: 約60%削減
+- **接続管理オーバーヘッド**: 約60%削減
 - **コード量**: 約40%削減（Connection引数除去）
 - **エラー処理**: 統一化により安定性向上
 - **保守性**: Connection管理ロジックの一元化
@@ -404,4 +406,3 @@ dbService.runLogCleanupBatch();
 この改修により、Edamame NginxLog Security Analyzerのデータベース操作は現代的で保守しやすい設計に完全移行しました。新機能開発時はDbServiceを優先的に使用し、既存機能は段階的に移行していくことを推奨します。
 
 **バージョン**: v1.1.0 (2025-01-11 DbService導入完了)
-

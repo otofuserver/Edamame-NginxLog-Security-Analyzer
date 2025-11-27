@@ -189,16 +189,55 @@ public class DbInitialData {
                         {"notification", "curl -X POST -H 'Content-Type: application/json' -d '{\"text\":\"Attack detected from {ip}\"}' {webhook_url}", "Slack/Discord通知"}
                     };
 
-                    String insertSql = "INSERT INTO action_tools (tool_name, command_template, description) VALUES (?, ?, ?)";
+                    // カラム存在チェック（互換性対応）
+                    boolean hasCommandTemplate = hasColumn(conn, "action_tools", "command_template");
+                    boolean hasToolType = hasColumn(conn, "action_tools", "tool_type");
+                    boolean hasConfigJson = hasColumn(conn, "action_tools", "config_json");
+                    boolean hasIsEnabled = hasColumn(conn, "action_tools", "is_enabled");
+
+                    // 挿入カラムを動的に構築
+                    java.util.List<String> cols = new java.util.ArrayList<>();
+                    cols.add("tool_name");
+                    if (hasCommandTemplate) cols.add("command_template");
+                    if (hasToolType) cols.add("tool_type");
+                    if (hasConfigJson) cols.add("config_json");
+                    if (hasIsEnabled) cols.add("is_enabled");
+                    cols.add("description");
+
+                    String insertSql = buildInsertSql("action_tools", cols);
                     try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                         for (String[] tool : initialTools) {
-                            pstmt.setString(1, tool[0]);
-                            pstmt.setString(2, tool[1]);
-                            pstmt.setString(3, tool[2]);
-                            pstmt.addBatch();
+                            int idx = 1;
+                            // cols の順序に従って値を設定する
+                            for (String col : cols) {
+                                switch (col) {
+                                    case "tool_name":
+                                        pstmt.setString(idx++, tool[0]);
+                                        break;
+                                    case "command_template":
+                                        pstmt.setString(idx++, tool[1]);
+                                        break;
+                                    case "tool_type":
+                                        pstmt.setString(idx++, "shell");
+                                        break;
+                                    case "config_json":
+                                        pstmt.setString(idx++, null);
+                                        break;
+                                    case "is_enabled":
+                                        pstmt.setBoolean(idx++, true);
+                                        break;
+                                    case "description":
+                                        pstmt.setString(idx++, tool[2]);
+                                        break;
+                                    default:
+                                        pstmt.setObject(idx++, null);
+                                        break;
+                                }
+                            }
+                             pstmt.addBatch();
                         }
                         pstmt.executeBatch();
-                        AppLogger.info("action_toolsテーブル初期データ挿入完了");
+                        AppLogger.info("action_toolsテーブル初期データ挿入完了 (互換モード)");
                     }
                 }
             } catch (SQLException e) {
@@ -206,6 +245,33 @@ public class DbInitialData {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    // 互換的にINSERT文を作るユーティリティ
+    private static String buildInsertSql(String tableName, java.util.List<String> columns) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("INSERT INTO ").append(tableName).append(" (");
+        for (int i = 0; i < columns.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(columns.get(i));
+        }
+        sb.append(") VALUES (");
+        for (int i = 0; i < columns.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append("?");
+        }
+        sb.append(")");
+        return sb.toString();
+    }
+
+    // テーブルにカラムが存在するかを判定するユーティリティ
+    private static boolean hasColumn(Connection conn, String tableName, String columnName) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement("SHOW COLUMNS FROM " + tableName + " LIKE ?")) {
+            ps.setString(1, columnName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
     }
 
     /**
@@ -227,19 +293,71 @@ public class DbInitialData {
                         {"critical_attack_notify", "severity >= 4", "3", "TRUE", "重要攻撃の通知"}
                     };
 
-                    String insertSql = "INSERT INTO action_rules (rule_name, condition_expression, action_tool_id, is_active, description) VALUES (?, ?, ?, ?, ?)";
+                    boolean hasConditionExpression = hasColumn(conn, "action_rules", "condition_expression");
+                    boolean hasConditionType = hasColumn(conn, "action_rules", "condition_type");
+                    boolean hasConditionParams = hasColumn(conn, "action_rules", "condition_params");
+                    boolean hasIsActive = hasColumn(conn, "action_rules", "is_active");
+                    boolean hasIsEnabled = hasColumn(conn, "action_rules", "is_enabled");
+                    boolean hasDescription = hasColumn(conn, "action_rules", "description");
+                    boolean hasTargetServer = hasColumn(conn, "action_rules", "target_server");
+
+                    // 動的に挿入カラムを決定
+                    java.util.List<String> cols = new java.util.ArrayList<>();
+                    cols.add("rule_name");
+                    if (hasConditionExpression) cols.add("condition_expression");
+                    if (hasConditionType) cols.add("condition_type");
+                    if (hasConditionParams) cols.add("condition_params");
+                    if (hasTargetServer) cols.add("target_server");
+                    cols.add("action_tool_id");
+                    if (hasIsActive) cols.add("is_active");
+                    if (hasIsEnabled && !hasIsActive) cols.add("is_enabled");
+                    if (hasDescription) cols.add("description");
+
+                    String insertSql = buildInsertSql("action_rules", cols);
                     try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
                         for (String[] rule : initialRules) {
-                            pstmt.setString(1, rule[0]);
-                            pstmt.setString(2, rule[1]);
-                            pstmt.setInt(3, Integer.parseInt(rule[2]));
-                            pstmt.setBoolean(4, Boolean.parseBoolean(rule[3]));
-                            pstmt.setString(5, rule[4]);
+                            int idx = 1;
+                            // cols の順序に従って値を設定する
+                            for (String col : cols) {
+                                switch (col) {
+                                    case "rule_name":
+                                        pstmt.setString(idx++, rule[0]);
+                                        break;
+                                    case "condition_expression":
+                                        pstmt.setString(idx++, rule[1]);
+                                        break;
+                                    case "condition_type":
+                                        // 現行仕様では表現形式のマッピングを 'expression' として格納
+                                        pstmt.setString(idx++, "expression");
+                                        break;
+                                    case "condition_params":
+                                        pstmt.setString(idx++, rule[1]);
+                                        break;
+                                    case "target_server":
+                                        pstmt.setString(idx++, "*");
+                                        break;
+                                    case "action_tool_id":
+                                        pstmt.setInt(idx++, Integer.parseInt(rule[2]));
+                                        break;
+                                    case "is_active":
+                                        pstmt.setBoolean(idx++, Boolean.parseBoolean(rule[3]));
+                                        break;
+                                    case "is_enabled":
+                                        pstmt.setBoolean(idx++, Boolean.parseBoolean(rule[3]));
+                                        break;
+                                    case "description":
+                                        pstmt.setString(idx++, rule[4]);
+                                        break;
+                                    default:
+                                        pstmt.setObject(idx++, null);
+                                        break;
+                                }
+                            }
                             pstmt.addBatch();
-                        }
-                        pstmt.executeBatch();
-                        AppLogger.info("action_rulesテーブル初期データ挿入完了");
-                    }
+                         }
+                         pstmt.executeBatch();
+                         AppLogger.info("action_rulesテーブル初期データ挿入完了 (互換モード)");
+                     }
                 }
             } catch (SQLException e) {
                 AppLogger.error("action_rulesテーブル初期データ挿入エラー: " + e.getMessage());

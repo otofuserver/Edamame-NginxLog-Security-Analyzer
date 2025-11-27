@@ -210,30 +210,31 @@ public class DbSchema {
         var actionToolsDefs = new java.util.LinkedHashMap<String, String>();
         actionToolsDefs.put("id", "INT AUTO_INCREMENT PRIMARY KEY");
         actionToolsDefs.put("tool_name", "VARCHAR(100) NOT NULL UNIQUE");
-        actionToolsDefs.put("tool_type", "VARCHAR(50) NOT NULL");
-        actionToolsDefs.put("is_enabled", "BOOLEAN DEFAULT TRUE");
-        actionToolsDefs.put("config_json", "TEXT");
-        actionToolsDefs.put("description", "TEXT");
-        actionToolsDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
-        actionToolsDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
-        autoSyncTableColumns(dbSession, "action_tools", actionToolsDefs, null);
+        // (元仕様) command_template/tool_type はスキーマに含めない。初期データ側は存在チェックで互換性を保つ。
+         actionToolsDefs.put("is_enabled", "BOOLEAN DEFAULT TRUE");
+         actionToolsDefs.put("config_json", "TEXT");
+         actionToolsDefs.put("description", "TEXT");
+         actionToolsDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+         actionToolsDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+         autoSyncTableColumns(dbSession, "action_tools", actionToolsDefs, null);
 
-        // action_rules - アクション自動実行ルール管理
-        var actionRulesDefs = new java.util.LinkedHashMap<String, String>();
-        actionRulesDefs.put("id", "INT AUTO_INCREMENT PRIMARY KEY");
-        actionRulesDefs.put("rule_name", "VARCHAR(100) NOT NULL UNIQUE");
-        actionRulesDefs.put("target_server", "VARCHAR(100) NOT NULL");
-        actionRulesDefs.put("condition_type", "VARCHAR(50) NOT NULL");
-        actionRulesDefs.put("condition_params", "TEXT");
-        actionRulesDefs.put("action_tool_id", "INT NOT NULL");
-        actionRulesDefs.put("action_params", "TEXT");
-        actionRulesDefs.put("is_enabled", "BOOLEAN DEFAULT TRUE");
-        actionRulesDefs.put("priority", "INT DEFAULT 100");
-        actionRulesDefs.put("last_executed", "DATETIME");
-        actionRulesDefs.put("execution_count", "INT DEFAULT 0");
-        actionRulesDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
-        actionRulesDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
-        autoSyncTableColumns(dbSession, "action_rules", actionRulesDefs, null);
+         // action_rules - アクション自動実行ルール管理
+         var actionRulesDefs = new java.util.LinkedHashMap<String, String>();
+         actionRulesDefs.put("id", "INT AUTO_INCREMENT PRIMARY KEY");
+         actionRulesDefs.put("rule_name", "VARCHAR(100) NOT NULL UNIQUE");
+         // (元仕様) condition_expression/is_active/description はスキーマに含めない。初期データ側は存在チェックで互換性を保つ。
+         actionRulesDefs.put("target_server", "VARCHAR(100) NOT NULL");
+         actionRulesDefs.put("condition_type", "VARCHAR(50) NOT NULL");
+         actionRulesDefs.put("condition_params", "TEXT");
+         actionRulesDefs.put("action_tool_id", "INT NOT NULL");
+         actionRulesDefs.put("action_params", "TEXT");
+         actionRulesDefs.put("is_enabled", "BOOLEAN DEFAULT TRUE");
+         actionRulesDefs.put("priority", "INT DEFAULT 100");
+         actionRulesDefs.put("last_executed", "DATETIME");
+         actionRulesDefs.put("execution_count", "INT DEFAULT 0");
+         actionRulesDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+         actionRulesDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+         autoSyncTableColumns(dbSession, "action_rules", actionRulesDefs, null);
 
         AppLogger.log("エージェント管理用テーブルのスキーマ同期が完了しました", "INFO");
     }
@@ -746,17 +747,14 @@ public class DbSchema {
     private static boolean isColumnDefinitionMatch(String tableName, String colName, String colType, String colNull, String colKey, String colDefault, String colExtra, String idealDef) {
         String normType = normalizeType(colType).toLowerCase().trim();
         String normIdealType = normalizeType(extractType(idealDef)).toLowerCase().trim();
-        boolean typeMatch = false;
         // INT/INT(11)は同一視
         if (normType.startsWith("int") && normIdealType.startsWith("int")) {
             normType = "int";
             normIdealType = "int";
-            typeMatch = true;
         }
         // BOOLEAN/TINYINT(1)は同一視
         if (isBooleanType(normType) && isBooleanType(normIdealType)) {
             normType = normIdealType = "boolean";
-            typeMatch = true;
         }
         if (!normType.equals(normIdealType)) {
             AppLogger.log("[DbSchema] 型不一致: actual=" + normType + ", ideal=" + normIdealType + " (colType=" + colType + ", idealDef=" + idealDef + ")", "DEBUG");

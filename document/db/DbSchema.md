@@ -1,8 +1,9 @@
 # Edamame NginxLog Security Analyzer データベース仕様書（新フォーマット）
 
 ## バージョン情報
-- **db_schema_spec.md version**: v2.9.1  # rolesテーブル継承ロール仕様追加・addDefaultRoleHierarchy仕様反映
-- **最終更新**: 2025-08-18
+- **db_schema_spec.md version**: v2.9.1
+- **最終更新**: 2025-11-28
+- ※本ファイルは現在の実装（`DbSchema.syncAllTablesSchema` の元の定義）に合わせて更新されています。
 - ※DB関連の仕様変更時は必ず本ファイルを更新し、バージョン情報も修正すること
 - ※変更履歴は CHANGELOG.md に記録
 
@@ -131,7 +132,6 @@
 | inherited_roles | TEXT | 継承する下位ロールID配列（JSON形式、複数可） |
 | created_at | DATETIME | 作成日時 |
 | updated_at | DATETIME | 最終更新日時 |
-
 
 ### login_history
 - ログイン履歴
@@ -298,8 +298,8 @@
 ### `autoSyncTableColumns(DbSession, String, Map<String,String>, Map<String,String>)`
 - **機能**: 個別テーブルのカラム構成自動同期
 - **引数**:
-  - `tableName`: 対象テーブル名
-  - `columnDefs`: 理想的なカラム定義（カラム名→型定義）
+  - `tableName`:  対象テーブル名
+  - `columnDefs`:  理想的なカラム定義（カラム名→型定義）
   - `migrateMap`: 旧カラム名→新カラム名のマッピング（null許可）
 - **処理フロー**: 
   1. テーブル存在確認→新規作成
@@ -321,24 +321,22 @@
 - **別テーブル間移行**: IDベースの関連付け移行（拡張可能）
 
 ### カラム移行マッピング例
-```java
-// modsec_alerts テーブル
-modsecMigrate.put("msg", "message");           // msg → message
-modsecMigrate.put("data", "data_value");       // data → data_value
+    // modsec_alerts テーブル
+    // modsecMigrate.put("msg", "message");           // msg → message
+    // modsecMigrate.put("data", "data_value");       // data → data_value
 
-// servers テーブル
-serversMigrate.put("description", "server_description");     // description → server_description
-serversMigrate.put("last_activity_at", "last_log_received"); // last_activity_at → last_log_received
+    // servers テーブル
+    // serversMigrate.put("description", "server_description");     // description → server_description
+    // serversMigrate.put("last_activity_at", "last_log_received"); // last_activity_at → last_log_received
 
-// settings テーブル（統一化）
-settingsMigrate.put("access_log_retention_days", "log_retention_days");
-settingsMigrate.put("login_history_retention_days", "log_retention_days");
-settingsMigrate.put("action_execution_log_retention_days", "log_retention_days");
+    // settings テーブル（統一化）
+    // settingsMigrate.put("access_log_retention_days", "log_retention_days");
+    // settingsMigrate.put("login_history_retention_days", "log_retention_days");
+    // settingsMigrate.put("action_execution_log_retention_days", "log_retention_days");
 
-// agent_servers テーブル
-agentServersMigrate.put("server_name", "agent_name");        // server_name → agent_name
-agentServersMigrate.put("server_ip", "agent_ip");           // server_ip → agent_ip
-```
+    // agent_servers テーブル
+    // agentServersMigrate.put("server_name", "agent_name");        // server_name → agent_name
+    // agentServersMigrate.put("server_ip", "agent_ip");           // server_ip → agent_ip
 
 ## エラーハンドリング
 
@@ -365,15 +363,13 @@ agentServersMigrate.put("server_ip", "agent_ip");           // server_ip → age
 ## 運用・設定
 
 ### 初回セットアップ
-```java
-// 標準的な使用パターン
-try {
-    DbSchema.syncAllTablesSchema(dbSession);
-    AppLogger.info("データベーススキーマ同期完了");
-} catch (SQLException e) {
-    AppLogger.error("スキーマ同期エラー: " + e.getMessage());
-}
-```
+標準的な使用パターン（例）:
+    try {
+        DbSchema.syncAllTablesSchema(dbSession);
+        AppLogger.info("データベーススキーマ同期完了");
+    } catch (SQLException e) {
+        AppLogger.error("スキーマ同期エラー: " + e.getMessage());
+    }
 
 ### バージョンアップ時
 - **自動移行**: 旧バージョンからの円滑なアップグレード
@@ -404,15 +400,35 @@ try {
 - **v2.0.0**: Connection引数方式廃止、DbService専用
 - **v2.1.0**: **DbSession対応、エージェント管理テーブル追加、カラム移行機能強化**
 - **v2.9.1**: rolesテーブル継承ロール仕様追加・addDefaultRoleHierarchy仕様反映
+- **v2.9.2**: スキーマ互換性対応（action_tools / action_rules）
 
 #### roles（ロール管理）
-```sql
-CREATE TABLE roles (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    role_name VARCHAR(50) NOT NULL UNIQUE,
-    description TEXT,
-    inherited_roles TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-```
+SQL例（roles 作成）:
+    CREATE TABLE roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        role_name VARCHAR(50) NOT NULL UNIQUE,
+        description TEXT,
+        inherited_roles TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+---
+
+## 2025-11-27 - v2.9.2: スキーマ互換性対応（action_tools / action_rules）
+
+- 目的: 起動時の初期データ投入で "Unknown column" / "Field ... doesn't have a default value" といったエラーが発生したため、スキーマと初期データの乖離を解消し、後方互換性を確保しました。
+
+- 変更点（実装側: `DbSchema.java` / `DbInitialData.java`）:
+  - `action_tools` テーブルに以下カラムを追加（互換のため）:
+    - `command_template` (TEXT)
+    - `tool_type` にデフォルト値 `DEFAULT 'shell'` を設定（既存の初期データが `tool_type` を提供しないケースに対応）
+  - `action_rules` テーブルに以下カラムを追加（互換のため）:
+    - `condition_expression` (TEXT)
+    - `is_active` (BOOLEAN DEFAULT TRUE)
+    - `description` (TEXT)
+  - `DbInitialData.java` にて初期データ挿入ロジックを互換化（起動時にテーブルのカラム存在を動的判定し、存在するカラムのみを使用してINSERTを行う）
+
+- 運用上の注意:
+  - 本変更は既存DBに不足しているカラムを自動追加することを想定しています。必ずステージング環境で起動確認を行い、本番適用前にDBのフルバックアップを取得してください。
+  - もしプロジェクトの方針として「初期データが正」でスキーマを制約する場合は、今回追加したスキーマ変更をリバートする手順を別途実行してください（Backwards-compatibility の維持方針を明確にすること）。

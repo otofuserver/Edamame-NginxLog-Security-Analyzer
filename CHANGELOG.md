@@ -118,8 +118,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Planned
-- リアルタイム監視アラート機能の拡張
-- 攻撃パターンのカスタマイズ機能拡張
-- Webダッシュボードの機能追加
+### Changed
+- DB: `action_tools` / `action_rules` のスキーマ互換性対応を実施（2025-11-27）
+  - `action_tools` に `command_template` (TEXT) を追加
+  - `action_tools.tool_type` に `DEFAULT 'shell'` を設定して初期データとの互換性を確保
+  - `action_rules` に `condition_expression` (TEXT)、`is_active` (BOOLEAN DEFAULT TRUE)、`description` (TEXT) を追加
+  - `DbInitialData` の初期データ挿入処理を互換化（テーブルのカラム存在チェックを行い、存在するカラムのみでINSERTする方式に改修）
 
+### Notes
+- この変更は起動時の "Unknown column" や "Field ... doesn't have a default value" のエラーを解消する目的で行われました。
+- スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により既存DBに不足しているカラムが自動追加されることを想定しています。ステージングでの十分な確認と本番移行前のDBバックアップを必ず行ってください。
