@@ -4,7 +4,8 @@ import com.edamame.web.config.WebConfig;
 import com.edamame.web.service.DataService;
 import com.edamame.web.security.WebSecurityUtils;
 import com.sun.net.httpserver.HttpExchange;
-
+import com.sun.net.httpserver.HttpHandler;
+import com.edamame.security.tools.AppLogger;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -12,29 +13,28 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
-import java.util.function.BiConsumer;
 
 /**
  * ダッシュボードコントローラークラス
  * ダッシュボード画面の表示を担当（XSS対策強化版）
  */
-public class DashboardController {
+public class DashboardController implements HttpHandler {
 
     private final DataService dataService;
     private final WebConfig webConfig;
-    private final BiConsumer<String, String> logFunction;
 
     /**
      * コンストラクタ
      * @param dataService データサービス
-     * @param webConfig Web設定
-     * @param logFunction ログ出力関数
      */
-    public DashboardController(DataService dataService, WebConfig webConfig, BiConsumer<String, String> logFunction) {
+    public DashboardController(DataService dataService) {
         this.dataService = dataService;
-        this.webConfig = webConfig;
-        this.logFunction = logFunction != null ? logFunction :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+        this.webConfig = new WebConfig(); // WebConfigを内部で初期化
+    }
+
+    @Override
+    public void handle(HttpExchange exchange) throws IOException {
+        handleDashboard(exchange);
     }
 
     /**
@@ -63,7 +63,7 @@ public class DashboardController {
 
             // リクエストの検証
             if (!validateRequest(exchange)) {
-                logFunction.accept("不正なリクエストを検知してブロックしました: " + exchange.getRequestURI(), "SECURITY");
+                AppLogger.warn("不正なリクエストを検知してブロックしました: " + exchange.getRequestURI());
                 sendErrorResponse(exchange, 400, "Invalid Request");
                 return;
             }
@@ -92,10 +92,10 @@ public class DashboardController {
                 os.write(html.getBytes(StandardCharsets.UTF_8));
             }
 
-            logFunction.accept("ダッシュボード画面表示完了（セキュリティ強化版）", "DEBUG");
+            AppLogger.debug("ダッシュボード画面表示完了（セキュリティ強化版）");
 
         } catch (Exception e) {
-            logFunction.accept("ダッシュボード処理エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("ダッシュボード処理エラー: " + e.getMessage());
             sendErrorResponse(exchange, 500, "内部サーバーエラー");
         }
     }
@@ -122,20 +122,20 @@ public class DashboardController {
         String query = exchange.getRequestURI().getQuery();
 
         // User-Agentのチェック
-        if (userAgent != null && WebSecurityUtils.detectXSS(userAgent)) {
-            logFunction.accept("不正なUser-Agentを検知: " + userAgent, "SECURITY");
+        if (WebSecurityUtils.detectXSS(userAgent)) {
+            AppLogger.warn("不正なUser-Agentを検知: " + userAgent);
             return false;
         }
 
         // Refererのチェック
-        if (referer != null && WebSecurityUtils.detectXSS(referer)) {
-            logFunction.accept("不正なRefererを検知: " + referer, "SECURITY");
+        if (WebSecurityUtils.detectXSS(referer)) {
+            AppLogger.warn("不正なRefererを検知: " + referer);
             return false;
         }
 
         // クエリパラメータのチェック
-        if (query != null && (WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSqlInjection(query))) {
-            logFunction.accept("不正なクエリパラメータを検知: " + query, "SECURITY");
+        if ((WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSQLInjection(query))) {
+            AppLogger.warn("不正なクエリパラメータを検知: " + query);
             return false;
         }
 
@@ -153,11 +153,20 @@ public class DashboardController {
         if (username == null) {
             username = "Unknown";
         }
-
         // ユーザー名の頭文字を生成（アバター用）
         String userInitial = generateUserInitial(username);
+        // nonce生成（CSP用）
+        String scriptNonce = generateNonce();
+        data.put("scriptNonce", scriptNonce);
 
         String template = webConfig.getTemplate("dashboard");
+
+        // 各部分HTMLを生成
+        StringBuilder dashboardContent = new StringBuilder();
+        dashboardContent.append(generateSecureServerStatsHtml(data.get("serverStats")));
+        dashboardContent.append(generateSecureAlertsHtml(data.get("recentAlerts")));
+        dashboardContent.append(generateSecureServersHtml(data.get("serverList")));
+        dashboardContent.append(generateSecureAttackTypesHtml(data.get("attackTypes")));
 
         // 基本情報を置換（XSS対策適用）
         String html = template
@@ -165,40 +174,63 @@ public class DashboardController {
             .replace("{{APP_DESCRIPTION}}", WebSecurityUtils.escapeHtml(webConfig.getAppDescription()))
             .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml("v1.0.0"))
             .replace("{{CURRENT_TIME}}", WebSecurityUtils.escapeHtml(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
-            .replace("{{SERVER_STATUS}}", WebSecurityUtils.escapeHtml(dataService.isConnectionValid() ? "稼働中" : "エラー"))
             .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username))
-            .replace("{{CURRENT_USER_INITIAL}}", WebSecurityUtils.escapeHtml(userInitial));
+            .replace("{{CURRENT_USER_INITIAL}}", WebSecurityUtils.escapeHtml(userInitial))
+            .replace("{{DASHBOARD_CONTENT}}", dashboardContent.toString())
+            .replace("{{MENU_HTML}}", webConfig.getMenuHtml())
+            .replace("{{SECURITY_HEADERS}}", getSecurityHeadersHtml(scriptNonce))
+            // ページ全体を定期的にリロードするグローバルスクリプトは無効化。
+            // フラグメント単位の data-auto-refresh による管理を優先する。
+            .replace("{{AUTO_REFRESH_SCRIPT}}", "");
 
-        // 統計情報を置換（XSS対策適用）
-        html = html
-            .replace("{{TOTAL_ACCESS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("totalAccess"))))
-            .replace("{{TOTAL_ATTACKS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("totalAttacks"))))
-            .replace("{{MODSEC_BLOCKS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("modsecBlocks"))))
-            .replace("{{ACTIVE_SERVERS}}", WebSecurityUtils.escapeHtml(formatNumber(data.get("activeServers"))));
-
-        // サーバーごとの統計表示を生成（XSS対策適用）
-        html = html.replace("{{SERVER_STATS}}", generateSecureServerStatsHtml(data.get("serverStats")));
-
-        // 最新アラート部分を生成（XSS対策適用）
-        html = html.replace("{{RECENT_ALERTS}}", generateSecureAlertsHtml(data.get("recentAlerts")));
-
-        // サーバー一覧部分を生成（XSS対策適用）
-        html = html.replace("{{SERVER_LIST}}", generateSecureServersHtml(data.get("serverList")));
-
-        // 攻撃タイプ統計部分を生成（XSS対策適用）
-        html = html.replace("{{ATTACK_TYPES}}", generateSecureAttackTypesHtml(data.get("attackTypes")));
-
-        // 自動更新設定
-        if (webConfig.isEnableAutoRefresh()) {
-            html = html
-                .replace("{{#AUTO_REFRESH}}", "")
-                .replace("{{/AUTO_REFRESH}}", "")
-                .replace("{{REFRESH_INTERVAL}}", WebSecurityUtils.escapeHtml(String.valueOf(webConfig.getRefreshInterval())));
-        } else {
-            html = removeConditionalBlocks(html, "AUTO_REFRESH");
-        }
+        // セキュリティヘッダ挿入や自動リロードスクリプト等は従来通り
+        // ...
 
         return html;
+    }
+
+    /**
+     * セキュリティヘッダHTMLを生成（CSPにnonceを付与）
+     */
+    private String getSecurityHeadersHtml(String scriptNonce) {
+        // script-srcにnonceを追加
+        // default-src を 'self' にしつつ、style-src を明示的に設定する（外部CSS を許可）。
+        // 一部の古いテンプレートや断片でインライン style 属性が残る場合があるため、ここでは暫定的に 'unsafe-inline' を許可しています。
+        return "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'nonce-" + scriptNonce + "'; style-src 'self' 'unsafe-inline'\">";
+    }
+
+    /**
+     * ダッシュボード本体HTMLを生成
+     */
+    private String generateDashboardContentHtml(Map<String, Object> data) {
+        // 必要に応じて本体HTMLを生成
+        // ここでは既存の統計・リスト等をまとめて返す例
+        return "<div id=\"dashboard-content\">" +
+            generateSecureServerStatsHtml(data.get("serverStats")) +
+            generateSecureAlertsHtml(data.get("recentAlerts")) +
+            generateSecureServersHtml(data.get("serverList")) +
+            generateSecureAttackTypesHtml(data.get("attackTypes")) +
+            "</div>";
+    }
+
+    /**
+     * 自動リフレッシュ用スクリプトを生成（nonce付与）
+     */
+    private String getAutoRefreshScriptHtml(String scriptNonce) {
+        if (webConfig.isEnableAutoRefresh()) {
+            return "<script nonce='" + scriptNonce + "'>setTimeout(function(){location.reload();}, " + webConfig.getRefreshInterval() * 1000 + ");</script>";
+        }
+        return "";
+    }
+
+    /**
+     * セキュアなランダムnonceを生成
+     */
+    private String generateNonce() {
+        var random = new java.security.SecureRandom();
+        byte[] nonceBytes = new byte[16];
+        random.nextBytes(nonceBytes);
+        return java.util.Base64.getEncoder().encodeToString(nonceBytes);
     }
 
     /**
@@ -214,10 +246,9 @@ public class DashboardController {
         String trimmed = username.trim().toUpperCase();
 
         // 日本語の場合は最初の1文字
-        if (trimmed.matches(".*[ひらがなカタカナ漢字].*")) {
-            return trimmed.substring(0, 1);
+        if (trimmed.matches(".*[\\p{IsHiragana}\\p{IsKatakana}\\p{IsHan}].*")) {
+            return String.valueOf(trimmed.charAt(0));
         }
-
         // 英語の場合は最初の1-2文字
         if (trimmed.length() == 1) {
             return trimmed;
@@ -225,9 +256,9 @@ public class DashboardController {
             // スペースが含まれている場合は名前と姓の頭文字
             String[] parts = trimmed.split("\\s+");
             if (parts.length >= 2) {
-                return parts[0].substring(0, 1) + parts[1].substring(0, 1);
+                return parts[0].charAt(0) + "" + parts[1].charAt(0);
             } else {
-                return trimmed.substring(0, Math.min(2, trimmed.length()));
+                return trimmed.substring(0, 2);
             }
         }
 
@@ -303,11 +334,7 @@ public class DashboardController {
                 String lastLogReceived = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("lastLogReceived", "未記録"));
                 Object accessCount = serverMap.getOrDefault("todayAccessCount", 0);
 
-                String statusClass = switch (status) {
-                    case "online" -> "online";
-                    case "offline", "stale" -> "offline";
-                    default -> "offline";
-                };
+                String statusClass = "online".equals(status) ? "online" : "offline";
 
                 String statusText = switch (status) {
                     case "online" -> "オンライン";
@@ -411,9 +438,9 @@ public class DashboardController {
                             </div>
                         </div>
                     </div>
-                    """, serverName, 
+                    """, serverName,
                     WebSecurityUtils.escapeHtml(formatNumber(totalAccess)),
-                    WebSecurityUtils.escapeHtml(formatNumber(attackCount)), 
+                    WebSecurityUtils.escapeHtml(formatNumber(attackCount)),
                     WebSecurityUtils.escapeHtml(formatNumber(modsecBlocks))));
             }
         }
@@ -422,18 +449,15 @@ public class DashboardController {
     }
 
     /**
-     * 条件付きブロックを削除
+     * 条件付きブロック（AUTO_REFRESH）を削除
      * @param html HTML文字列
-     * @param condition 条件名
      * @return 処理済みHTML
      */
-    private String removeConditionalBlocks(String html, String condition) {
-        String startTag = "{{#" + condition + "}}";
-        String endTag = "{{/" + condition + "}}";
-
+    private String removeAutoRefreshBlocks(String html) {
+        String startTag = "{{#AUTO_REFRESH}}";
+        String endTag = "{{/AUTO_REFRESH}}";
         int startIndex = html.indexOf(startTag);
         int endIndex = html.indexOf(endTag);
-
         if (startIndex != -1 && endIndex != -1) {
             return html.substring(0, startIndex) + html.substring(endIndex + endTag.length());
         }
@@ -474,6 +498,6 @@ public class DashboardController {
             os.write(html.getBytes(StandardCharsets.UTF_8));
         }
 
-        logFunction.accept(String.format("エラーレスポンス送信: %d - %s", statusCode, message), "WARN");
+        AppLogger.warn(String.format("エラーレスポンス送信: %d - %s", statusCode, message));
     }
 }

@@ -3,30 +3,31 @@ package com.edamame.web.controller;
 import com.edamame.web.config.WebConfig;
 import com.edamame.web.security.WebSecurityUtils;
 import com.sun.net.httpserver.HttpExchange;
-
+import com.sun.net.httpserver.HttpHandler;
+import com.edamame.security.tools.AppLogger;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.function.BiConsumer;
 
 /**
  * 静的リソースコントローラークラス
  * CSS、JavaScript、画像などの静的ファイル配信を担当（XSS対策強化版）
  */
-public class StaticResourceController {
+public class StaticResourceController implements HttpHandler {
 
     private final WebConfig webConfig;
-    private final BiConsumer<String, String> logFunction;
 
     /**
      * コンストラクタ
-     * @param webConfig Web設定
-     * @param logFunction ログ出力関数
      */
-    public StaticResourceController(WebConfig webConfig, BiConsumer<String, String> logFunction) {
-        this.webConfig = webConfig;
-        this.logFunction = logFunction != null ? logFunction :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
+    public StaticResourceController() {
+        this.webConfig = new WebConfig(); // WebConfigを内部で初期化
+
+    }
+
+    @Override
+    public void handle(HttpExchange exchange) throws IOException {
+        handleStaticResource(exchange);
     }
 
     /**
@@ -45,8 +46,8 @@ public class StaticResourceController {
             applyStaticResourceSecurityHeaders(exchange);
 
             // リクエストのセキュリティ検証
-            if (!validateStaticResourceRequest(exchange)) {
-                logFunction.accept("不正な静的リソースリクエストを検知してブロックしました: " + exchange.getRequestURI(), "SECURITY");
+            if (!isValidStaticResourceRequest(exchange)) {
+                AppLogger.warn("不正な静的リソースリクエストを検知してブロックしました: " + exchange.getRequestURI());
                 sendErrorResponse(exchange, 400, "Invalid Request");
                 return;
             }
@@ -77,10 +78,10 @@ public class StaticResourceController {
                 os.write(content.getBytes(StandardCharsets.UTF_8));
             }
 
-            logFunction.accept("静的リソース配信（セキュア版）: " + resourceName, "DEBUG");
+            AppLogger.debug("静的リソース配信（セキュア版）: " + resourceName);
 
         } catch (Exception e) {
-            logFunction.accept("静的リソース処理エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("静的リソース処理エラー: " + e.getMessage());
             sendErrorResponse(exchange, 500, "Internal Server Error");
         }
     }
@@ -103,36 +104,36 @@ public class StaticResourceController {
     }
 
     /**
-     * 静的リソースリクエストのセキュリティ検証
+     * 静的リソースリクエストのセキュリティ検証（肯定形メソッド名にリファクタリング）
      * @param exchange HTTPエクスチェンジ
      * @return 安全なリクエストの場合true
      */
-    private boolean validateStaticResourceRequest(HttpExchange exchange) {
+    private boolean isValidStaticResourceRequest(HttpExchange exchange) {
         String path = exchange.getRequestURI().getPath();
         String query = exchange.getRequestURI().getQuery();
         String userAgent = exchange.getRequestHeaders().getFirst("User-Agent");
 
         // パスのチェック
-        if (path != null && (WebSecurityUtils.detectXSS(path) || WebSecurityUtils.detectSqlInjection(path))) {
-            logFunction.accept("静的リソースで不正なパスを検知: " + path, "SECURITY");
+        if ((WebSecurityUtils.detectXSS(path) || WebSecurityUtils.detectSQLInjection(path))) {
+            AppLogger.warn("静的リソースで不正なパスを検知: " + path);
             return false;
         }
 
         // クエリパラメータのチェック（静的リソースでは基本的に不要だが念のため）
-        if (query != null && (WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSqlInjection(query))) {
-            logFunction.accept("静的リソースで不正なクエリを検知: " + query, "SECURITY");
+        if ((WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSQLInjection(query))) {
+            AppLogger.warn("静的リソースで不��なクエリを検知: " + query);
             return false;
         }
 
         // User-Agentの異常チェック
-        if (userAgent != null && WebSecurityUtils.detectXSS(userAgent)) {
-            logFunction.accept("静的リソースで不正なUser-Agentを検知: " + userAgent, "SECURITY");
+        if (WebSecurityUtils.detectXSS(userAgent)) {
+            AppLogger.warn("静的リソースで不正なUser-Agentを検知: " + userAgent);
             return false;
         }
 
         // パストラバーサル攻撃のチェック
         if (path != null && (path.contains("../") || path.contains("..\\") || path.contains("%2e%2e"))) {
-            logFunction.accept("パストラバーサル攻撃を検知: " + path, "SECURITY");
+            AppLogger.warn("パストラバーサル攻撃を検知: " + path);
             return false;
         }
 
@@ -147,8 +148,8 @@ public class StaticResourceController {
     public void handleFavicon(HttpExchange exchange) throws IOException {
         try {
             // セキュリティ検証
-            if (!validateStaticResourceRequest(exchange)) {
-                logFunction.accept("不正なfaviconリクエストを検知してブロックしました", "SECURITY");
+            if (!isValidStaticResourceRequest(exchange)) {
+                AppLogger.warn("不正なfaviconリクエストを検知してブロックしました");
                 sendErrorResponse(exchange, 400, "Invalid Request");
                 return;
             }
@@ -156,21 +157,29 @@ public class StaticResourceController {
             // セキュリティヘッダーを設定
             applyStaticResourceSecurityHeaders(exchange);
 
-            // 簡単なSVGアイコンを返す
-            String favicon = generateSecureFaviconSvg();
-
-            exchange.getResponseHeaders().set("Content-Type", "image/svg+xml");
-            exchange.getResponseHeaders().set("Cache-Control", "public, max-age=86400"); // 24時間キャッシュ
-            exchange.sendResponseHeaders(200, favicon.getBytes(StandardCharsets.UTF_8).length);
-
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(favicon.getBytes(StandardCharsets.UTF_8));
+            // favicon.icoのバイナリをresourcesから読み込む
+            byte[] faviconBytes;
+            try (var is = getClass().getClassLoader().getResourceAsStream("static/favicon.ico")) {
+                if (is == null) {
+                    AppLogger.warn("favicon.icoが見つかりません");
+                    sendErrorResponse(exchange, 404, "favicon.ico not found");
+                    return;
+                }
+                faviconBytes = is.readAllBytes();
             }
 
-            logFunction.accept("favicon配信完了（セキュア版）", "DEBUG");
+            exchange.getResponseHeaders().set("Content-Type", "image/x-icon");
+            exchange.getResponseHeaders().set("Cache-Control", "public, max-age=86400"); // 24時間キャッシュ
+            exchange.sendResponseHeaders(200, faviconBytes.length);
+
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(faviconBytes);
+            }
+
+            AppLogger.debug("favicon.ico配信完了（バイナリ）");
 
         } catch (Exception e) {
-            logFunction.accept("favicon処理エラー: " + e.getMessage(), "ERROR");
+            AppLogger.error("favicon処理エラー: " + e.getMessage());
             sendErrorResponse(exchange, 500, "Internal Server Error");
         }
     }
@@ -185,11 +194,11 @@ public class StaticResourceController {
             return null;
         }
 
-        logFunction.accept("リクエストパス: " + path, "DEBUG");
+        AppLogger.debug("リクエストパス: " + path);
 
         // パストラバーサル攻撃を防ぐ（サニタイズ前にチェック）
         if (path.contains("../") || path.contains("..\\") || path.contains("%2e%2e")) {
-            logFunction.accept("パストラバーサル攻撃の疑いがあるパス: " + path, "SECURITY");
+            AppLogger.warn("パストラバーサル攻撃の疑いがあるパス: " + path);
             return null;
         }
 
@@ -203,12 +212,12 @@ public class StaticResourceController {
             // ファイル名のみをサニタイズ（パス全体ではなく）
             String sanitizedFilename = filename.replaceAll("[^a-zA-Z0-9._-]", "");
             
-            logFunction.accept("抽出されたファイル名: " + filename + " -> サニタイズ後: " + sanitizedFilename, "DEBUG");
+            AppLogger.debug("抽出されたファイル名: " + filename + " -> サニタイズ後: " + sanitizedFilename);
             
             return sanitizedFilename.isEmpty() ? null : sanitizedFilename;
         }
         
-        logFunction.accept("ファイル名の抽出に失敗: " + path, "WARN");
+        AppLogger.warn("ファイル名の抽出に失敗: " + path);
         return null;
     }
 
@@ -223,7 +232,7 @@ public class StaticResourceController {
 
         // 許可されたファイル名のみを処理
         if (!isAllowedResource(sanitizedResourceName)) {
-            logFunction.accept("許可されていないリソースへのアクセス: " + resourceName, "SECURITY");
+            AppLogger.warn("許可されていないリソースへのアクセス: " + resourceName);
             return null;
         }
 
@@ -231,12 +240,12 @@ public class StaticResourceController {
         String content = webConfig.getStaticResource(sanitizedResourceName);
 
         if (content != null && !content.isEmpty()) {
-            logFunction.accept("静的リソース取得成功: " + sanitizedResourceName + " (長さ: " + content.length() + ")", "DEBUG");
+            AppLogger.debug("静的リソース取得成功: " + sanitizedResourceName + " (長さ: " + content.length() + ")");
             return content;
         }
 
         // デフォルトコンテンツを生成
-        logFunction.accept("WebConfigからリソースが見つからないため、デフォルトを生成: " + sanitizedResourceName, "WARN");
+        AppLogger.warn("WebConfigからリソースが見つからないため、デフォルトを生成: " + sanitizedResourceName);
         return generateDefaultResource(sanitizedResourceName);
     }
 
@@ -340,19 +349,6 @@ public class StaticResourceController {
         }
     }
 
-    /**
-     * セキュアなSVG faviconを生成
-     * @return SVGコンテンツ
-     */
-    private String generateSecureFaviconSvg() {
-        return """
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-                <rect width="32" height="32" fill="#3498db"/>
-                <circle cx="16" cy="16" r="12" fill="#fff"/>
-                <text x="16" y="20" text-anchor="middle" fill="#3498db" font-family="Arial" font-size="14" font-weight="bold">🛡️</text>
-            </svg>
-            """;
-    }
 
     /**
      * エラーレスポンスを送信（セキュア版）
@@ -389,6 +385,6 @@ public class StaticResourceController {
             os.write(errorHtml.getBytes(StandardCharsets.UTF_8));
         }
 
-        logFunction.accept(String.format("静的リソースエラーレスポンス（セキュア版）: %d - %s", statusCode, sanitizedMessage), "WARN");
+        AppLogger.warn(String.format("静的リソースエラーレスポンス（セキュア版）: %d - %s", statusCode, sanitizedMessage));
     }
 }

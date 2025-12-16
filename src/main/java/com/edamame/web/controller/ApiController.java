@@ -1,36 +1,44 @@
 package com.edamame.web.controller;
 
+import com.edamame.security.tools.AppLogger;
 import com.edamame.web.service.DataService;
+import com.edamame.web.service.FragmentService;
 import com.edamame.web.security.WebSecurityUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpHandler;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
-import java.util.function.BiConsumer;
 
 /**
  * APIコントローラークラス
  * REST API エンドポイントの処理を担当
  */
-public class ApiController {
+public class ApiController implements HttpHandler {
 
     private final DataService dataService;
-    private final BiConsumer<String, String> logFunction;
     private final ObjectMapper objectMapper;
+    private final FragmentService fragmentService;
+    private final com.edamame.web.security.AuthenticationService authService; // API内で認証を行う
 
     /**
-     * コンストラクタ
+     * コンストラクタ（API用）
      * @param dataService データサービス
-     * @param logFunction ログ出力関数
+     * @param authService 認証サービス（API内でセッション検証用）
      */
-    public ApiController(DataService dataService, BiConsumer<String, String> logFunction) {
+    public ApiController(DataService dataService, com.edamame.web.security.AuthenticationService authService) {
         this.dataService = dataService;
-        this.logFunction = logFunction != null ? logFunction :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
         this.objectMapper = new ObjectMapper();
+        this.fragmentService = new FragmentService();
+        this.authService = authService;
+    }
+
+    @Override
+    public void handle(HttpExchange exchange) throws IOException {
+        handleApi(exchange);
     }
 
     /**
@@ -42,13 +50,22 @@ public class ApiController {
         try {
             String method = exchange.getRequestMethod();
             String path = exchange.getRequestURI().getPath();
+            AppLogger.debug("API呼び出し: method=" + method + ", path=" + path);
 
-            // セ��ュリティヘッダーを設定（API版）
+            // APIはAJAXで呼ばれるため未認証時はリダイレクトではなくJSON 401を返す
+            String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+            String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+            if (sessionId == null || authService.validateSession(sessionId) == null) {
+                sendJsonError(exchange, 401, "Unauthorized - authentication required");
+                return;
+            }
+
+            // セキュリティヘッダーを設定（API版）
             applyApiSecurityHeaders(exchange);
 
             // リクエストのセキュリティ検証
             if (!validateApiRequest(exchange)) {
-                logFunction.accept("不正なAPIリクエストを検知してブロックしました: " + path, "SECURITY");
+                AppLogger.warn("不正なAPIリクエストを検知してブロックしました: " + path);
                 sendJsonError(exchange, 400, "Invalid Request - Security validation failed");
                 return;
             }
@@ -68,18 +85,21 @@ public class ApiController {
 
             // パスに基づいてAPIエンドポイントを振り分け
             String endpoint = extractEndpoint(path);
+            AppLogger.debug("抽出endpoint=" + endpoint + " (from path=" + path + ")");
             switch (endpoint) {
                 case "stats" -> handleStatsApi(exchange);
                 case "alerts" -> handleAlertsApi(exchange);
                 case "servers" -> handleServersApi(exchange);
                 case "attack-types" -> handleAttackTypesApi(exchange);
                 case "health" -> handleHealthApi(exchange);
+                case "fragment" -> handleFragmentApi(exchange);
+                // エージェント関連APIを削除（TCP通信に変更のため不要）
                 default -> sendJsonError(exchange, 404, "API endpoint not found: " + WebSecurityUtils.sanitizeInput(endpoint));
             }
 
         } catch (Exception e) {
-            logFunction.accept("API処理エラー: " + e.getMessage(), "ERROR");
-            sendJsonError(exchange, 500, "Internal Server Error");
+            AppLogger.error("APIリクエスト処理中にエラー: " + e.getMessage());
+            throw e;
         }
     }
 
@@ -92,13 +112,13 @@ public class ApiController {
         exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
         exchange.getResponseHeaders().set("X-Frame-Options", "DENY");
         exchange.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
-
+        
         // CORS ヘッダー（制限的に設定）
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
         exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
         exchange.getResponseHeaders().set("Access-Control-Max-Age", "3600");
-
+        
         // キャッシュ制御
         exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
         exchange.getResponseHeaders().set("Pragma", "no-cache");
@@ -117,26 +137,26 @@ public class ApiController {
         String path = exchange.getRequestURI().getPath();
 
         // User-Agentのチェック
-        if (userAgent != null && WebSecurityUtils.detectXSS(userAgent)) {
-            logFunction.accept("APIで不正なUser-Agentを検知: " + userAgent, "SECURITY");
+        if (WebSecurityUtils.detectXSS(userAgent)) {
+            AppLogger.warn("APIで不正なUser-Agentを検知: " + userAgent);
             return false;
         }
 
         // Refererのチェック
-        if (referer != null && WebSecurityUtils.detectXSS(referer)) {
-            logFunction.accept("APIで不正なRefererを検知: " + referer, "SECURITY");
+        if (WebSecurityUtils.detectXSS(referer)) {
+            AppLogger.warn("APIで不正なRefererを検知: " + referer);
             return false;
         }
 
         // パスのチェック
-        if (path != null && (WebSecurityUtils.detectXSS(path) || WebSecurityUtils.detectSqlInjection(path))) {
-            logFunction.accept("APIで不正なパスを検知: " + path, "SECURITY");
+        if (WebSecurityUtils.detectXSS(path) || WebSecurityUtils.detectSQLInjection(path)) {
+            AppLogger.warn("APIで不正なパスを検知: " + path);
             return false;
         }
 
-        // クエリパラメー���のチェック
-        if (query != null && (WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSqlInjection(query))) {
-            logFunction.accept("APIで不正なクエリパラメータを検知: " + query, "SECURITY");
+        // クエリパラメータのチェック
+        if (WebSecurityUtils.detectXSS(query) || WebSecurityUtils.detectSQLInjection(query)) {
+            AppLogger.warn("APIで不正なクエリパラメータを検知: " + query);
             return false;
         }
 
@@ -153,13 +173,12 @@ public class ApiController {
             return "";
         }
 
-        // パスをサニタイズ
-        String sanitizedPath = WebSecurityUtils.sanitizeInput(path);
-
-        // /api/stats -> stats
-        String[] segments = sanitizedPath.split("/");
+        // path は /api/XXX/... の形式を想定しているため、まずスラッシュで分割する
+        // （sanitizeInput は '/' をエンティティに置換するためここで使用しない）
+        String[] segments = path.split("/");
         if (segments.length >= 3) {
-            return segments[2]; // /api/XXX の XXX 部分
+            // 個々のセグメントは後で使用する際にサニタイズする
+            return WebSecurityUtils.sanitizeInput(segments[2]); // /api/XXX の XXX 部分
         }
         return "";
     }
@@ -171,12 +190,10 @@ public class ApiController {
      */
     private void handleStatsApi(HttpExchange exchange) throws IOException {
         Map<String, Object> stats = dataService.getApiStats();
-
         // データをサニタイズ
         Map<String, Object> sanitizedStats = sanitizeMapData(stats);
-
         sendJsonResponse(exchange, 200, sanitizedStats);
-        logFunction.accept("統計情報API呼び出し完���（セキュア版）", "DEBUG");
+        AppLogger.debug("統計情報API呼び出し完了（セキュア版）");
     }
 
     /**
@@ -187,13 +204,13 @@ public class ApiController {
     private void handleAlertsApi(HttpExchange exchange) throws IOException {
         // クエリパラメータからlimitを取得（デフォルト20件）
         String query = exchange.getRequestURI().getQuery();
-        int limit = parseSecureIntParameter(query, "limit", 20);
+        int limit = parseSecureIntParameter(query);
 
         var alerts = dataService.getRecentAlerts(limit);
-
+        
         // アラートデータをサニタイズ
         var sanitizedAlerts = sanitizeListData(alerts);
-
+        
         Map<String, Object> response = Map.of(
             "alerts", sanitizedAlerts,
             "total", sanitizedAlerts.size(),
@@ -201,7 +218,7 @@ public class ApiController {
         );
 
         sendJsonResponse(exchange, 200, response);
-        logFunction.accept("アラート情報API呼び出し完了（セキュア版） (件数: " + sanitizedAlerts.size() + ")", "DEBUG");
+        AppLogger.debug("アラート情報API呼び出し完了（セキュア版） (件数: " + sanitizedAlerts.size() + ")");
     }
 
     /**
@@ -211,17 +228,17 @@ public class ApiController {
      */
     private void handleServersApi(HttpExchange exchange) throws IOException {
         var servers = dataService.getServerList();
-
+        
         // サーバーデータをサニタイズ
         var sanitizedServers = sanitizeListData(servers);
-
+        
         Map<String, Object> response = Map.of(
             "servers", sanitizedServers,
             "total", sanitizedServers.size()
         );
 
         sendJsonResponse(exchange, 200, response);
-        logFunction.accept("サーバー情報API呼び出し完了（セキュア版） (サーバー数: " + sanitizedServers.size() + ")", "DEBUG");
+        AppLogger.debug("サーバー情報API呼び出し完了（セキュア版） (サーバー数: " + sanitizedServers.size() + ")");
     }
 
     /**
@@ -231,17 +248,17 @@ public class ApiController {
      */
     private void handleAttackTypesApi(HttpExchange exchange) throws IOException {
         var attackTypes = dataService.getAttackTypeStats();
-
+        
         // 攻撃タイプデータをサニタイズ
         var sanitizedAttackTypes = sanitizeListData(attackTypes);
-
+        
         Map<String, Object> response = Map.of(
             "attackTypes", sanitizedAttackTypes,
             "total", sanitizedAttackTypes.size()
         );
 
         sendJsonResponse(exchange, 200, response);
-        logFunction.accept("攻撃タイプ統計API呼び出し完了（セキュア版）", "DEBUG");
+        AppLogger.debug("攻撃タイプ統計API呼び出し完了（セキュア版）");
     }
 
     /**
@@ -252,16 +269,49 @@ public class ApiController {
     private void handleHealthApi(HttpExchange exchange) throws IOException {
         boolean dbConnected = dataService.isConnectionValid();
         Map<String, Object> health = Map.of(
-            "status", dbConnected ? "healthy" : "unhealthy",
-            "database", dbConnected ? "connected" : "disconnected",
-            "timestamp", java.time.LocalDateTime.now().toString(),
-            "version", "v1.0.0",
-            "security", "enhanced" // セキュリティ強化版であることを明示
+            "db_connected", dbConnected,
+            "version", "v1.0.1"
         );
 
-        int statusCode = dbConnected ? 200 : 503;
-        sendJsonResponse(exchange, statusCode, health);
-        logFunction.accept("ヘルスチェックAPI呼び出し完了（セキュア版） (ステータス: " + (dbConnected ? "正常" : "異常") + ")", "DEBUG");
+        sendJsonResponse(exchange, 200, health);
+        AppLogger.debug("ヘルスチェックAPI呼び出し完了");
+    }
+
+    /**
+     * フラグメント取得APIを処理
+     * パス例: /api/fragment/servers
+     */
+    private void handleFragmentApi(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        AppLogger.debug("handleFragmentApi path=" + path);
+        String[] segments = path.split("/");
+        AppLogger.debug("fragment segments length=" + segments.length + ", segments=" + java.util.Arrays.toString(segments));
+        if (segments.length < 4) {
+            AppLogger.warn("fragment name missing, segments=" + java.util.Arrays.toString(segments));
+            sendJsonError(exchange, 400, "fragment name missing");
+            return;
+        }
+        String name = WebSecurityUtils.sanitizeInput(segments[3]);
+        AppLogger.debug("fragment requested name=" + name);
+
+        // ここでは簡易的に 'dashboard' と 'test' をサポート
+        String html;
+        switch (name) {
+            case "dashboard" -> html = fragmentService.dashboardFragment(dataService.getDashboardStats());
+            case "test" -> html = fragmentService.testFragment();
+            default -> {
+                sendJsonError(exchange, 404, "fragment not found: " + name);
+                return;
+            }
+        }
+
+        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+        exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
+        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(200, bytes.length);
+        try (OutputStream os = exchange.getResponseBody()) {
+            os.write(bytes);
+        }
     }
 
     /**
@@ -293,7 +343,7 @@ public class ApiController {
      * @param data 元データ
      * @return サニタイズ済みデータ
      */
-    @SuppressWarnings("unchecked")
+
     private java.util.List<Map<String, Object>> sanitizeListData(java.util.List<Map<String, Object>> data) {
         return data.stream()
             .map(this::sanitizeMapData)
@@ -301,13 +351,13 @@ public class ApiController {
     }
 
     /**
-     * セキュアなクエリパラメータ解析
+     * セキュアなクエリパラメータ解析（limit専用）
      * @param query クエリ文字列
-     * @param paramName パラメータ名
-     * @param defaultValue デフォルト値
-     * @return 解析された整数値
+     * @return 解析された整数値（デフォルト20）
      */
-    private int parseSecureIntParameter(String query, String paramName, int defaultValue) {
+    private int parseSecureIntParameter(String query) {
+        final String paramName = "limit";
+        final int defaultValue = 20;
         if (query == null || query.isEmpty()) {
             return defaultValue;
         }
@@ -320,63 +370,45 @@ public class ApiController {
             if (keyValue.length == 2 && paramName.equals(keyValue[0])) {
                 try {
                     int value = Integer.parseInt(keyValue[1]);
-                    // 値の範囲制限（DoS攻撃対策）
-                    return Math.max(1, Math.min(value, 1000));
+                    return Math.max(value, 1); // 最小値1
                 } catch (NumberFormatException e) {
-                    logFunction.accept("パラメータ解析エラー（セキュア版）: " + paramName + "=" + keyValue[1], "WARN");
+                    AppLogger.warn("無効な整数値を検知: " + keyValue[1]);
                 }
             }
         }
-
         return defaultValue;
     }
 
     /**
-     * JSON レスポンスを送信（セキュア版）
-     * @param exchange HTTPエクスチェンジ
-     * @param statusCode ステータスコード
-     * @param data レスポンスデータ
-     * @throws IOException I/O例外
-     */
-    private void sendJsonResponse(HttpExchange exchange, int statusCode, Object data) throws IOException {
-        try {
-            String json = objectMapper.writeValueAsString(data);
-
-            exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
-            exchange.sendResponseHeaders(statusCode, json.getBytes(StandardCharsets.UTF_8).length);
-
-            try (OutputStream os = exchange.getResponseBody()) {
-                os.write(json.getBytes(StandardCharsets.UTF_8));
-            }
-
-        } catch (Exception e) {
-            logFunction.accept("JSON レスポンス送信エラー（セキュア版）: " + e.getMessage(), "ERROR");
-            sendJsonError(exchange, 500, "JSON serialization error");
-        }
-    }
-
-    /**
-     * JSON エラーレスポンスを送信（セキュア版）
+     * JSON形式でエラーレスポンスを送信
      * @param exchange HTTPエクスチェンジ
      * @param statusCode ステータスコード
      * @param message エラーメッセージ
      * @throws IOException I/O例外
      */
     private void sendJsonError(HttpExchange exchange, int statusCode, String message) throws IOException {
-        // エラーメッセージもサニタイズ
-        String sanitizedMessage = WebSecurityUtils.sanitizeInput(message);
-
-        String json = "{\"error\":true,\"status\":" + statusCode + ",\"message\":\"" +
-                     WebSecurityUtils.escapeJson(sanitizedMessage) + "\",\"timestamp\":\"" +
-                     java.time.LocalDateTime.now().toString() + "\",\"security\":\"enhanced\"}";
-
         exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
-        exchange.sendResponseHeaders(statusCode, json.getBytes(StandardCharsets.UTF_8).length);
-
+        exchange.sendResponseHeaders(statusCode, 0);
         try (OutputStream os = exchange.getResponseBody()) {
-            os.write(json.getBytes(StandardCharsets.UTF_8));
+            String jsonResponse = "{\"error\": \"" + WebSecurityUtils.sanitizeInput(message) + "\"}";
+            os.write(jsonResponse.getBytes(StandardCharsets.UTF_8));
         }
+    }
 
-        logFunction.accept("JSONエラーレスポンス送信（セキュア版）: " + statusCode + " - " + sanitizedMessage, "WARN");
+    /**
+     * JSON形式でレスポンスを送信
+     * @param exchange HTTPエクスチェンジ
+     * @param statusCode ステータスコード
+     * @param data レスポンスデータ
+     * @throws IOException I/O例外
+     */
+    private void sendJsonResponse(HttpExchange exchange, int statusCode, Object data) throws IOException {
+        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=UTF-8");
+        exchange.sendResponseHeaders(statusCode, 0);
+        try (OutputStream os = exchange.getResponseBody()) {
+            String jsonResponse = objectMapper.writeValueAsString(data);
+            os.write(jsonResponse.getBytes(StandardCharsets.UTF_8));
+        }
     }
 }
+

@@ -1,657 +1,169 @@
 package com.edamame.web.config;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.function.BiConsumer;
-
 /**
- * Web設定管理クラス
- * Webアプリケーションの設定値とテンプレート管理を担当
+ * Web設定クラス
+ * Webアプリケーションの設定情報を管理
  */
 public class WebConfig {
 
-    private final BiConsumer<String, String> logFunction;
-    private final Map<String, String> templates = new HashMap<>();
-    private final Map<String, String> staticResources = new HashMap<>();
+    // セッション設定
+    public static final int SESSION_TIMEOUT_HOURS = 24;
+    public static final int REMEMBER_ME_DAYS = 30;
 
-    // Web設定値
-    private String appTitle = "Edamame Security Dashboard";
-    private String appDescription = "NGINXログセキュリティ分析ダッシュボード";
-    private int refreshInterval = 30; // 秒
-    private boolean enableAutoRefresh = true;
+    // サーバー設定
+    public static final int DEFAULT_THREAD_POOL_SIZE = 10;
+
+    // アプリケーション設定
+    public static final String APP_NAME = "Edamame Security Analyzer";
 
     /**
-     * コンストラクタ
-     * @param logFunction ログ出力関数
+     * デフォルトコンストラクタ
      */
-    public WebConfig(BiConsumer<String, String> logFunction) {
-        this.logFunction = logFunction != null ? logFunction :
-            (msg, level) -> System.out.printf("[%s] %s%n", level, msg);
-
-        initializeTemplates();
-        initializeStaticResources();
+    public WebConfig() {
+        // 設定の妥当性検証
+        validateConfiguration();
     }
 
     /**
-     * HTMLテンプレートを初期化
+     * 設定の妥当性を検証
      */
-    private void initializeTemplates() {
-        // ダッシュボードテンプレート
-        templates.put("dashboard", createDashboardTemplate());
+    private void validateConfiguration() {
+        if (SESSION_TIMEOUT_HOURS < 1 || SESSION_TIMEOUT_HOURS > 168) { // 1時間〜7日
+            throw new IllegalStateException("セッションタイムアウトは1-168時間の範囲で設定してください");
+        }
 
-        // エラーページテンプレート
-        templates.put("error", createErrorTemplate());
+        if (REMEMBER_ME_DAYS < 1 || REMEMBER_ME_DAYS > 365) { // 1日〜1年
+            throw new IllegalStateException("Remember Me期間は1-365日の範囲で設定してください");
+        }
 
-        logFunction.accept("HTMLテンプレート初期化完了", "DEBUG");
+        if (DEFAULT_THREAD_POOL_SIZE < 1 || DEFAULT_THREAD_POOL_SIZE > 100) {
+            throw new IllegalStateException("スレッドプールサイズは1-100の範囲で設定してください");
+        }
     }
 
     /**
-     * 静的リソースを初期化
+     * アプリケーションタイトルを取得
+     * @return アプリケーションタイトル
      */
-    private void initializeStaticResources() {
-        // CSS
-        staticResources.put("dashboard.css", createDashboardCSS());
-
-        // JavaScript
-        staticResources.put("dashboard.js", createDashboardJS());
-
-        logFunction.accept("静的リソース初期化完了", "DEBUG");
+    public String getAppTitle() {
+        return APP_NAME;
     }
 
     /**
-     * ダッシュボードHTMLテンプレートを作成（左側メニューフレーム対応）
-     * @return HTMLテンプレート文字列
+     * アプリケーション説明を取得
+     * @return アプリケーション説明
      */
-    private String createDashboardTemplate() {
+    public String getAppDescription() {
+        return "NGINXログセキュリティ分析ダッシュボード";
+    }
+
+    /**
+     * 自動更新が有効かチェック
+     * @return 自動更新が有効な場合true
+     */
+    public boolean isEnableAutoRefresh() {
+        return true; // デフォルトで自動更新を有効
+    }
+
+    /**
+     * 更新間隔を取得（秒）
+     * @return 更新間隔
+     */
+    public int getRefreshInterval() {
+        return 30; // 30秒間隔
+    }
+
+    /**
+     * HTMLテンプレートを取得
+     * @param templateName テンプレート名
+     * @return HTMLテンプレート
+     */
+    public String getTemplate(String templateName) {
+        // "dashboard"と"error"以外は必ずgetDefaultTemplate()のみ返す（default分岐重複防止）
+        return switch (templateName) {
+            case "dashboard" -> getDashboardTemplate();
+            case "error" -> getErrorTemplate();
+            default -> getDefaultTemplate();
+        };
+    }
+
+    /**
+     * 静的リソースを取得
+     * @param resourceName リソース名
+     * @return リソース内容
+     */
+    public String getStaticResource(String resourceName) {
+        return switch (resourceName) {
+            case "style.css" -> getCssResource();
+            case "script.js" -> getJsResource();
+            case "favicon.ico" -> ""; // 空の場合は404を返す
+            default -> null; // 見つからない場合
+        };
+    }
+
+    /**
+     * ダッシュボードHTMLテンプレートを取得
+     * @return ダッシュボードHTMLテンプレート
+     */
+    private String getDashboardTemplate() {
         return """
             <!DOCTYPE html>
             <html lang="ja">
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>{{APP_TITLE}}</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
-                    
-                    /* フレームレイアウト */
-                    .layout-container { 
-                        display: flex; 
-                        min-height: 100vh; 
-                    }
-                    
-                    /* 左側メニューフレーム */
-                    .sidebar {
-                        width: 250px;
-                        background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
-                        color: white;
-                        position: fixed;
-                        height: 100vh;
-                        overflow-y: auto;
-                        box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-                        display: flex;
-                        flex-direction: column;
-                    }
-                    
-                    .sidebar-header {
-                        padding: 20px;
-                        border-bottom: 1px solid rgba(255,255,255,0.1);
-                        text-align: center;
-                    }
-                    
-                    .sidebar-logo {
-                        font-size: 1.2em;
-                        font-weight: bold;
-                        margin-bottom: 10px;
-                    }
-                    
-                    .sidebar-status {
-                        font-size: 0.9em;
-                        opacity: 0.8;
-                    }
-                    
-                    .sidebar-menu {
-                        padding: 20px 0;
-                        flex: 1;
-                    }
-                    
-                    .menu-item {
-                        display: block;
-                        padding: 12px 20px;
-                        color: white;
-                        text-decoration: none;
-                        transition: background 0.3s;
-                        border-left: 3px solid transparent;
-                    }
-                    
-                    .menu-item:hover, .menu-item.active {
-                        background: rgba(255,255,255,0.1);
-                        border-left-color: #3498db;
-                    }
-                    
-                    .menu-icon {
-                        margin-right: 10px;
-                        width: 20px;
-                        display: inline-block;
-                    }
-                    
-                    /* ユーザー情報セクション */
-                    .user-section {
-                        margin-top: auto;
-                        padding: 20px;
-                        border-top: 1px solid rgba(255,255,255,0.1);
-                        background: rgba(0,0,0,0.2);
-                    }
-                    
-                    .user-info {
-                        display: flex;
-                        align-items: center;
-                        margin-bottom: 15px;
-                        padding: 10px;
-                        background: rgba(255,255,255,0.05);
-                        border-radius: 6px;
-                    }
-                    
-                    .user-avatar {
-                        width: 40px;
-                        height: 40px;
-                        background: linear-gradient(135deg, #3498db, #2980b9);
-                        border-radius: 50%;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                        margin-right: 10px;
-                        font-weight: bold;
-                        font-size: 1.2em;
-                    }
-                    
-                    .user-details {
-                        flex: 1;
-                    }
-                    
-                    .user-name {
-                        font-weight: bold;
-                        font-size: 0.95em;
-                        margin-bottom: 2px;
-                    }
-                    
-                    .user-role {
-                        font-size: 0.8em;
-                        opacity: 0.7;
-                    }
-                    
-                    .logout-btn {
-                        width: 100%;
-                        padding: 10px 15px;
-                        background: linear-gradient(135deg, #e74c3c, #c0392b);
-                        color: white;
-                        border: none;
-                        border-radius: 6px;
-                        font-size: 0.9em;
-                        font-weight: bold;
-                        cursor: pointer;
-                        transition: all 0.3s;
-                        display: flex;
-                        align-items: center;
-                        justify-content: center;
-                    }
-                    
-                    .logout-btn:hover {
-                        background: linear-gradient(135deg, #c0392b, #a93226);
-                        transform: translateY(-1px);
-                        box-shadow: 0 4px 10px rgba(231, 76, 60, 0.3);
-                    }
-                    
-                    .logout-icon {
-                        margin-right: 8px;
-                    }
-                    
-                    /* メインコンテンツエリア */
-                    .main-content {
-                        margin-left: 250px;
-                        flex: 1;
-                        padding: 20px;
-                    }
-                    
-                    /* ヘッダー */
-                    .header {
-                        background: white;
-                        padding: 15px 20px;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        margin-bottom: 20px;
-                        display: flex;
-                        justify-content: space-between;
-                        align-items: center;
-                    }
-                    
-                    .header-title {
-                        font-size: 1.5em;
-                        color: #2c3e50;
-                    }
-                    
-                    .header-info {
-                        font-size: 0.9em;
-                        color: #7f8c8d;
-                    }
-                    
-                    /* サーバー統計グリッド */
-                    .server-stats-section {
-                        background: white;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        margin-bottom: 20px;
-                        overflow: hidden;
-                    }
-                    
-                    .section-header {
-                        background: linear-gradient(135deg, #3498db, #2980b9);
-                        color: white;
-                        padding: 15px 20px;
-                        font-size: 1.2em;
-                        font-weight: bold;
-                    }
-                    
-                    .server-stats-grid {
-                        display: grid;
-                        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-                        gap: 1px;
-                        background: #ecf0f1;
-                    }
-                    
-                    .server-stat-item {
-                        background: white;
-                        padding: 20px;
-                        transition: transform 0.2s;
-                    }
-                    
-                    .server-stat-item:hover {
-                        transform: translateY(-2px);
-                        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-                    }
-                    
-                    .server-stat-header {
-                        font-size: 1.1em;
-                        font-weight: bold;
-                        color: #2c3e50;
-                        margin-bottom: 10px;
-                        padding-bottom: 8px;
-                        border-bottom: 2px solid #3498db;
-                    }
-                    
-                    .server-stat-content {
-                        display: grid;
-                        grid-template-columns: repeat(3, 1fr);
-                        gap: 15px;
-                        text-align: center;
-                    }
-                    
-                    .stat-value-item {
-                        background: #f8f9fa;
-                        padding: 10px;
-                        border-radius: 6px;
-                        border: 1px solid #e9ecef;
-                    }
-                    
-                    .stat-number {
-                        font-size: 1.5em;
-                        font-weight: bold;
-                        color: #2c3e50;
-                        display: block;
-                    }
-                    
-                    .stat-label {
-                        font-size: 0.8em;
-                        color: #7f8c8d;
-                        margin-top: 5px;
-                    }
-                    
-                    .stat-access { border-left: 4px solid #27ae60; }
-                    .stat-attack { border-left: 4px solid #e74c3c; }
-                    .stat-block { border-left: 4px solid #f39c12; }
-                    
-                    /* その他のセクション */
-                    .content-section {
-                        background: white;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                        margin-bottom: 20px;
-                        overflow: hidden;
-                    }
-                    
-                    .section-content {
-                        padding: 20px;
-                    }
-                    
-                    /* アラート一�� */
-                    .alert-item {
-                        border: 1px solid #e9ecef;
-                        border-radius: 6px;
-                        padding: 15px;
-                        margin-bottom: 10px;
-                        transition: all 0.2s;
-                    }
-                    
-                    .alert-item:hover {
-                        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-                    }
-                    
-                    .alert-item.high {
-                        border-left: 4px solid #e74c3c;
-                        background: #fdf2f2;
-                    }
-                    
-                    .alert-item.medium {
-                        border-left: 4px solid #f39c12;
-                        background: #fefaf2;
-                    }
-                    
-                    .alert-item.low {
-                        border-left: 4px solid #3498db;
-                        background: #f2f8fd;
-                    }
-                    
-                    .alert-header {
-                        display: flex;
-                        justify-content: space-between;
-                        margin-bottom: 8px;
-                        font-size: 0.9em;
-                        color: #7f8c8d;
-                    }
-                    
-                    .alert-content {
-                        color: #2c3e50;
-                    }
-                    
-                    /* モーダルダイアログスタイル */
-                    .modal-overlay {
-                        position: fixed;
-                        top: 0;
-                        left: 0;
-                        width: 100%;
-                        height: 100%;
-                        background: rgba(0, 0, 0, 0.5);
-                        display: none;
-                        align-items: center;
-                        justify-content: center;
-                        z-index: 1000;
-                    }
-                    
-                    .modal-content {
-                        background: white;
-                        padding: 30px;
-                        border-radius: 10px;
-                        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-                        text-align: center;
-                        max-width: 400px;
-                        width: 90%;
-                        animation: modalSlideIn 0.3s ease-out;
-                    }
-                    
-                    @keyframes modalSlideIn {
-                        from {
-                            opacity: 0;
-                            transform: translateY(-50px);
-                        }
-                        to {
-                            opacity: 1;
-                            transform: translateY(0);
-                        }
-                    }
-                    
-                    .modal-title {
-                        font-size: 1.3em;
-                        font-weight: bold;
-                        color: #2c3e50;
-                        margin-bottom: 15px;
-                    }
-                    
-                    .modal-message {
-                        color: #7f8c8d;
-                        margin-bottom: 25px;
-                        line-height: 1.5;
-                    }
-                    
-                    .modal-buttons {
-                        display: flex;
-                        gap: 10px;
-                        justify-content: center;
-                    }
-                    
-                    .modal-btn {
-                        padding: 10px 20px;
-                        border: none;
-                        border-radius: 6px;
-                        font-weight: bold;
-                        cursor: pointer;
-                        transition: all 0.3s;
-                        min-width: 100px;
-                    }
-                    
-                    .modal-btn-confirm {
-                        background: linear-gradient(135deg, #e74c3c, #c0392b);
-                        color: white;
-                    }
-                    
-                    .modal-btn-confirm:hover {
-                        background: linear-gradient(135deg, #c0392b, #a93226);
-                        transform: translateY(-1px);
-                    }
-                    
-                    .modal-btn-cancel {
-                        background: #95a5a6;
-                        color: white;
-                    }
-                    
-                    .modal-btn-cancel:hover {
-                        background: #7f8c8d;
-                        transform: translateY(-1px);
-                    }
-                    
-                    /* レスポンシブ対応 */
-                    @media (max-width: 768px) {
-                        .sidebar {
-                            transform: translateX(-100%);
-                            transition: transform 0.3s;
-                        }
-                        
-                        .sidebar.open {
-                            transform: translateX(0);
-                        }
-                        
-                        .main-content {
-                            margin-left: 0;
-                        }
-                        
-                        .server-stats-grid {
-                            grid-template-columns: 1fr;
-                        }
-                        
-                        .server-stat-content {
-                            grid-template-columns: 1fr;
-                        }
-                    }
-                    
-                    /* 自動更新インジケーター */
-                    .auto-refresh-indicator {
-                        position: fixed;
-                        top: 20px;
-                        right: 20px;
-                        background: #27ae60;
-                        color: white;
-                        padding: 8px 12px;
-                        border-radius: 4px;
-                        font-size: 0.8em;
-                        z-index: 1000;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="layout-container">
-                    <!-- 左側メニューフレーム -->
-                    <div class="sidebar">
-                        <div class="sidebar-header">
-                            <div class="sidebar-logo">🌱 Edamame</div>
-                            <div class="sidebar-status">Security Dashboard</div>
-                        </div>
-                        
-                        <div class="sidebar-menu">
-                            <a href="/dashboard" class="menu-item active">
-                                <span class="menu-icon">📊</span>ダッシュボード
-                            </a>
-                            <a href="/api/servers" class="menu-item">
-                                <span class="menu-icon">🖥️</span>サーバー管理
-                            </a>
-                            <a href="/api/alerts" class="menu-item">
-                                <span class="menu-icon">🚨</span>アラート
-                            </a>
-                            <a href="/api/reports" class="menu-item">
-                                <span class="menu-icon">📈</span>レポート
-                            </a>
-                            <a href="/api/settings" class="menu-item">
-                                <span class="menu-icon">⚙️</span>設定
-                            </a>
-                        </div>
-                        
-                        <!-- ユーザー情報とログアウトボタン -->
-                        <div class="user-section">
-                            <div class="user-info">
-                                <div class="user-avatar">{{CURRENT_USER_INITIAL}}</div>
-                                <div class="user-details">
-                                    <div class="user-name">{{CURRENT_USER}}</div>
-                                    <div class="user-role">管理者</div>
+                <title>{{APP_TITLE}} - {{APP_DESCRIPTION}}</title>
+                <link rel="stylesheet" href="/static/style.css">
+                <!-- CSSは外部リソース /static/style.css に収め、CSPのstyle-src 'self' に従う -->
+                 {{SECURITY_HEADERS}}
+             </head>
+             <body>
+                 <div class="dashboard-container">
+                     <div class="app-body">
+                        <aside class="sidebar left-fixed" aria-label="メインメニュー">
+                            <div class="sidebar-brand">
+                                <strong>{{APP_TITLE}}</strong>
+                            </div>
+
+                            <nav class="sidebar-nav">
+                                {{MENU_HTML}}
+                            </nav>
+
+                            <div class="sidebar-footer">
+                                <!-- ユーザー情報は下部に配置（時刻・ログアウトの上） -->
+                                <div class="sidebar-user-footer">
+                                    <div class="user-avatar">
+                                        <div class="avatar-circle">{{CURRENT_USER_INITIAL}}</div>
+                                        <div class="user-name">{{CURRENT_USER}}</div>
+                                    </div>
                                 </div>
+                                <small class="current-time">{{CURRENT_TIME}}</small>
+                                <button id="logout-btn" class="sidebar-logout-btn logout-btn">ログアウト</button>
                             </div>
-                            <button class="logout-btn" onclick="confirmLogout()">
-                                <span class="logout-icon">🚪</span>ログアウト
-                            </button>
-                        </div>
-                    </div>
-                    
-                    <!-- メインコンテンツエリア -->
-                    <div class="main-content">
-                        <!-- ヘッダー -->
-                        <div class="header">
-                            <div>
-                                <div class="header-title">{{APP_TITLE}}</div>
-                                <div class="header-info">{{APP_DESCRIPTION}} | 最終更新: {{CURRENT_TIME}}</div>
-                            </div>
-                            <div class="header-info">サーバー状態: {{SERVER_STATUS}}</div>
-                        </div>
-                        
-                        <!-- サーバー統計セクション -->
-                        <div class="server-stats-section">
-                            <div class="section-header">📊 サーバー統計</div>
-                            <div class="server-stats-grid">
-                                {{SERVER_STATS}}
-                            </div>
-                        </div>
-                        
-                        <!-- 他のセクション -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
-                            <!-- 最新アラート -->
-                            <div class="content-section">
-                                <div class="section-header">🚨 最新アラート</div>
-                                <div class="section-content">
-                                    {{RECENT_ALERTS}}
-                                </div>
-                            </div>
-                            
-                            <!-- サーバー一覧 -->
-                            <div class="content-section">
-                                <div class="section-header">🖥️ サーバー一覧</div>
-                                <div class="section-content">
-                                    {{SERVER_LIST}}
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 攻撃タイプ統計 -->
-                        <div class="content-section">
-                            <div class="section-header">🎯 攻撃タイプ統計（今日）</div>
-                            <div class="section-content">
-                                {{ATTACK_TYPES}}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- ログアウト確認モーダル -->
-                <div id="logoutModal" class="modal-overlay">
-                    <div class="modal-content">
-                        <div class="modal-title">ログアウト確認</div>
-                        <div class="modal-message">
-                            本当にログアウトしますか？<br>
-                            未保存の変更がある場合は失われます。
-                        </div>
-                        <div class="modal-buttons">
-                            <button class="modal-btn modal-btn-confirm" onclick="executeLogout()">
-                                ログアウト
-                            </button>
-                            <button class="modal-btn modal-btn-cancel" onclick="cancelLogout()">
-                                キャンセル
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                
-                <script>
-                    // ログアウト確認ダイアログ
-                    function confirmLogout() {
-                        const modal = document.getElementById('logoutModal');
-                        modal.style.display = 'flex';
-                        document.body.style.overflow = 'hidden';
-                    }
-                    
-                    function cancelLogout() {
-                        const modal = document.getElementById('logoutModal');
-                        modal.style.display = 'none';
-                        document.body.style.overflow = 'auto';
-                    }
-                    
-                    function executeLogout() {
-                        // ログアウト処理を実行
-                        const form = document.createElement('form');
-                        form.method = 'POST';
-                        form.action = '/logout';
-                        document.body.appendChild(form);
-                        form.submit();
-                    }
-                    
-                    // モーダル外クリックで閉じる
-                    document.getElementById('logoutModal').addEventListener('click', function(e) {
-                        if (e.target === this) {
-                            cancelLogout();
-                        }
-                    });
-                    
-                    // ESCキーでモーダルを閉じる
-                    document.addEventListener('keydown', function(e) {
-                        if (e.key === 'Escape') {
-                            cancelLogout();
-                        }
-                    });
-                    
-                    {{#AUTO_REFRESH}}
-                    // 自動更新
-                    setInterval(function() {
-                        location.reload();
-                    }, {{REFRESH_INTERVAL}} * 1000);
-                    {{/AUTO_REFRESH}}
-                </script>
-            </body>
+                        </aside>
+
+                        <main id="main-content" class="right-content" role="main">
+                            {{DASHBOARD_CONTENT}}
+                        </main>
+                     </div>
+
+                     <footer class="dashboard-footer">
+                         <small>© Edamame Security Analyzer</small>
+                     </footer>
+                 </div>
+
+                 {{AUTO_REFRESH_SCRIPT}}
+                 <script src="/static/script.js"></script>
+             </body>
             </html>
             """;
     }
 
     /**
-     * エラーページテンプレートを作成
-     * @return HTMLテンプレート文字列
+     * エラーページHTMLテンプレートを取得
+     * @return エラーページHTMLテンプレート
      */
-    private String createErrorTemplate() {
+    private String getErrorTemplate() {
         return """
             <!DOCTYPE html>
             <html lang="ja">
@@ -659,20 +171,54 @@ public class WebConfig {
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>エラー - {{APP_TITLE}}</title>
-                <link rel="stylesheet" href="/css/dashboard.css">
+                <style>
+                    body {
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        height: 100vh;
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        margin: 0;
+                    }
+                    .error-container {
+                        background: white;
+                        padding: 2rem;
+                        border-radius: 10px;
+                        box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+                        text-align: center;
+                        max-width: 500px;
+                    }
+                    .error-code {
+                        font-size: 3rem;
+                        font-weight: bold;
+                        color: #667eea;
+                        margin-bottom: 1rem;
+                    }
+                    .error-message {
+                        font-size: 1.2rem;
+                        color: #666;
+                        margin-bottom: 2rem;
+                    }
+                    .back-link {
+                        display: inline-block;
+                        padding: 0.75rem 1.5rem;
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 5px;
+                        transition: transform 0.2s;
+                    }
+                    .back-link:hover {
+                        transform: translateY(-2px);
+                    }
+                </style>
             </head>
             <body>
-                <div class="container">
-                    <div class="error-page">
-                        <h1>🚨 エラーが発生しました</h1>
-                        <div class="error-details">
-                            <h2>{{ERROR_CODE}}</h2>
-                            <p>{{ERROR_MESSAGE}}</p>
-                        </div>
-                        <div class="error-actions">
-                            <a href="/dashboard" class="btn">ダッシュボードに戻る</a>
-                        </div>
-                    </div>
+                <div class="error-container">
+                    <div class="error-code">{{ERROR_CODE}}</div>
+                    <div class="error-message">{{ERROR_MESSAGE}}</div>
+                    <a href="/main" class="back-link">ダッシュボードに戻る</a>
                 </div>
             </body>
             </html>
@@ -680,382 +226,519 @@ public class WebConfig {
     }
 
     /**
-     * ダッシュボードCSSを作成
-     * @return CSS文字列
+     * デフォルトHTMLテンプレートを取得
+     * @return デフォルトHTMLテンプレート
      */
-    private String createDashboardCSS() {
+    private String getDefaultTemplate() {
         return """
-            /* Edamame Security Dashboard CSS */
+            <!DOCTYPE html>
+            <html lang="ja">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>{{APP_TITLE}}</title>
+            </head>
+            <body>
+                <h1>{{APP_TITLE}}</h1>
+                <p>{{CONTENT}}</p>
+            </body>
+            </html>
+            """;
+    }
+
+    /**
+     * CSSリソースを取得
+     * @return CSS内容
+     */
+    private String getCssResource() {
+        return """
+            /* Edamame Security Analyzer - Dashboard Styles */
+            
             * {
                 margin: 0;
                 padding: 0;
                 box-sizing: border-box;
             }
-
+            
             body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                background: #f5f7fa;
                 color: #333;
+                line-height: 1.6;
+            }
+            
+            .dashboard-container {
                 min-height: 100vh;
+                display: flex;
+                flex-direction: column;
             }
-
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-                padding: 0 20px;
-            }
-
-            /* Header */
-            .header {
-                background: rgba(255, 255, 255, 0.95);
-                backdrop-filter: blur(10px);
-                box-shadow: 0 2px 20px rgba(0, 0, 0, 0.1);
-                margin-bottom: 30px;
-            }
-
-            .header .container {
+            
+            .dashboard-header {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 1rem 2rem;
                 display: flex;
                 justify-content: space-between;
                 align-items: center;
-                padding: 15px 20px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             }
-
-            .logo {
-                font-size: 24px;
-                font-weight: bold;
-                color: #2c3e50;
+            
+            .dashboard-header h1 {
+                font-size: 1.8rem;
+                font-weight: 600;
             }
-
-            .nav {
+            
+            .header-actions {
                 display: flex;
-                gap: 20px;
                 align-items: center;
+                gap: 1rem;
             }
-
-            .status {
-                padding: 5px 15px;
-                background: #27ae60;
+            
+            .user-info {
+                font-size: 0.9rem;
+                opacity: 0.9;
+            }
+            
+            .logout-btn {
+                background: rgba(255,255,255,0.2);
                 color: white;
-                border-radius: 15px;
-                font-size: 14px;
+                border: 1px solid rgba(255,255,255,0.3);
+                padding: 0.5rem 1rem;
+                border-radius: 5px;
+                cursor: pointer;
+                transition: background 0.3s;
+            }
+            
+            .logout-btn:hover {
+                background: rgba(255,255,255,0.3);
             }
 
-            .time {
-                font-size: 14px;
-                color: #7f8c8d;
-            }
-
-            /* Stats Grid */
-            .stats-grid {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                gap: 20px;
-                margin-bottom: 40px;
-            }
-
-            .stat-card {
-                background: white;
-                padding: 25px;
-                border-radius: 15px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-                text-align: center;
-                transition: transform 0.3s ease;
-            }
-
-            .stat-card:hover {
-                transform: translateY(-5px);
-            }
-
-            .stat-card.alert {
-                background: linear-gradient(135deg, #ff6b6b, #ee5a52);
-                color: white;
-            }
-
-            .stat-card h3 {
-                font-size: 16px;
-                margin-bottom: 15px;
-                opacity: 0.8;
-            }
-
-            .stat-value {
-                font-size: 36px;
-                font-weight: bold;
-                line-height: 1;
-            }
-
-            /* Sections */
-            .alerts-section,
-            .servers-section,
-            .attack-types-section {
-                background: white;
-                padding: 30px;
-                border-radius: 15px;
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-                margin-bottom: 30px;
-            }
-
-            .alerts-section h2,
-            .servers-section h2,
-            .attack-types-section h2 {
-                font-size: 22px;
-                margin-bottom: 20px;
-                color: #2c3e50;
-                border-bottom: 2px solid #3498db;
-                padding-bottom: 10px;
-            }
-
-            /* Alert Cards */
-            .alert-item {
-                background: #fff5f5;
-                border-left: 4px solid #e53e3e;
-                padding: 15px;
-                margin-bottom: 10px;
-                border-radius: 0 8px 8px 0;
-            }
-
-            .alert-item.high {
-                border-left-color: #e53e3e;
-                background: #fff5f5;
-            }
-
-            .alert-item.medium {
-                border-left-color: #f6ad55;
-                background: #fffaf0;
-            }
-
-            .alert-item.low {
-                border-left-color: #48bb78;
-                background: #f0fff4;
-            }
-
-            /* Server Cards */
-            .server-item {
+            /* 新レイアウト: サイドバー + メイン */
+            .app-body {
                 display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 15px;
-                background: #f8f9fa;
+                align-items: stretch;
+                gap: 1rem;
+                padding: 1.5rem;
+            }
+
+            .sidebar {
+                width: 240px;
+                flex: 0 0 240px;
+                background: #ffffff;
                 border-radius: 8px;
-                margin-bottom: 10px;
-            }
-
-            .server-status {
-                padding: 5px 12px;
-                border-radius: 12px;
-                font-size: 12px;
-                font-weight: bold;
-            }
-
-            .server-status.online {
-                background: #d4edda;
-                color: #155724;
-            }
-
-            .server-status.offline {
-                background: #f8d7da;
-                color: #721c24;
-            }
-
-            /* Attack Types */
-            .attack-type-item {
+                box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+                padding: 1rem;
+                height: calc(100vh - 120px);
+                overflow: auto;
                 display: flex;
-                justify-content: space-between;
-                align-items: center;
-                padding: 10px 0;
-                border-bottom: 1px solid #eee;
+                flex-direction: column;
+             }
+
+            .sidebar-brand {
+                font-size: 1.05rem;
+                margin-bottom: 0.75rem;
+                display: block;
             }
 
-            .attack-type-item:last-child {
-                border-bottom: none;
+            .sidebar-nav ul {
+                list-style: none;
             }
 
-            .attack-count {
-                background: #e3f2fd;
-                color: #1976d2;
-                padding: 5px 10px;
-                border-radius: 15px;
-                font-weight: bold;
+            .sidebar-nav li {
+                margin-bottom: 0.5rem;
             }
 
-            /* Footer */
-            .footer {
-                background: rgba(255, 255, 255, 0.9);
-                text-align: center;
-                padding: 20px;
-                margin-top: 40px;
-                color: #7f8c8d;
-                font-size: 14px;
-            }
-
-            /* Error Page */
-            .error-page {
-                text-align: center;
-                padding: 100px 20px;
-                background: white;
-                border-radius: 15px;
-                margin: 50px auto;
-                max-width: 500px;
-            }
-
-            .error-details h2 {
-                font-size: 48px;
-                color: #e53e3e;
-                margin-bottom: 20px;
-            }
-
-            .btn {
-                display: inline-block;
-                padding: 12px 25px;
-                background: #3498db;
-                color: white;
+            .sidebar-nav a.nav-link {
+                display: block;
+                padding: 0.5rem 0.75rem;
+                color: #333;
                 text-decoration: none;
-                border-radius: 8px;
-                margin-top: 20px;
-                transition: background 0.3s ease;
+                border-radius: 6px;
+                transition: background 0.15s;
             }
 
-            .btn:hover {
-                background: #2980b9;
+            .sidebar-nav a.nav-link:hover, .sidebar-nav a.nav-link.active {
+                 background: linear-gradient(90deg, #eef2ff, #f5f7ff);
+                 color: #222;
+             }
+
+            /* サイドバー内のユーザー情報 */
+            .sidebar-user {
+                margin: 0.75rem 0 0.5rem 0;
+            }
+
+            .user-avatar {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+            }
+
+            .avatar-circle {
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: white;
+                font-weight: 600;
+                font-size: 0.95rem;
+            }
+
+            .user-name {
+                font-weight: 600;
+                font-size: 0.95rem;
+            }
+            
+             .sidebar-footer{
+                 margin-top: 1rem;
+                 font-size: 0.85rem;
+                 color: #666;
+                 margin-top: auto; /* フッターを下に固定 */
+                 display: flex;
+                 flex-direction: column;
+                 gap: 0.5rem;
+                 align-items: flex-start;
+             }
+
+            /* サイドバー用のログアウトボタン */
+            .sidebar-logout-btn.logout-btn {
+                background: rgba(0,0,0,0.05);
+                color: #333;
+                border: 1px solid rgba(0,0,0,0.08);
+                padding: 0.4rem 0.8rem;
+            }
+
+            #main-content.right-content {
+                flex: 1 1 auto;
+                padding: 1rem;
+                min-height: calc(100vh - 120px);
+            }
+
+            /* 既存のカード等のスタイルを残す */
+            .card {
+                background: white;
+                border-radius: 10px;
+                padding: 1.5rem;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                transition: transform 0.2s;
+            }
+            
+            .card:hover {
+                transform: translateY(-2px);
+            }
+
+            /* ステータスインジケータ */
+            .status-indicator {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 0.5rem;
+            }
+
+            .status-indicator.online {
+                background: #27ae60;
+            }
+
+            .status-indicator.offline {
+                background: #e74c3c;
+            }
+
+            .status-indicator.warning {
+                background: #f39c12;
             }
 
             /* レスポンシブ */
-            @media (max-width: 768px) {
-                .stats-grid {
-                    grid-template-columns: 1fr;
-                }
-                
-                .header .container {
-                    flex-direction: column;
-                    gap: 10px;
-                }
-                
-                .nav {
-                    flex-direction: column;
-                    gap: 10px;
-                }
+            @media (max-width: 900px) {
+                .app-body { flex-direction: column; padding: 1rem; }
+                .sidebar { width: 100%; flex: none; height: auto; }
+                #main-content.right-content { min-height: auto; }
             }
             """;
     }
 
     /**
-     * ダッシュボードJavaScriptを作成
-     * @return JavaScript文字列
+     * JavaScriptリソースを取得
+     * @return JavaScript内容
      */
-    private String createDashboardJS() {
+    private String getJsResource() {
         return """
-            // Edamame Security Dashboard JavaScript
+            // Edamame Security Analyzer - Dashboard Scripts
+            
+            // ログアウト確認ダイアログ
+            function confirmLogout() {
+                if (confirm('ログアウトしますか？')) {
+                    // ログアウト処理を実行
+                    fetch('/logout', {
+                        method: 'POST',
+                        credentials: 'same-origin'
+                    }).then(response => {
+                        if (response.ok || response.redirected) {
+                            window.location.href = '/login?logout=success';
+                        } else {
+                            alert('ログアウトに失敗しました。再試行してください。');
+                        }
+                    }).catch(error => {
+                        console.error('ログアウトエラー:', error);
+                        // ネットワークエラーの場合も強制リダイレクト
+                        window.location.href = '/logout';
+                    });
+                }
+            }
+            
+            // フラグメント単位の自動更新管理
+            // key: fragment element (DOM), value: interval id
+            const fragmentAutoRefreshMap = new Map();
+            
+            function startFragmentAutoRefresh(fragmentEl, intervalSeconds, view) {
+                stopFragmentAutoRefresh(fragmentEl);
+                if (!fragmentEl || !intervalSeconds || intervalSeconds <= 0) return;
+                const id = setInterval(() => {
+                    // 再フェッチして該当 view を更新（push= false: history を操作しない）
+                    navigateTo(view, false);
+                }, intervalSeconds * 1000);
+                fragmentAutoRefreshMap.set(fragmentEl, id);
+            }
+            
+            function stopFragmentAutoRefresh(fragmentEl) {
+                const id = fragmentAutoRefreshMap.get(fragmentEl);
+                if (id) {
+                    clearInterval(id);
+                    fragmentAutoRefreshMap.delete(fragmentEl);
+                }
+            }
             
             // 自動更新機能
-            let autoRefreshTimer = null;
+            let autoRefreshInterval;
             
-            function startAutoRefresh(interval) {
-                if (autoRefreshTimer) {
-                    clearInterval(autoRefreshTimer);
+            function startAutoRefresh(intervalSeconds) {
+                if (intervalSeconds > 0) {
+                    autoRefreshInterval = setInterval(() => {
+                        location.reload();
+                    }, intervalSeconds * 1000);
                 }
-                
-                autoRefreshTimer = setInterval(() => {
-                    location.reload();
-                }, interval);
-                
-                console.log('自動更新開始: ' + (interval / 1000) + '秒間隔');
             }
             
             function stopAutoRefresh() {
-                if (autoRefreshTimer) {
-                    clearInterval(autoRefreshTimer);
-                    autoRefreshTimer = null;
-                    console.log('自動更新停止');
+                if (autoRefreshInterval) {
+                    clearInterval(autoRefreshInterval);
                 }
             }
             
-            // API呼び出し関数
-            async function fetchApiData(endpoint) {
-                try {
-                    const response = await fetch('/api/' + endpoint);
-                    if (!response.ok) {
-                        throw new Error('API呼び出しエラー: ' + response.status);
-                    }
-                    return await response.json();
-                } catch (error) {
-                    console.error('API呼び出し失敗:', error);
-                    return null;
-                }
-            }
-            
-            // 統計データを更新（AJAX版）
-            async function updateStats() {
-                const stats = await fetchApiData('stats');
-                if (stats) {
-                    updateStatElements(stats);
-                }
-            }
-            
-            function updateStatElements(stats) {
-                const elements = {
-                    totalAccess: document.querySelector('.stat-card:nth-child(1) .stat-value'),
-                    totalAttacks: document.querySelector('.stat-card:nth-child(2) .stat-value'),
-                    modsecBlocks: document.querySelector('.stat-card:nth-child(3) .stat-value'),
-                    activeServers: document.querySelector('.stat-card:nth-child(4) .stat-value')
+            // シンプルなAJAXナビゲーション（fetch + pushState）
+            function navigateTo(view, push) {
+                const main = document.getElementById('main-content');
+                if (!main) return;
+
+                // 簡易ルーティング: view -> APIパス
+                // view 名は 'dashboard' / 'template' で統一する（URLは /main?view=dashboard）
+                const routeMap = {
+                    'dashboard': '/api/fragment/dashboard',
+                    'template': '/api/fragment/test'
                 };
-                
-                if (elements.totalAccess) elements.totalAccess.textContent = stats.totalAccess || '0';
-                if (elements.totalAttacks) elements.totalAttacks.textContent = stats.totalAttacks || '0';
-                if (elements.modsecBlocks) elements.modsecBlocks.textContent = stats.modsecBlocks || '0';
-                if (elements.activeServers) elements.activeServers.textContent = stats.activeServers || '0';
+
+                let apiPath = routeMap[view] || ('/api/fragment/' + encodeURIComponent(view));
+                // 相対パスが混入している場合を防ぐ: 必ず先頭にスラッシュを付与して絶対パスとする
+                if (!apiPath.startsWith('/')) {
+                    apiPath = '/' + apiPath;
+                }
+
+                 // ローディング表示
+                 main.innerHTML = '<div class="card"><p>読み込み中...</p></div>';
+
+                 fetch(apiPath, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'text/html, application/json' } })
+                    .then(response => {
+                        if (response.status === 401) {
+                            // 未認証の場合はログインページへリダイレクト
+                            window.location.href = '/login';
+                            throw new Error('Unauthorized');
+                        }
+                        if (!response.ok) throw new Error('Network response was not ok');
+                        const contentType = response.headers.get('content-type') || '';
+                        if (contentType.includes('text/html')) {
+                            return response.text().then(html => ({ html }));
+                        }
+                        return response.json().then(json => ({ json }));
+                    })
+                     .then(result => {
+                          if (result.html) {
+                              main.innerHTML = result.html;
+                            // フラグメントに data-auto-refresh 属性があればそれに従う
+                            const fragRoot = main.querySelector('.fragment-root');
+                            // 先に既存のフラグメント自動更新を全て停止してから新しいものを開始する
+                            stopAllFragmentAutoRefresh();
+                            if (fragRoot) {
+                                const auto = parseInt(fragRoot.getAttribute('data-auto-refresh') || '0', 10);
+                                // fragmentEl を fragRoot として自動更新を開始/停止
+                                startFragmentAutoRefresh(fragRoot, auto, view);
+                            }
+                          } else if (result.json) {
+                              main.innerHTML = renderViewContent(view, result.json);
+                            // JSONレスポンスの場合は自動更新は基本的に無効（必要ならviewの仕様で制御）
++                           // JSONで表示するビューでも既存のフラグメント自動更新を停止しておく
++                           stopAllFragmentAutoRefresh();
+                          } else {
+                              main.innerHTML = '<div class="card"><p>不明なレスポンス形式です</p></div>';
+                          }
+
+                          if (push) {
+                              // pushState の URL は /main?view=dashboard のようにする
+                              const url = '/main?view=' + encodeURIComponent(view);
+                              history.pushState({ view: view }, '', url);
+                          }
+                          updateActiveNav(view);
+                      })
+                     .catch(err => {
+                         console.error('データ取得エラー:', err);
+                        // 401は既にリダイレクト済みの可能性があるため、それ以外はエラーメッセージを出す
+                        if (err.message !== 'Unauthorized') {
+                            main.innerHTML = '<div class="card"><p>データの取得に失敗しました。再読み込みしてください。</p></div>';
+                        }
+                     });
             }
-            
-            // エラーハンドリング
-            window.addEventListener('error', (event) => {
-                console.error('JavaScript エラー:', event.error);
-            });
-            
-            // ページ読み込み完了時の処理
-            document.addEventListener('DOMContentLoaded', () => {
-                console.log('Edamame Security Dashboard 初期化完了');
-                
-                // 現在時刻の更新
+
+            // サイドバーのリンク活性化表示を更新
+            function updateActiveNav(view) {
+                document.querySelectorAll('.nav-link').forEach(el => {
+                    if (el.dataset.view === view) el.classList.add('active'); else el.classList.remove('active');
+                });
+            }
+
+            // フラグメント自動更新を全て停止するユーティリティ
+            function stopAllFragmentAutoRefresh() {
+                // Map の value が interval id, key が fragmentEl
+                fragmentAutoRefreshMap.forEach((id, el) => {
+                    try { clearInterval(id); } catch (e) { /* ignore */ }
+                });
+                fragmentAutoRefreshMap.clear();
+            }
+
+            // シンプルなビューごとのレンダラ
+            function renderViewContent(view, data) {
+                if (view === 'servers') {
+                    if (!data || !data.serverList) return '<div class="card">サーバーデータがありません</div>';
+                    let html = '<div class="card"><h2>サーバー一覧</h2>';
+                    data.serverList.forEach(s => {
+                        const name = escapeHtml(s.name || 'unknown');
+                        const desc = escapeHtml(s.description || '');
+                        const last = escapeHtml(s.lastLogReceived || '未記録');
+                        const count = s.todayAccessCount || 0;
+                        html += '<div class="server-item"><div class="server-info"><strong>' + name + '</strong><br><small>' + desc + '</small><br><small>最終ログ: ' + last + ' | 今日のアクセス: ' + count + '件</small></div></div>';
+                    });
+                    html += '</div>';
+                    return html;
+                }
+
+                if (view === 'alerts') {
+                    if (!data || !data.recentAlerts) return '<div class="card">アラートはありません</div>';
+                    let html = '<div class="card"><h2>最近のアラート</h2>';
+                    data.recentAlerts.forEach(a => {
+                        const sev = escapeHtml(a.severityLevel || 'low');
+                        const time = escapeHtml(a.accessTime || '');
+                        const server = escapeHtml(a.serverName || 'unknown');
+                        const ip = escapeHtml(a.ipAddress || '');
+                        const url = escapeHtml(a.url || '');
+                        html += '<div class="alert-item ' + sev + '"><div class="alert-header"><span class="alert-time">' + time + '</span> <span class="alert-server">' + server + '</span></div><div class="alert-content"><strong>' + ip + '</strong> からの攻撃: ' + escapeHtml(a.attackType || '') + '<br><small>URL: ' + (url.length > 100 ? url.substring(0,100) + '...' : url) + '</small></div></div>';
+                    });
+                    html += '</div>';
+                    return html;
+                }
+
+                if (view === 'attack-types') {
+                    if (!data || !data.attackTypes) return '<div class="card">攻撃タイプのデータがありません</div>';
+                    let html = '<div class="card"><h2>攻撃タイプ</h2>';
+                    data.attackTypes.forEach(t => {
+                        html += '<div class="attack-type-item"><div class="attack-type-info"><strong>' + escapeHtml(t.type) + '</strong><br><small>' + escapeHtml(t.description || '') + '</small></div><span class="attack-count">' + (t.count || 0) + '</span></div>';
+                    });
+                    html += '</div>';
+                    return html;
+                }
+
+                if (view === 'settings') {
+                    return '<div class="card"><h2>設定</h2><p>設定画面（未実装）</p></div>';
+                }
+
+                // デフォルト: overview
+                if (!data) return '<div class="card">データなし</div>';
+                let html = '<div class="card"><h2>概要</h2>';
+                html += '<p>総アクセス: ' + (data.totalAccess || 0) + '</p>';
+                html += '<p>攻撃検知: ' + (data.attackCount || 0) + '</p>';
+                html += '</div>';
+                return html;
+            }
+
+            // HTMLエスケープ（シンプル）
+            function escapeHtml(s) {
+                if (!s) return '';
+                return String(s)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            // 初期化
+            document.addEventListener('DOMContentLoaded', function() {
+                // 現在時刻の表示更新
                 updateCurrentTime();
                 setInterval(updateCurrentTime, 1000);
+
+                // 複数のログアウトボタン（ヘッダ・サイドバー）に対応
+                document.querySelectorAll('.logout-btn').forEach(b => b.addEventListener('click', confirmLogout));
+
+                // サイドバーリンクのイベント
+                document.querySelectorAll('.nav-link').forEach(el => {
+                    el.addEventListener('click', function(e) {
+                        // プログレッシブエンハンスメント: JS有効時はAJAXで読み替え
+                        e.preventDefault();
+                        const view = el.dataset.view || 'dashboard';
+                        navigateTo(view, true);
+                    });
+                });
+
+                // popstateハンドラ
+                window.addEventListener('popstate', function(e) {
+                    const state = e.state;
+                    if (state && state.view) {
+                        navigateTo(state.view, false);
+                    } else {
+                        // クエリパラメータを読んで初期表示
+                        const params = new URLSearchParams(window.location.search);
+                        const v = params.get('view') || 'dashboard';
+                        navigateTo(v, false);
+                    }
+                });
+
+                // 初回表示: URLのviewに合わせる（サーバ側で既に埋め込まれている場合はfetchを避けるが安全のためここはfetchする）
+                const params = new URLSearchParams(window.location.search);
+                const initialView = params.get('view') || 'dashboard';
+                navigateTo(initialView, false);
             });
-            
+
             function updateCurrentTime() {
-                const timeElement = document.querySelector('.time');
-                if (timeElement) {
-                    const now = new Date();
-                    timeElement.textContent = now.toLocaleString('ja-JP');
-                }
+                const now = new Date();
+                const timeString = now.toLocaleString('ja-JP');
+                const timeElements = document.querySelectorAll('.current-time');
+                timeElements.forEach(element => {
+                    element.textContent = timeString;
+                });
             }
             """;
     }
 
     /**
-     * テンプレートを取得
-     * @param templateName テンプレート名
-     * @return テンプレート文字列
+     * メニューHTMLを取得（1箇所で管理）
+     * @return ナビゲーションHTML
      */
-    public String getTemplate(String templateName) {
-        return templates.getOrDefault(templateName, "");
+    public String getMenuHtml() {
+        return """
+            <ul>
+                <li><a href="/main?view=dashboard" class="nav-link" data-view="dashboard">ダッシュボード</a></li>
+                <li><a href="/main?view=template" class="nav-link" data-view="template">テンプレート（テスト）</a></li>
+            </ul>
+            """;
     }
-
-    /**
-     * 静的リソースを取得
-     * @param resourceName リソース名
-     * @return リソース文字列
-     */
-    public String getStaticResource(String resourceName) {
-        return staticResources.getOrDefault(resourceName, "");
-    }
-
-    // ゲッター・セッター
-    public String getAppTitle() { return appTitle; }
-    public void setAppTitle(String appTitle) { this.appTitle = appTitle; }
-
-    public String getAppDescription() { return appDescription; }
-    public void setAppDescription(String appDescription) { this.appDescription = appDescription; }
-
-    public int getRefreshInterval() { return refreshInterval; }
-    public void setRefreshInterval(int refreshInterval) { this.refreshInterval = refreshInterval; }
-
-    public boolean isEnableAutoRefresh() { return enableAutoRefresh; }
-    public void setEnableAutoRefresh(boolean enableAutoRefresh) { this.enableAutoRefresh = enableAutoRefresh; }
 }
