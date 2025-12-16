@@ -1,46 +1,37 @@
 package com.edamame.web.controller;
 
+import com.edamame.web.config.WebConstants;
 import com.edamame.web.security.AuthenticationService;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
-
+import com.edamame.security.tools.AppLogger;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.function.BiConsumer;
 
 /**
- * ログアウトコントローラー
- * ログアウト処理とセッション破棄を担当
+ * ログアウト処理コントローラー
+ * セッション無効化とCookie削除を担当
  */
 public class LogoutController implements HttpHandler {
 
     private final AuthenticationService authService;
-    private final BiConsumer<String, String> logFunction;
 
     /**
      * コンストラクタ
      * @param authService 認証サービス
-     * @param logFunction ログ出力関数
      */
-    public LogoutController(AuthenticationService authService, BiConsumer<String, String> logFunction) {
+    public LogoutController(AuthenticationService authService) {
         this.authService = authService;
-        this.logFunction = logFunction;
     }
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
-        String method = exchange.getRequestMethod();
-
         try {
-            if ("POST".equals(method) || "GET".equals(method)) {
-                handleLogout(exchange);
-            } else {
-                sendMethodNotAllowed(exchange);
-            }
+            handleLogout(exchange);
         } catch (Exception e) {
-            logFunction.accept("LogoutController でエラー: " + e.getMessage(), "ERROR");
-            sendErrorResponse(exchange, 500, "Internal Server Error");
+            AppLogger.error("LogoutController処理エラー: " + e.getMessage());
+            sendInternalServerError(exchange);
         }
     }
 
@@ -53,18 +44,18 @@ public class LogoutController implements HttpHandler {
 
         if (sessionId != null) {
             // セッションを無効化
-            authService.logout(sessionId);
-            logFunction.accept("ユーザーがログアウトしました (SessionID: " + sessionId.substring(0, 8) + "...)", "INFO");
+            AuthenticationService.SessionInfo sessionInfo = authService.validateSession(sessionId);
+            if (sessionInfo != null) {
+                authService.logout(sessionId);
+                AppLogger.info("ユーザー「" + sessionInfo.getUsername() + "」がログアウトしました");
+            }
         }
 
-        // セッションCookieを削除
-        String cookieValue = "sessionId=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0";
-        exchange.getResponseHeaders().set("Set-Cookie", cookieValue);
+        // Cookieを削除（複数パターンに対応）
+        clearSessionCookies(exchange);
 
         // ログイン画面にリダイレクト
-        exchange.getResponseHeaders().set("Location", "/login");
-        exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
-        exchange.sendResponseHeaders(302, -1);
+        sendLogoutRedirect(exchange);
     }
 
     /**
@@ -72,34 +63,38 @@ public class LogoutController implements HttpHandler {
      */
     private String getSessionIdFromCookie(HttpExchange exchange) {
         String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
-        if (cookieHeader == null) {
-            return null;
-        }
-
-        String[] cookies = cookieHeader.split(";");
-        for (String cookie : cookies) {
-            String[] parts = cookie.trim().split("=", 2);
-            if (parts.length == 2 && "sessionId".equals(parts[0])) {
-                return parts[1];
-            }
-        }
-        return null;
+        return WebConstants.extractSessionId(cookieHeader);
     }
 
     /**
-     * エラーレスポンスを送信
+     * セッションCookieを削除
      */
-    private void sendErrorResponse(HttpExchange exchange, int statusCode, String message) throws IOException {
-        exchange.sendResponseHeaders(statusCode, message.getBytes(StandardCharsets.UTF_8).length);
+    private void clearSessionCookies(HttpExchange exchange) {
+        // メインのセッションCookie削除
+        String clearCookie = WebConstants.createClearSessionCookieValue();
+        exchange.getResponseHeaders().add("Set-Cookie", clearCookie);
+
+        // 互換性のため、旧Cookie名も削除
+        String clearOldCookie = "sessionId=; Path=/; HttpOnly; Max-Age=0";
+        exchange.getResponseHeaders().add("Set-Cookie", clearOldCookie);
+    }
+
+    /**
+     * ログアウト後のリダイレクト
+     */
+    private void sendLogoutRedirect(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().set("Location", WebConstants.LOGOUT_SUCCESS_REDIRECT);
+        exchange.sendResponseHeaders(302, -1);
+    }
+
+    /**
+     * 内部サーバーエラーを送信
+     */
+    private void sendInternalServerError(HttpExchange exchange) throws IOException {
+        String errorMessage = "Internal Server Error";
+        exchange.sendResponseHeaders(500, errorMessage.getBytes(StandardCharsets.UTF_8).length);
         try (OutputStream os = exchange.getResponseBody()) {
-            os.write(message.getBytes(StandardCharsets.UTF_8));
+            os.write(errorMessage.getBytes(StandardCharsets.UTF_8));
         }
-    }
-
-    /**
-     * Method Not Allowedレスポンスを送信
-     */
-    private void sendMethodNotAllowed(HttpExchange exchange) throws IOException {
-        sendErrorResponse(exchange, 405, "Method Not Allowed");
     }
 }

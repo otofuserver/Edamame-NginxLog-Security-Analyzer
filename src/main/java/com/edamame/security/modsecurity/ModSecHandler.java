@@ -1,8 +1,6 @@
 package com.edamame.security.modsecurity;
 
 import com.edamame.security.tools.AppLogger;
-import com.edamame.security.db.DbService;
-
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -11,6 +9,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import static com.edamame.security.db.DbService.*;
 
 /**
  * ModSecurityハンドラークラス
@@ -38,18 +38,16 @@ public class ModSecHandler {
      * 定期的ModSecurityアラート照合タスクを開始
      * @param executor スケジューラ実行用のExecutorService
      * @param modSecurityQueue ModSecurityキュー
-     * @param dbService データベースサービス
      */
     public static void startPeriodicAlertMatching(ScheduledExecutorService executor,
-                                                 ModSecurityQueue modSecurityQueue,
-                                                 DbService dbService) {
+                                                 ModSecurityQueue modSecurityQueue) {
         try {
             AppLogger.log("ModSecurityアラート定期照合タスクを開始します", "INFO");
 
             // 定期的なアラート一致チェックタスク（5秒間隔）
             executor.scheduleAtFixedRate(() -> {
                 try {
-                    performPeriodicAlertMatching(modSecurityQueue, dbService);
+                    performPeriodicAlertMatching(modSecurityQueue);
                 } catch (Exception e) {
                     AppLogger.error("ModSecurityアラート定期チェックでエラー: " + e.getMessage());
                 }
@@ -67,9 +65,8 @@ public class ModSecHandler {
      * 定期的なModSecurityアラート一致チェック
      * キューに残っているアラートと最近のアクセスログを照合
      * @param modSecurityQueue ModSecurityキュー
-     * @param dbService データベースサービス
      */
-    private static void performPeriodicAlertMatching(ModSecurityQueue modSecurityQueue, DbService dbService) {
+    private static void performPeriodicAlertMatching(ModSecurityQueue modSecurityQueue) {
         try {
             Map<String, Integer> queueStatus = modSecurityQueue.getQueueStatus();
             boolean hasAlerts = queueStatus.values().stream().anyMatch(count -> count > 0);
@@ -81,7 +78,7 @@ public class ModSecHandler {
             AppLogger.debug("定期的ModSecurityアラート一致チェック開始 - キュー状況: " + queueStatus);
 
             // 最近5分以内のアクセスログを取得してアラートと照合
-            List<Map<String, Object>> recentAccessLogs = dbService.selectRecentAccessLogsForModSecMatching(5);
+            List<Map<String, Object>> recentAccessLogs = selectRecentAccessLogsForModSecMatching(5);
 
             int matchedCount = 0;
             for (Map<String, Object> accessLog : recentAccessLogs) {
@@ -106,11 +103,11 @@ public class ModSecHandler {
                                  "件, access_log ID=" + accessLogId + ", URL=" + fullUrl);
 
                     // access_logのblocked_by_modsecをtrueに更新
-                    dbService.updateAccessLogModSecStatus(accessLogId, true);
+                    updateAccessLogModSecStatus(accessLogId, true);
 
                     // 一致したアラートをmodsec_alertsテーブルに保存
                     for (ModSecurityQueue.ModSecurityAlert alert : matchingAlerts) {
-                        saveModSecurityAlertToDatabase(accessLogId, alert, dbService);
+                        saveModSecurityAlertToDatabase(accessLogId, alert);
                         AppLogger.info("定期チェック - ModSecurityアラート保存: access_log ID=" + accessLogId +
                                      ", ルール=" + alert.ruleId() + ", メッセージ=" + alert.message());
                     }
@@ -375,9 +372,8 @@ public class ModSecHandler {
      * ModSecurityアラートをデータベースに保存
      * @param accessLogId アクセスログID
      * @param alert ModSecurityアラート
-     * @param dbService データベースサービス
      */
-    public static void saveModSecurityAlertToDatabase(Long accessLogId, ModSecurityQueue.ModSecurityAlert alert, DbService dbService) {
+    public static void saveModSecurityAlertToDatabase(Long accessLogId, ModSecurityQueue.ModSecurityAlert alert) {
         try {
             Map<String, Object> alertData = new HashMap<>();
 
@@ -400,7 +396,7 @@ public class ModSecHandler {
             alertData.put("raw_log", alert.rawLog());
             alertData.put("detected_at", alert.detectedAt().toString());
 
-            dbService.insertModSecAlert(accessLogId, alertData);
+            insertModSecAlert(accessLogId, alertData);
 
             AppLogger.info("ModSecurityアラートDB保存成功: access_log ID=" + accessLogId +
                          ", ルール=" + ruleId + ", メッセージ=" + message +
