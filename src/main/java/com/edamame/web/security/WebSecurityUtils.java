@@ -1,71 +1,48 @@
 package com.edamame.web.security;
 
 import java.util.regex.Pattern;
-import java.util.Map;
-import java.util.HashMap;
 
 /**
  * Webセキュリティユーティリティクラス
- * XSS攻撃などのWebアプリケーション攻撃を防御
+ * XSS対策、HTMLエスケープ、セキュリティチェック機能を提供
  */
 public class WebSecurityUtils {
 
-    // XSS攻撃パターン（高精度検知用）
+    // XSS攻撃パターン
     private static final Pattern[] XSS_PATTERNS = {
         Pattern.compile("<script[^>]*>.*?</script>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL),
         Pattern.compile("<iframe[^>]*>.*?</iframe>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL),
         Pattern.compile("<object[^>]*>.*?</object>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL),
-        Pattern.compile("<embed[^>]*>", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("<applet[^>]*>.*?</applet>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL),
+        Pattern.compile("<embed[^>]*>.*?</embed>", Pattern.CASE_INSENSITIVE | Pattern.DOTALL),
         Pattern.compile("javascript:", Pattern.CASE_INSENSITIVE),
         Pattern.compile("vbscript:", Pattern.CASE_INSENSITIVE),
         Pattern.compile("onload\\s*=", Pattern.CASE_INSENSITIVE),
         Pattern.compile("onerror\\s*=", Pattern.CASE_INSENSITIVE),
         Pattern.compile("onclick\\s*=", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("onmouseover\\s*=", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("onfocus\\s*=", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("expression\\s*\\(", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("eval\\s*\\(", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("document\\s*\\.", Pattern.CASE_INSENSITIVE),
-        Pattern.compile("window\\s*\\.", Pattern.CASE_INSENSITIVE)
+        Pattern.compile("onmouseover\\s*=", Pattern.CASE_INSENSITIVE)
     };
-
-    // 危険な文字のエスケープマップ
-    private static final Map<String, String> HTML_ESCAPE_MAP = new HashMap<>();
-    static {
-        HTML_ESCAPE_MAP.put("&", "&amp;");
-        HTML_ESCAPE_MAP.put("<", "&lt;");
-        HTML_ESCAPE_MAP.put(">", "&gt;");
-        HTML_ESCAPE_MAP.put("\"", "&quot;");
-        HTML_ESCAPE_MAP.put("'", "&#39;");
-        HTML_ESCAPE_MAP.put("/", "&#47;");
-        HTML_ESCAPE_MAP.put("\\", "&#92;");
-    }
 
     /**
      * XSS攻撃を検知
      * @param input 検査対象文字列
-     * @return XSS攻撃が検知された場合true
+     * @return XSS攻撃パターンが検出された場合true
      */
     public static boolean detectXSS(String input) {
-        if (input == null || input.trim().isEmpty()) {
+        if (input == null || input.isEmpty()) {
             return false;
         }
 
-        String decoded = htmlDecode(input);
-        String urlDecoded = urlDecode(decoded);
-        
         for (Pattern pattern : XSS_PATTERNS) {
-            if (pattern.matcher(urlDecoded).find()) {
+            if (pattern.matcher(input).find()) {
                 return true;
             }
         }
-        
+
         return false;
     }
 
     /**
-     * HTML���スケープ処理（XSS防御）
+     * HTMLエスケープ処理
      * @param input エスケープ対象文字列
      * @return エスケープ済み文字列
      */
@@ -74,143 +51,118 @@ public class WebSecurityUtils {
             return "";
         }
 
-        String result = input;
-        for (Map.Entry<String, String> entry : HTML_ESCAPE_MAP.entrySet()) {
-            result = result.replace(entry.getKey(), entry.getValue());
-        }
-        
-        return result;
-    }
-
-    /**
-     * HTMLアンエスケープ（検知用）
-     * @param input アンエスケープ対象文字列
-     * @return アンエスケープ済み文字列
-     */
-    private static String htmlDecode(String input) {
-        if (input == null) {
-            return "";
-        }
-
         return input
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace("&#47;", "/")
-            .replace("&#92;", "\\")
-            .replace("&amp;", "&");
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#x27;")
+            .replace("/", "&#x2F;");
     }
 
     /**
-     * URLデコード（検知用）
-     * @param input デコード対象文字列
-     * @return デコード済み文字列
-     */
-    private static String urlDecode(String input) {
-        if (input == null) {
-            return "";
-        }
-
-        try {
-            return java.net.URLDecoder.decode(input, "UTF-8");
-        } catch (Exception e) {
-            return input;
-        }
-    }
-
-    /**
-     * JSONエスケープ処理
-     * @param input エスケ��プ対象文字列
-     * @return エスケープ済み文字列
-     */
-    public static String escapeJson(String input) {
-        if (input == null) {
-            return "null";
-        }
-
-        return input
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t")
-            .replace("\b", "\\b")
-            .replace("\f", "\\f");
-    }
-
-    /**
-     * SQLインジェクション攻撃検知
+     * SQLインジェクション攻撃を検知
      * @param input 検査対象文字列
-     * @return SQLインジェクション攻撃が検知された場合true
+     * @return SQLインジェクション攻撃パターンが検出された場合true
      */
-    public static boolean detectSqlInjection(String input) {
-        if (input == null || input.trim().isEmpty()) {
+    public static boolean detectSQLInjection(String input) {
+        if (input == null || input.isEmpty()) {
             return false;
         }
 
-        String lowercase = input.toLowerCase();
-        
-        // SQLキーワードの検知
-        String[] sqlKeywords = {
-            "union", "select", "insert", "update", "delete", "drop", "create",
-            "alter", "exec", "execute", "sp_", "xp_", "cmdshell", "waitfor"
+        String lowerInput = input.toLowerCase();
+
+        // 基本的なSQLインジェクションパターン
+        String[] sqlPatterns = {
+            "' or '1'='1",
+            "' or 1=1",
+            "' union select",
+            "' drop table",
+            "' delete from",
+            "' insert into",
+            "' update set",
+            "' exec ",
+            "' execute ",
+            "--",
+            "/*",
+            "*/"
         };
 
-        for (String keyword : sqlKeywords) {
-            if (lowercase.contains(keyword)) {
+        for (String pattern : sqlPatterns) {
+            if (lowerInput.contains(pattern)) {
                 return true;
             }
         }
 
-        // SQLインジェクション用特殊文字
-        return lowercase.contains("'") && (lowercase.contains("or") || lowercase.contains("and")) ||
-               lowercase.contains("--") || lowercase.contains("/*") || lowercase.contains("*/");
+        return false;
     }
 
     /**
-     * CSRFトークン生成
-     * @return ランダムなCSRFトークン
+     * パストラバーサル攻撃を検知
+     * @param input 検査対象文字列
+     * @return パストラバーサル攻撃パターンが検出された場合true
      */
-    public static String generateCsrfToken() {
-        return java.util.UUID.randomUUID().toString().replace("-", "");
+    public static boolean detectPathTraversal(String input) {
+        if (input == null || input.isEmpty()) {
+            return false;
+        }
+
+        String[] pathPatterns = {
+            "../",
+            "..\\",
+            "..%2f",
+            "..%5c",
+            "%2e%2e%2f",
+            "%2e%2e%5c"
+        };
+
+        String lowerInput = input.toLowerCase();
+        for (String pattern : pathPatterns) {
+            if (lowerInput.contains(pattern)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
-     * セキュアヘッダーを取得
-     * @return セキュリティヘッダーのMap
+     * 安全な文字列かチェック（英数字とハイフン、アンダースコアのみ）
+     * @param input 検査対象文字列
+     * @return 安全な文字列の場合true
      */
-    public static Map<String, String> getSecurityHeaders() {
-        Map<String, String> headers = new HashMap<>();
-        
-        // XSS Protection
-        headers.put("X-XSS-Protection", "1; mode=block");
-        
-        // Content Type Options
-        headers.put("X-Content-Type-Options", "nosniff");
-        
-        // Frame Options
-        headers.put("X-Frame-Options", "DENY");
-        
-        // Content Security Policy
-        headers.put("Content-Security-Policy", 
-            "default-src 'self'; " +
-            "script-src 'self' 'unsafe-inline'; " +
-            "style-src 'self' 'unsafe-inline'; " +
-            "img-src 'self' data:; " +
-            "connect-src 'self'; " +
-            "font-src 'self'; " +
-            "object-src 'none'; " +
-            "frame-ancestors 'none'");
+    public static boolean isSafeString(String input) {
+        if (input == null || input.isEmpty()) {
+            return false;
+        }
 
-        // Strict Transport Security (HTTPS環境でのみ有効)
-        // headers.put("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-
-        return headers;
+        return input.matches("^[a-zA-Z0-9_-]+$");
     }
 
     /**
-     * 入力値をサニタイズ（一般用途）
+     * セッションIDの形式を検証
+     * @param sessionId セッションID
+     * @return 有効な形式の場合true
+     */
+    public static boolean isValidSessionId(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            return false;
+        }
+
+        // UUID形式のセッションIDを想定
+        return sessionId.matches("^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$");
+    }
+
+    /**
+     * CSRFトークンを生成
+     * @return CSRFトークン
+     */
+    public static String generateCSRFToken() {
+        return java.util.UUID.randomUUID().toString();
+    }
+
+    /**
+     * 入力文字列をサニタイズ（危険な文字を除去・置換）
      * @param input サニタイズ対象文字列
      * @return サニタイズ済み文字列
      */
@@ -218,64 +170,93 @@ public class WebSecurityUtils {
         if (input == null) {
             return "";
         }
-
-        // HTMLエスケープを適用
-        String sanitized = escapeHtml(input.trim());
-
-        // 制御文字を除去
-        sanitized = sanitized.replaceAll("[\u0000-\u001F\u007F-\u009F]", "");
-
-        return sanitized;
+        
+        return input
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#x27;")
+            .replace("&", "&amp;")
+            .replace("/", "&#x2F;")
+            .replace("\\", "&#x5C;")
+            .replaceAll("[\\r\\n\\t]", " ")
+            .trim();
     }
 
     /**
-     * URL表示用サニタイズ（URLの正当な文字は保持）
-     * @param url サニタイズ対象URL
+     * ファイル名をサニタイズ（パストラバーサル対策）
+     * @param filename ファイル名
+     * @return サニタイズ済みファイル名
+     */
+    public static String sanitizeFilename(String filename) {
+        if (filename == null || filename.isEmpty()) {
+            return "";
+        }
+        
+        return filename
+            .replaceAll("[.][.]", "")
+            .replaceAll("[/\\\\]", "")
+            .replaceAll("[<>:\"|?*]", "")
+            .trim();
+    }
+
+    /**
+     * URL表示用サニタイズ（表示目的で安全化��
+     * @param url URL文字列
      * @return サニタイズ済みURL
      */
     public static String sanitizeUrlForDisplay(String url) {
         if (url == null) {
             return "";
         }
-
-        // 基本的な制御文字のみ除去（URLの特殊文字は保持）
-        String sanitized = url.replaceAll("[\u0000-\u001F\u007F-\u009F]", "");
-
-        // HTMLエスケープ（<, >, ", 'のみ）
-        sanitized = sanitized
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&#39;");
-
-        return sanitized;
+        
+        // 長すぎるURLは���り詰め
+        if (url.length() > 200) {
+            url = url.substring(0, 197) + "...";
+        }
+        
+        return escapeHtml(url);
     }
 
     /**
-     * ファイル名をサニタイズ（パストラバーサル攻撃対策）
-     * @param filename サニタイズ対象ファイル名
-     * @return サニタイズ済みファイル名
+     * JSON用エスケープ処理
+     * @param input エスケープ対象文字列
+     * @return エスケープ済み文字列
      */
-    public static String sanitizeFilename(String filename) {
-        if (filename == null) {
+    public static String escapeJson(String input) {
+        if (input == null) {
             return "";
         }
+        
+        return input
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\b", "\\b")
+            .replace("\f", "\\f")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
+    }
 
-        // パストラバーサル攻撃対策
-        String sanitized = filename
-            .replace("../", "")
-            .replace("..\\", "")
-            .replace("./", "")
-            .replace(".\\", "")
-            .replace("/", "")
-            .replace("\\", "");
-
-        // 危険な文字を除去
-        sanitized = sanitized.replaceAll("[<>:\"|?*]", "");
-
-        // 制御文字を除去
-        sanitized = sanitized.replaceAll("[\u0000-\u001F\u007F-\u009F]", "");
-
-        return sanitized.trim();
+    /**
+     * セキュリティヘッダーを取得
+     * @return セキュリティヘッダーのMap
+     */
+    public static java.util.Map<String, String> getSecurityHeaders() {
+        java.util.Map<String, String> headers = new java.util.HashMap<>();
+        
+        headers.put("X-Content-Type-Options", "nosniff");
+        headers.put("X-Frame-Options", "DENY");
+        headers.put("X-XSS-Protection", "1; mode=block");
+        headers.put("Referrer-Policy", "strict-origin-when-cross-origin");
+        headers.put("Content-Security-Policy", 
+            "default-src 'self'; " +
+            "script-src 'self' 'unsafe-inline'; " +
+            "style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data:; " +
+            "font-src 'self'; " +
+            "connect-src 'self'");
+        
+        return headers;
     }
 }
