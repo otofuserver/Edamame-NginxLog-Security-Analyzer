@@ -303,6 +303,7 @@ DELETE FROM sessions WHERE session_id = ?;
 | 1.2.0 | 2025-07-23 | リファクタリング完了、セキュリティ強化、Java 21機能活用 |
 | 1.3.0 | 2025-07-23 | セッション管理仕様をDB永続化方式に全面更新 |
 | 1.3.1 | 2025-07-23 | 認証成功時にAuthenticationFilterがexchangeへusername属性を必ずセットする仕様を明記し、302リダイレクトループ防止策を仕様書に追記 |
+| 1.3.2 | 2025-12-17 | 認証処理の耐障害性改善（DB接続切断時のリトライ処理、SQLException詳細ログ化、insertLoginHistoryの堅牢化） |
 
 ---
 

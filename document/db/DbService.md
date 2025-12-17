@@ -200,6 +200,27 @@ public static synchronized void initialize(String url, Properties properties) {
 - **用途**: 既存クラスとの互換性維持
 - **戻り値**: Connection インスタンス
 
+#### `getConnection()`（変更点）
+- **変更点**: `getConnection()` の実装は `globalSession.getConnection()` を直接返すだけではなく、事前に `globalSession.ensureConnected()` を呼び出して接続の有効性を確認し、無効であれば再接続を試みるようになりました。
+- **目的**: アプリケーション起動後に MySQL が再起動された場合など、既存の Connection オブジェクトが無効になっている状況で呼び出し側が失敗しないようにするためです。
+- **振る舞い**:
+  - `ensureConnected()` により `connection == null` / `isClosed()` / `isValid()` で無効判定された場合に `connect()` を再実行します。
+  - `connect()` は既存のリトライロジック（最大リトライ、バックオフ）に従うため、一時的な DB 再起動に対して自動で復旧します。
+  - 再接続に失敗した場合は `SQLException` がスローされます。
+
+```java
+public static Connection getConnection() throws SQLException {
+    checkInitialized();
+    // 変更: 接続健全性を確認して必要なら再接続
+    globalSession.ensureConnected();
+    return globalSession.getConnection();
+}
+```
+
+### 推奨利用方法
+- 呼び出し側は従来どおり `getConnection()` を使用すればよく、個別に再接続処理を実装する必要はありません。
+- 長時間稼働する処理やバッチ処理では、短時間のバックオフや再試行を上位で追加するとより堅牢になります。
+
 #### `isConnected()`
 - **機能**: 接続状態チェック
 - **戻り値**: boolean（接続中の場合true）
@@ -410,7 +431,7 @@ try {
     Optional<ServerInfo> info = DbService.selectServerInfoByName(serverName);
     int updated = DbService.updateAgentHeartbeat(registrationId);
     
-    // トランザクシ���ン操作
+    // トランザクション操作
     DbService.executeInTransaction(() -> {
         DbService.insertAccessLog(logData);
         DbService.updateServerLastLogReceived(serverName);

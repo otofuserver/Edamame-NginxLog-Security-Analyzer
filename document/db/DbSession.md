@@ -22,7 +22,7 @@
 ### `getConnection()`
 - **機能**: データベース接続を取得（遅延初期化）
 - **戻り値**: Connection インスタンス
-- **自動再接続**: 接���が存在しないか切断されている場合は自動で再接続
+- **自動再接続**: 接続が存在しないか切断されている場合は自動で再接続
 - **例外**: SQLException（接続エラー）
 
 ```java
@@ -118,6 +118,29 @@ private void connect() throws SQLException {
 }
 ```
 
+## 接続の有効性チェックと再接続（新機能）
+
+### `ensureConnected()`
+- **機能**: 現在の `Connection` が有効であるかを検査し、無効な場合は再接続を行う。
+- **用途**: 長時間稼働するアプリケーションで MySQL の再起動やネットワーク断による接続切断を検知して自動回復するために使用する。
+- **実装ポイント**:
+  - `connection == null` または `connection.isClosed()` の場合は `connect()` を呼び出す。
+  - `connection.isValid(2)` で接続死活確認する（ドライバが未実装の場合は `SELECT 1` を実行して確認する）。
+  - 無効と判定された場合は `connection.close()` を試みた後に `connect()` を呼び再接続を行う。
+  - `connect()` は既存のリトライロジック（最大リトライ回数、バックオフ）を利用するため、短時間の DB 再起動にも自動復旧する。
+- **例外**: 再接続に失敗した場合は `SQLException` を投げる。
+
+```java
+// 使用例: DbService 経由で接続を取得する前に自動で呼ばれることを想定
+DbSession session = new DbSession(url, props);
+session.ensureConnected(); // 必要に応じて再接続
+Connection conn = session.getConnection();
+```
+
+### 導入の効果
+- MySQL の再起動や一時的なネットワーク障害で `Connection` オブジェクトが無効になっても、呼び出し側は明示的な再接続処理を行う必要がなくなる。
+- `ensureConnected()` により、`DbService.getConnection()` を呼ぶだけで自動的に安全な接続が保証されるため、アプリケーション全体の耐障害性が向上する。
+
 ## 設定項目（定数）
 - **MAX_RETRIES**: 最大リトライ回数（5回）
 - **RETRY_DELAY_MS**: 初回リトライ遅延時間（1000ms）
@@ -140,7 +163,7 @@ private void connect() throws SQLException {
 4. **一般例外**: SQLExceptionでない例外をSQLExceptionでラップ
 
 ### ログ出力レベル
-- **INFO**: 接続成功・接続クロ���ズ
+- **INFO**: 接続成功・接続クローズ
 - **DEBUG**: トランザクション完了
 - **WARN**: 接続失敗（リトライ中）・ロールバック実行
 - **ERROR**: ロールバック失敗・AutoCommit復元失敗・接続クローズ失敗
