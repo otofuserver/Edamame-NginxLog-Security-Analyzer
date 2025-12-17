@@ -383,6 +383,8 @@ public final class DbService {
      */
     public static Connection getConnection() throws SQLException {
         checkInitialized();
+        // 接続が切れていないか確認し、必要なら再接続する
+        globalSession.ensureConnected();
         return globalSession.getConnection();
     }
 

@@ -173,6 +173,46 @@ public class DbSession implements AutoCloseable {
     }
 
     /**
+     * 接続の有効性を検査し、無効であれば再接続する
+     * @throws SQLException 接続エラー
+     */
+    public synchronized void ensureConnected() throws SQLException {
+        try {
+            if (connection == null || connection.isClosed()) {
+                connect();
+                return;
+            }
+            // isValid を使って接続がまだ生きているか確認（タイムアウト秒数は短め）
+            try {
+                if (!connection.isValid(2)) {
+                    AppLogger.warn("データベース接続が無効と判断されました。再接続を試みます。");
+                    try {
+                        connection.close();
+                    } catch (SQLException ignore) {
+                        // ignore
+                    }
+                    connect();
+                }
+            } catch (AbstractMethodError ame) {
+                // ドライバが isValid を未実装の場合は簡単なテストクエリで確認
+                try (var stmt = connection.createStatement()) {
+                    stmt.executeQuery("SELECT 1");
+                } catch (SQLException e) {
+                    AppLogger.warn("接続テストクエリで失敗。再接続を試みます: " + e.getMessage());
+                    try {
+                        connection.close();
+                    } catch (SQLException ignore) {}
+                    connect();
+                }
+            }
+        } catch (SQLException e) {
+            // 再接続を試みる
+            AppLogger.warn("ensureConnected でエラー発生、再接続を試行します: " + e.getMessage());
+            connect();
+        }
+    }
+
+    /**
      * リソースのクリーンアップ
      */
     @Override
