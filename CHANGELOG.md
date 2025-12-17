@@ -128,3 +128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Notes
 - この変更は起動時の "Unknown column" や "Field ... doesn't have a default value" のエラーを解消する目的で行われました。
 - スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により既存DBに不足しているカラムが自動追加されることを想定しています。ステージングでの十分な確認と本番移行前のDBバックアップを必ず行ってください。
+
+### 2025-12-17 - ドキュメント追加とDB接続耐障害性の改善
+- docs(web): `document/web` に Web パッケージ仕様書を追加（ダッシュボード/断片/認証/コントローラ/サービス等の仕様）
+- fix(db): `DbSession.ensureConnected()` を追加し、`DbService.getConnection()` が接続の健全性を確認して必要に応じて再接続を試行するように変更（最大リトライ既存設定に従う）
+- fix(auth): 認証処理のログ記録を堅牢化（`insertLoginHistory` をユーザーID取得→INSERT の方式に変更）および SQLException 詳細ログ出力を追加
+
+### Notes
+- 上記の DB 側の改善により、MySQL 再起動等で既存 Connection が切断された場合でも自動で再接続を試み、アプリケーションの一時的な障害を低減します。長時間の停止や継続的な接続障害に対しては追加の監視・アラート設定を推奨します。
+- ドキュメント追加は `document/web` に格納されています。`document/` が .gitignore に設定されている場合は、必要なファイルを強制追加(-f)してコミット済みです。
