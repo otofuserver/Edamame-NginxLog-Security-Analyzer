@@ -118,6 +118,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- feat(web): 管理者向けユーザー管理断片を追加（断片: `/api/fragment/users`、検索API: `/api/users`）。
+  - 管理者ロールのみ閲覧可能（AuthenticationService / users_roles を参照して判定）。
+  - 検索はサーバーサイドで実行（ユーザー名・メールアドレスで部分一致検索、ページング対応）。
+  - 断片テンプレート: `src/main/resources/fragments/user_management.html` を追加。
+
 ### Changed
 - DB: `action_tools` / `action_rules` のスキーマ互換性対応を実施（2025-11-27）
   - `action_tools` に `command_template` (TEXT) を追加

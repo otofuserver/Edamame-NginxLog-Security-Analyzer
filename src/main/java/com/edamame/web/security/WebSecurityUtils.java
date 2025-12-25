@@ -259,4 +259,30 @@ public class WebSecurityUtils {
         
         return headers;
     }
+
+    /**
+     * クエリ文字列をパースして Map にするユーティリティ
+     * @param query クエリ部分（例: "q=alice&page=1"）
+     * @return key->value の Map
+     */
+    public static java.util.Map<String, String> parseQueryParams(String query) {
+        java.util.Map<String, String> map = new java.util.HashMap<>();
+        if (query == null || query.isEmpty()) return map;
+        String[] parts = query.split("&");
+        for (String p : parts) {
+            int idx = p.indexOf('=');
+            if (idx > 0) {
+                String k = p.substring(0, idx);
+                String v = p.substring(idx + 1);
+                try {
+                    k = java.net.URLDecoder.decode(k, java.nio.charset.StandardCharsets.UTF_8.name());
+                    v = java.net.URLDecoder.decode(v, java.nio.charset.StandardCharsets.UTF_8.name());
+                } catch (Exception ignored) {}
+                map.put(k, v);
+            } else {
+                try { map.put(java.net.URLDecoder.decode(p, java.nio.charset.StandardCharsets.UTF_8.name()), ""); } catch (Exception ignored) {}
+            }
+        }
+        return map;
+    }
 }

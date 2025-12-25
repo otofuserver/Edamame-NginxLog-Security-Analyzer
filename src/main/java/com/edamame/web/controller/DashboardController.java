@@ -13,6 +13,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import com.edamame.web.service.UserService;
+import com.edamame.web.service.impl.UserServiceImpl;
 
 /**
  * ダッシュボードコントローラークラス
@@ -22,6 +24,7 @@ public class DashboardController implements HttpHandler {
 
     private final DataService dataService;
     private final WebConfig webConfig;
+    private final UserService userService;
 
     /**
      * コンストラクタ
@@ -30,6 +33,7 @@ public class DashboardController implements HttpHandler {
     public DashboardController(DataService dataService) {
         this.dataService = dataService;
         this.webConfig = new WebConfig(); // WebConfigを内部で初期化
+        this.userService = new UserServiceImpl();
     }
 
     @Override
@@ -177,7 +181,7 @@ public class DashboardController implements HttpHandler {
             .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username))
             .replace("{{CURRENT_USER_INITIAL}}", WebSecurityUtils.escapeHtml(userInitial))
             .replace("{{DASHBOARD_CONTENT}}", dashboardContent.toString())
-            .replace("{{MENU_HTML}}", webConfig.getMenuHtml())
+            .replace("{{MENU_HTML}}", generateMenuHtml(WebSecurityUtils.sanitizeInput(username)))
             .replace("{{SECURITY_HEADERS}}", getSecurityHeadersHtml(scriptNonce))
             // ページ全体を定期的にリロードするグローバルスクリプトは無効化。
             // フラグメント単位の data-auto-refresh による管理を優先する。
@@ -499,5 +503,31 @@ public class DashboardController implements HttpHandler {
         }
 
         AppLogger.warn(String.format("エラーレスポンス送信: %d - %s", statusCode, message));
+    }
+
+    /**
+     * サイドバーメニューHTMLを動的に生成（管理者のみユーザー管理リンクを表示）
+     * @param username 現在のユーザー名
+     * @return メニューHTML
+     */
+    private String generateMenuHtml(String username) {
+        boolean isAdmin = false;
+        try {
+            if (username != null && !username.isEmpty()) {
+                isAdmin = userService.isAdmin(username);
+            }
+        } catch (Exception e) {
+            AppLogger.warn("isAdmin チェックに失敗: " + e.getMessage());
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<ul>");
+        sb.append("<li><a class=\"nav-link\" href=\"/main?view=dashboard\">ダッシュボード</a></li>");
+        sb.append("<li><a class=\"nav-link\" href=\"/main?view=test\">サンプル</a></li>");
+        if (isAdmin) {
+            sb.append("<li><a class=\"nav-link\" href=\"/main?view=users\">ユーザー管理</a></li>");
+        }
+        sb.append("</ul>");
+        return sb.toString();
     }
 }

@@ -11,7 +11,6 @@ import java.net.InetSocketAddress;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadPoolExecutor;
 import com.edamame.security.tools.AppLogger;
-import com.edamame.security.db.DbService;
 
 /**
  * Webフロントエンドアプリケーションメインクラス
@@ -130,6 +129,10 @@ public class WebApplication {
             new DashboardController(dataService)));
 
         // /api は AJAX 呼び出しが多いため、フィルターでリダイレクトさせず ApiController 側で認証を扱う
+        // 管理者専用のユーザー管理断片と検索APIは専用コントローラで処理
+        server.createContext("/api/fragment/users", new UserManagementController(authService));
+        server.createContext("/api/users", new UserManagementController(authService));
+
         server.createContext("/api", new ApiController(dataService, authService));
 
         // ルートパス（ダッシュボードにリダイレクト）

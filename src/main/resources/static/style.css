@@ -1,0 +1,113 @@
+/* Edamame Security Analyzer - Dashboard Styles (static/style.css)
+   ユーザー管理のテーブルとモーダルを含む基本スタイル
+*/
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f5f7fa;
+  color: #333;
+  margin: 0;
+  line-height: 1.6;
+}
+
+.dashboard-container { min-height: 100vh; display:flex; flex-direction:column; }
+.app-body { display:flex; gap:1rem; padding:1.5rem; }
+.sidebar { width:240px; background:#fff; border-radius:8px; padding:1rem; box-shadow:0 2px 8px rgba(0,0,0,0.06); height:calc(100vh - 120px); overflow:auto; }
+.sidebar .nav-link { display:block; padding:0.5rem 0.75rem; color:#333; text-decoration:none; border-radius:6px; }
+.sidebar .nav-link:hover, .sidebar .nav-link.active { background:linear-gradient(90deg,#eef2ff,#f5f7ff); color:#222; }
+
+/* サイドバー内のユーザー表示調整 */
+.sidebar .sidebar-user-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.sidebar .user-avatar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.avatar-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.sidebar .user-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#main-content.right-content { flex:1 1 auto; padding:1rem; min-height:calc(100vh - 120px); }
+.card { background:white; border-radius:10px; padding:1.5rem; box-shadow:0 2px 10px rgba(0,0,0,0.1); }
+
+/* テーブル */
+table.table { width:100%; border-collapse:collapse; margin-top:.5rem; }
+table.table th, table.table td { padding:.6rem .75rem; border-bottom:1px solid #e6e9ef; text-align:left; vertical-align:middle; }
+table.table thead th { background:#f8fafc; font-weight:600; cursor:pointer; user-select:none; }
+table.table thead th.sorted-asc::after { content:' ▲'; font-size:0.8em; color:#666; }
+table.table thead th.sorted-desc::after { content:' ▼'; font-size:0.8em; color:#666; }
+tr:hover { background: #fafcff; }
+
+/* ページネーション */
+#pagination { margin-top: .75rem; display:flex; align-items:center; gap:.5rem; }
+#pagination button { padding: .35rem .6rem; border-radius:6px; border:1px solid #d7dbe2; background:white; cursor:pointer; }
+#pagination button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* モーダル */
+.modal { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; z-index:1200; }
+.modal[aria-hidden='true'] { display:none; }
+.modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.45); }
+.modal-content { position:relative; background:#fff; border-radius:10px; padding:1rem; width:480px; max-width:calc(100% - 2rem); box-shadow:0 10px 30px rgba(0,0,0,0.2); z-index:2; }
+.modal-header { margin-bottom:.5rem; }
+.modal-body { margin-bottom:.75rem; }
+.modal-footer { display:flex; gap:.5rem; justify-content:flex-end; }
+
+/* モーダル内の読み取り値表示 */
+.form-value {
+  padding: .45rem .5rem;
+  border: 1px solid #d7dbe2;
+  border-radius: 6px;
+  background: #f8f9fc;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+}
+
+/* 複数行のラベル整列改善 */
+.modal .form-row { gap: .25rem; }
+.modal .form-row { margin-bottom:.5rem; display:flex; flex-direction:column; }
+.modal .form-row label { font-size:.85rem; margin-bottom:.25rem; }
+.modal .form-row input[type='text'], .modal .form-row input[type='email'] { padding:.45rem .5rem; border:1px solid #d7dbe2; border-radius:6px; }
+.modal .danger { background:#ff6b6b; color:white; border:none; padding:.45rem .75rem; border-radius:6px; cursor:pointer; }
+.modal button { padding:.45rem .75rem; border-radius:6px; border:1px solid #d7dbe2; cursor:pointer; background:white; }
+
+/* small helpers */
+.hidden { display:none !important; }
+
+/* ユーザー検索フォーム */
+.user-search { display:flex; gap:.5rem; align-items:center; }
+.user-search input[type='search'] { padding:.45rem .6rem; border:1px solid #d7dbe2; border-radius:6px; min-width:220px; }
+
+/* 画面レスポンシブ */
+@media (max-width:800px) {
+  .sidebar { display:none; }
+  .app-body { padding: .75rem; }
+  .modal-content { width: 92%; }
+}

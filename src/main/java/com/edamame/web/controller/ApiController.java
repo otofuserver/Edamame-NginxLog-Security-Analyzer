@@ -5,6 +5,8 @@ import com.edamame.web.service.DataService;
 import com.edamame.web.service.FragmentService;
 import com.edamame.web.security.WebSecurityUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 
@@ -32,6 +34,8 @@ public class ApiController implements HttpHandler {
     public ApiController(DataService dataService, com.edamame.web.security.AuthenticationService authService) {
         this.dataService = dataService;
         this.objectMapper = new ObjectMapper();
+        this.objectMapper.registerModule(new JavaTimeModule());
+        this.objectMapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         this.fragmentService = new FragmentService();
         this.authService = authService;
     }

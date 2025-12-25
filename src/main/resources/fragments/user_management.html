@@ -1,0 +1,87 @@
+<!-- ユーザー管理断片 (自動更新なし、adminのみ閲覧可能) -->
+<div class="card">
+  <h2>ユーザー管理</h2>
+  <!-- 検索フォーム: 入力時に自動検索（ボタン廃止） -->
+  <div id="user-search-form" class="search-form">
+    <input type="text" id="q" name="q" placeholder="ユーザー名・メールで検索" aria-label="ユーザー検索" />
+  </div>
+
+  <!-- 検索結果テーブル -->
+  <div id="user-results">
+    <table class="table">
+      <thead>
+        <tr>
+          <th id="th-username" data-column="username" scope="col">ユーザー名</th>
+          <th id="th-email" data-column="email" scope="col">メールアドレス</th>
+          <th id="th-lastLogin" data-column="lastLogin" scope="col">最終ログイン</th>
+          <th id="th-enabled" data-column="enabled" scope="col">状態</th>
+        </tr>
+      </thead>
+      <tbody id="user-results-body">
+        <!-- 初期状態は空。検索後にサーバーからJSONを取得して描画 -->
+      </tbody>
+    </table>
+    <div id="pagination" class="pagination"></div>
+  </div>
+</div>
+
+<!-- 編集/削除モーダル（初期は非表示） -->
+<div id="user-modal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="user-modal-title" style="display:none;">
+  <div class="modal-backdrop"></div>
+  <div class="modal-content" role="document">
+    <header class="modal-header">
+      <h3 id="user-modal-title">ユーザー編集</h3>
+    </header>
+    <main class="modal-body">
+      <form id="user-edit-form">
+        <div class="form-row">
+          <label for="modal-id">ID</label>
+          <div id="modal-id" class="form-value" aria-readonly="true"></div>
+        </div>
+        <div class="form-row">
+          <label for="modal-username">ユーザー名</label>
+          <input type="text" id="modal-username" name="username" readonly />
+          <!-- ユーザー名フィールド直下のインラインエラー表示 -->
+          <div id="username-error" class="field-error" style="color:#b00020; margin-top:.25rem; display:none; font-size:0.9em;"></div>
+        </div>
+        <div class="form-row">
+          <label for="modal-email">メールアドレス</label>
+          <input type="email" id="modal-email" name="email" />
+        </div>
+        <div class="form-row">
+          <label for="modal-enabled">有効</label>
+          <input type="checkbox" id="modal-enabled" name="enabled" />
+        </div>
+
+        <!-- ロール編集セクション -->
+        <div class="form-row">
+          <label for="role-select">ロール編集</label>
+          <div style="display:flex;gap:.5rem;align-items:center;">
+            <select id="role-select" aria-label="全ロール一覧"></select>
+            <button id="role-add" type="button">追加</button>
+          </div>
+          <div id="user-roles" style="margin-top:.5rem;display:flex;gap:.25rem;flex-wrap:wrap;"></div>
+        </div>
+
+        <!-- パスワードリセットセクション -->
+        <div class="form-row">
+          <label>パスワードリセット</label>
+          <div style="display:flex;gap:.5rem;align-items:center;">
+            <button id="password-generate" type="button">パスワードを生成</button>
+            <button id="password-copy" type="button" style="display:none;">コピー</button>
+          </div>
+          <div id="generated-password" class="form-value" style="margin-top:.5rem;word-break:break-all;"> </div>
+        </div>
+      </form>
+      <!-- モーダル共通エラー表示（作成/更新エラー表示用） -->
+      <div id="modal-error" class="form-error" style="color:#b00020; margin-top:.5rem; display:none;"></div>
+    </main>
+    <footer class="modal-footer">
+      <button id="modal-save" type="button">保存</button>
+      <button id="modal-delete" type="button" class="danger">削除</button>
+      <button id="modal-cancel" type="button">キャンセル</button>
+    </footer>
+  </div>
+</div>
+
+<!-- スクリプトは CSP を考慮して外部 script.js に移動しました -->

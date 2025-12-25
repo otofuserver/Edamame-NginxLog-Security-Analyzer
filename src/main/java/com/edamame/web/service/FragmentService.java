@@ -34,6 +34,15 @@ public class FragmentService {
     }
 
     /**
+     * 指定されたフラグメントリソースを取得する（外部呼び出し用）
+     * @param name フラグメント名（fragments/{name}.html）
+     * @return HTML文字列、存在しない場合はnull
+     */
+    public String getFragmentTemplate(String name) {
+        return loadResourceFragment(name);
+    }
+
+    /**
      * ダッシュボード断片を生成する
      * @param data ダッシュボードデータ（null許容）
      * @return HTML断片（mainに挿入する部分）
