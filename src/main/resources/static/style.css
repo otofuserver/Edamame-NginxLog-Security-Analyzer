@@ -95,6 +95,13 @@ tr:hover { background: #fafcff; }
 .modal .form-row { margin-bottom:.5rem; display:flex; flex-direction:column; }
 .modal .form-row label { font-size:.85rem; margin-bottom:.25rem; }
 .modal .form-row input[type='text'], .modal .form-row input[type='email'] { padding:.45rem .5rem; border:1px solid #d7dbe2; border-radius:6px; }
+
+/* チェックボックス行を横並びにして左寄せする（.form-row はデフォルトで column なので上書き） */
+.modal .form-row.checkbox { flex-direction: row; align-items: center; }
+.modal .form-row.checkbox label { margin: 0 0 0 0.25rem; }
+.modal .form-row.checkbox input[type='checkbox'] { margin: 0; }
+
+/* 警告ボタン */
 .modal .danger { background:#ff6b6b; color:white; border:none; padding:.45rem .75rem; border-radius:6px; cursor:pointer; }
 .modal button { padding:.45rem .75rem; border-radius:6px; border:1px solid #d7dbe2; cursor:pointer; background:white; }
 
