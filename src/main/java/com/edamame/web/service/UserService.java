@@ -77,6 +77,15 @@ public interface UserService {
     boolean removeRoleFromUser(String username, String role);
 
     /**
+     * 新規ユーザーを作成する（ユーザーネームの重複は DuplicateResourceException を発生させる）
+     * @param username ユーザー名
+     * @param email メールアドレス
+     * @param enabled 有効フラグ
+     * @return 成功ならtrue
+     */
+    boolean createUser(String username, String email, boolean enabled);
+
+    /**
      * 指定ユーザーのパスワードをリセット（平文を与える）
      * メソッド内でハッシュ化してDBに保存する
      * @param username ユーザー名
@@ -94,11 +103,10 @@ public interface UserService {
     String generateAndResetPassword(String username);
 
     /**
-     * 新しいユーザーを作成する。内部で一時パスワードを生成して保存する。
-     * @param username 作成するユーザー名
-     * @param email メールアドレス
-     * @param enabled 有効フラグ
-     * @return 作成成功ならtrue
+     * 指定ユーザーのログイン履歴を取得する（最新の N 件）
+     * @param username ユーザー名
+     * @param limit 取得最大件数
+     * @return ログイン履歴（ISO日時文字列または空のリスト）
      */
-    boolean createUser(String username, String email, boolean enabled);
+    java.util.List<java.util.Map<String, String>> getLoginHistory(String username, int limit);
 }

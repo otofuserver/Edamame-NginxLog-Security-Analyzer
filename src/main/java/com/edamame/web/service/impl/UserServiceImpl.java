@@ -431,4 +431,33 @@ public class UserServiceImpl implements UserService {
         AppLogger.error("generateAndResetPassword に失敗しました");
         return null;
     }
+
+    @Override
+    public java.util.List<java.util.Map<String, String>> getLoginHistory(String username, int limit) {
+        java.util.List<java.util.Map<String, String>> list = new java.util.ArrayList<>();
+        if (username == null) return list;
+        if (limit <= 0) limit = 20;
+        String sql = "SELECT login_time, ip_address FROM login_history lh JOIN users u ON lh.user_id = u.id WHERE u.username = ? ORDER BY lh.login_time DESC LIMIT ?";
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
+                ps.setString(1, username);
+                ps.setInt(2, limit);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        java.util.Map<String, String> m = new java.util.HashMap<>();
+                        java.sql.Timestamp ts = rs.getTimestamp("login_time");
+                        m.put("login_time", ts == null ? "" : ts.toLocalDateTime().toString());
+                        try { m.put("ip", rs.getString("ip_address")); } catch (Exception e) { m.put("ip", ""); }
+                        list.add(m);
+                    }
+                }
+                return list;
+            } catch (SQLException e) {
+                AppLogger.warn("getLoginHistory SQLエラー (試行:" + attempt + "): " + e.getMessage());
+                try { Thread.sleep(100 * attempt); } catch (InterruptedException ignored) {}
+            }
+        }
+        AppLogger.error("getLoginHistory に失敗しました: 最大試行回数到達");
+        return list;
+    }
 }

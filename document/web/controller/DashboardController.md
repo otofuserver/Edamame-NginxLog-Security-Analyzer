@@ -26,3 +26,19 @@
 
 拡張ポイント
 - ダッシュボードに追加コンポーネントを加える場合は `generateSecure*Html` 系メソッドを追加してテンプレートに挿入する。
+
+## 2025-12-29 更新: サーバレンダ時の view 埋め込みとクライアント初期化の整合性
+
+- 変更概要:
+  - `handleDashboard()` でクエリパラメータ `view` を解析して `dashboardData.put("currentView", currentView)` を設定するようにしました。
+  - `generateSecureDashboardHtml()` でテンプレートの `{{CURRENT_VIEW}}` を置換し、最終HTML の `#main-content` に `data-view` 属性が埋め込まれるようにしました。
+
+- 理由:
+  - ログイン遷移や F5 等のフルリロード時に、サーバがレンダリングしたページでもクライアントが初期化情報を認識できるようにするため。
+
+- 影響範囲:
+  - `WebConfig.getDashboardTemplate()` の `{CURRENT_VIEW}` を置換する実装が必須となりました。
+
+- テスト手順:
+  1. `/main?view=dashboard` および `/main?view=users` にアクセスし、返却 HTML の `#main-content` に適切な `data-view` が設定されていることを確認。  
+  2. クライアントサイドの `script.js` が `data-view` を読み取り、それに応じた断片初期化（usersビューなら `user_list.js` の読み込み）が行われるかを確認。

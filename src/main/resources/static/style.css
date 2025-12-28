@@ -94,12 +94,36 @@ tr:hover { background: #fafcff; }
 .modal .form-row { gap: .25rem; }
 .modal .form-row { margin-bottom:.5rem; display:flex; flex-direction:column; }
 .modal .form-row label { font-size:.85rem; margin-bottom:.25rem; }
-.modal .form-row input[type='text'], .modal .form-row input[type='email'] { padding:.45rem .5rem; border:1px solid #d7dbe2; border-radius:6px; }
+.modal .form-row input[type='text'], .modal .form-row input[type='email'], .modal .form-row input[type='password'] { padding:.45rem .5rem; border:1px solid #d7dbe2; border-radius:6px; width:100%; }
 
 /* チェックボックス行を横並びにして左寄せする（.form-row はデフォルトで column なので上書き） */
 .modal .form-row.checkbox { flex-direction: row; align-items: center; }
 .modal .form-row.checkbox label { margin: 0 0 0 0.25rem; }
 .modal .form-row.checkbox input[type='checkbox'] { margin: 0; }
+
+/* 横並びで左寄せしたい行用 (例: プロフィールのメール行) */
+.modal .form-row.row-inline { display:flex; flex-direction:row; align-items:center; gap:.5rem; justify-content:flex-start; width:100%; }
+.modal .form-row.row-inline label { margin:0; width:5rem; text-align:left; }
+.modal .form-row.row-inline .row-inner { flex:1; display:flex; gap:.5rem; align-items:center; min-width:0; }
+.modal .form-row.row-inline .row-inner input[type='email'],
+.modal .form-row.row-inline .row-inner input[type='text'] { flex:1; min-width:0; width:auto; }
+
+/* 強制的に左寄せしたい場合のフォールバックルール */
+.modal .form-row.row-inline { margin-left:0 !important; padding-left:0 !important; justify-content:flex-start !important; }
+.modal .form-row.row-inline label { margin-left:0 !important; }
+.modal .form-row.row-inline .row-inner { justify-content:flex-start !important; }
+.modal-content { padding-left:1rem !important; padding-right:1rem !important; }
+
+/* Override: row-inline 内の input が全幅 rule に上書きされるケースを防ぐ */
+.modal .form-row.row-inline .row-inner input[type='email'],
+.modal .form-row.row-inline .row-inner input[type='text'] {
+  width: auto !important; /* ensure it does not force full width */
+  flex: 1 1 auto !important;
+}
+.modal .form-row.row-inline .row-inner button {
+  flex: 0 0 auto !important;
+  white-space: nowrap;
+}
 
 /* 警告ボタン */
 .modal .danger { background:#ff6b6b; color:white; border:none; padding:.45rem .75rem; border-radius:6px; cursor:pointer; }
@@ -108,13 +132,43 @@ tr:hover { background: #fafcff; }
 /* small helpers */
 .hidden { display:none !important; }
 
-/* ユーザー検索フォーム */
-.user-search { display:flex; gap:.5rem; align-items:center; }
-.user-search input[type='search'] { padding:.45rem .6rem; border:1px solid #d7dbe2; border-radius:6px; min-width:220px; }
+/* Sidebar mini menu */
+.sidebar-mini-menu {
+  min-width: 180px;
+}
+.sidebar-mini-menu .mini-menu-card {
+  background: white; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12); padding:.5rem; display:flex; flex-direction:column; gap:.25rem;
+}
+.sidebar-mini-menu .mini-menu-item { background:transparent; border:none; text-align:left; padding:.5rem; cursor:pointer; border-radius:6px; }
+.sidebar-mini-menu .mini-menu-item:hover { background: #f0f4ff; }
+
+/* ミニメニューの表示位置: ユーザー表示のすぐ近くに出す */
+.sidebar .sidebar-user-footer { position: relative; }
+.sidebar-mini-menu { position: absolute; right: 8px; bottom: 48px; z-index: 1500; display: none; }
+.sidebar-mini-menu.show { display: block; }
+
+/* profile modal tweaks */
+.modal .form-row input[type='text'], .modal .form-row input[type='email'], .modal .form-row input[type='password'] { width:100%; }
+.modal .modal-footer { justify-content:flex-end; }
 
 /* 画面レスポンシブ */
 @media (max-width:800px) {
   .sidebar { display:none; }
   .app-body { padding: .75rem; }
   .modal-content { width: 92%; }
+}
+
+/* 強制オーバーライド: row-inline の入力とボタンを横並びに固定する（最後に追加） */
+.modal-content .form-row.row-inline { display:flex !important; align-items:center !important; gap:.5rem !important; }
+.modal-content .form-row.row-inline label { width:5rem !important; }
+.modal-content .form-row.row-inline .row-inner { display:flex !important; align-items:center !important; gap:.5rem !important; min-width:0 !important; }
+.modal-content .form-row.row-inline .row-inner input[type='email'],
+.modal-content .form-row.row-inline .row-inner input[type='text'] {
+  width: auto !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+.modal-content .form-row.row-inline .row-inner button {
+  flex: 0 0 auto !important;
+  white-space: nowrap !important;
 }

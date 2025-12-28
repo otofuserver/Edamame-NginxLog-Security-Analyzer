@@ -62,6 +62,20 @@ public class DashboardController implements HttpHandler {
                 return;
             }
 
+            // リクエストから view パラメータを抽出（なければ 'dashboard' をデフォルト）
+            String currentView = "dashboard";
+            try {
+                String q = exchange.getRequestURI().getQuery();
+                if (q != null) {
+                    for (String p : q.split("&")) {
+                        if (p.startsWith("view=")) {
+                            currentView = java.net.URLDecoder.decode(p.substring(5), StandardCharsets.UTF_8);
+                            break;
+                        }
+                    }
+                }
+            } catch (Exception e) { /* ignore, use default */ }
+
             // セキュリティヘッダーを設定
             applySecurityHeaders(exchange);
 
@@ -83,6 +97,8 @@ public class DashboardController implements HttpHandler {
 
             // 現在のユーザー情報をデータに追加
             dashboardData.put("currentUser", username);
+            // レンダリング時にクライアントが参照する view 情報を埋める
+            dashboardData.put("currentView", currentView);
 
             // HTMLを生成（XSS対策適用）
             String html = generateSecureDashboardHtml(dashboardData);
@@ -166,31 +182,31 @@ public class DashboardController implements HttpHandler {
         String template = webConfig.getTemplate("dashboard");
 
         // 各部分HTMLを生成
-        StringBuilder dashboardContent = new StringBuilder();
-        dashboardContent.append(generateSecureServerStatsHtml(data.get("serverStats")));
-        dashboardContent.append(generateSecureAlertsHtml(data.get("recentAlerts")));
-        dashboardContent.append(generateSecureServersHtml(data.get("serverList")));
-        dashboardContent.append(generateSecureAttackTypesHtml(data.get("attackTypes")));
+        String dashboardContent = "";
+        dashboardContent += generateSecureServerStatsHtml(data.get("serverStats"));
+        dashboardContent += generateSecureAlertsHtml(data.get("recentAlerts"));
+        dashboardContent += generateSecureServersHtml(data.get("serverList"));
+        dashboardContent += generateSecureAttackTypesHtml(data.get("attackTypes"));
 
-        // 基本情報を置換（XSS対策適用）
-        String html = template
+        // 基本情報を置換してそのまま返す（ローカル変数は不要）
+        return template
             .replace("{{APP_TITLE}}", WebSecurityUtils.escapeHtml(webConfig.getAppTitle()))
             .replace("{{APP_DESCRIPTION}}", WebSecurityUtils.escapeHtml(webConfig.getAppDescription()))
             .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml("v1.0.0"))
             .replace("{{CURRENT_TIME}}", WebSecurityUtils.escapeHtml(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
             .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username))
             .replace("{{CURRENT_USER_INITIAL}}", WebSecurityUtils.escapeHtml(userInitial))
-            .replace("{{DASHBOARD_CONTENT}}", dashboardContent.toString())
+            .replace("{{DASHBOARD_CONTENT}}", dashboardContent)
             .replace("{{MENU_HTML}}", generateMenuHtml(WebSecurityUtils.sanitizeInput(username)))
             .replace("{{SECURITY_HEADERS}}", getSecurityHeadersHtml(scriptNonce))
+            // サーバ側でレンダリングされたときにクライアントが参照する view 情報を埋める
+            .replace("{{CURRENT_VIEW}}", WebSecurityUtils.escapeHtml((String) data.getOrDefault("currentView", "dashboard")))
             // ページ全体を定期的にリロードするグローバルスクリプトは無効化。
             // フラグメント単位の data-auto-refresh による管理を優先する。
             .replace("{{AUTO_REFRESH_SCRIPT}}", "");
 
         // セキュリティヘッダ挿入や自動リロードスクリプト等は従来通り
         // ...
-
-        return html;
     }
 
     /**
@@ -201,72 +217,6 @@ public class DashboardController implements HttpHandler {
         // default-src を 'self' にしつつ、style-src を明示的に設定する（外部CSS を許可）。
         // 一部の古いテンプレートや断片でインライン style 属性が残る場合があるため、ここでは暫定的に 'unsafe-inline' を許可しています。
         return "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'nonce-" + scriptNonce + "'; style-src 'self' 'unsafe-inline'\">";
-    }
-
-    /**
-     * ダッシュボード本体HTMLを生成
-     */
-    private String generateDashboardContentHtml(Map<String, Object> data) {
-        // 必要に応じて本体HTMLを生成
-        // ここでは既存の統計・リスト等をまとめて返す例
-        return "<div id=\"dashboard-content\">" +
-            generateSecureServerStatsHtml(data.get("serverStats")) +
-            generateSecureAlertsHtml(data.get("recentAlerts")) +
-            generateSecureServersHtml(data.get("serverList")) +
-            generateSecureAttackTypesHtml(data.get("attackTypes")) +
-            "</div>";
-    }
-
-    /**
-     * 自動リフレッシュ用スクリプトを生成（nonce付与）
-     */
-    private String getAutoRefreshScriptHtml(String scriptNonce) {
-        if (webConfig.isEnableAutoRefresh()) {
-            return "<script nonce='" + scriptNonce + "'>setTimeout(function(){location.reload();}, " + webConfig.getRefreshInterval() * 1000 + ");</script>";
-        }
-        return "";
-    }
-
-    /**
-     * セキュアなランダムnonceを生成
-     */
-    private String generateNonce() {
-        var random = new java.security.SecureRandom();
-        byte[] nonceBytes = new byte[16];
-        random.nextBytes(nonceBytes);
-        return java.util.Base64.getEncoder().encodeToString(nonceBytes);
-    }
-
-    /**
-     * ユーザー名からアバター用の頭文字を生成
-     * @param username ユーザー名
-     * @return 頭文字（1-2文字）
-     */
-    private String generateUserInitial(String username) {
-        if (username == null || username.trim().isEmpty()) {
-            return "?";
-        }
-
-        String trimmed = username.trim().toUpperCase();
-
-        // 日本語の場合は最初の1文字
-        if (trimmed.matches(".*[\\p{IsHiragana}\\p{IsKatakana}\\p{IsHan}].*")) {
-            return String.valueOf(trimmed.charAt(0));
-        }
-        // 英語の場合は最初の1-2文字
-        if (trimmed.length() == 1) {
-            return trimmed;
-        } else if (trimmed.length() >= 2) {
-            // スペースが含まれている場合は名前と姓の頭文字
-            String[] parts = trimmed.split("\\s+");
-            if (parts.length >= 2) {
-                return parts[0].charAt(0) + "" + parts[1].charAt(0);
-            } else {
-                return trimmed.substring(0, 2);
-            }
-        }
-
-        return trimmed;
     }
 
     /**
@@ -453,23 +403,6 @@ public class DashboardController implements HttpHandler {
     }
 
     /**
-     * 条件付きブロック（AUTO_REFRESH）を削除
-     * @param html HTML文字列
-     * @return 処理済みHTML
-     */
-    private String removeAutoRefreshBlocks(String html) {
-        String startTag = "{{#AUTO_REFRESH}}";
-        String endTag = "{{/AUTO_REFRESH}}";
-        int startIndex = html.indexOf(startTag);
-        int endIndex = html.indexOf(endTag);
-        if (startIndex != -1 && endIndex != -1) {
-            return html.substring(0, startIndex) + html.substring(endIndex + endTag.length());
-        }
-
-        return html;
-    }
-
-    /**
      * 数値をフォーマット（XSS対策適用）
      * @param value 数値オブジェクト
      * @return フォーマット済み文字列
@@ -529,5 +462,47 @@ public class DashboardController implements HttpHandler {
         }
         sb.append("</ul>");
         return sb.toString();
+    }
+
+    /**
+     * セキュアなランダムnonceを生成
+     */
+    private String generateNonce() {
+        var random = new java.security.SecureRandom();
+        byte[] nonceBytes = new byte[16];
+        random.nextBytes(nonceBytes);
+        return java.util.Base64.getEncoder().encodeToString(nonceBytes);
+    }
+
+    /**
+     * ユーザー名からアバター用の頭文字を生成
+     * @param username ユーザー名
+     * @return 頭文字（1-2文字）
+     */
+    private String generateUserInitial(String username) {
+        if (username == null || username.trim().isEmpty()) {
+            return "?";
+        }
+
+        String trimmed = username.trim().toUpperCase();
+
+        // 日本語の場合は最初の1文字
+        if (trimmed.matches(".*[\\p{IsHiragana}\\p{IsKatakana}\\p{IsHan}].*")) {
+            return String.valueOf(trimmed.charAt(0));
+        }
+        // 英語の場合は最初の1-2文字
+        if (trimmed.length() == 1) {
+            return trimmed;
+        } else if (trimmed.length() >= 2) {
+            // スペースが含まれている場合は名前と姓の頭文字
+            String[] parts = trimmed.split("\\s+");
+            if (parts.length >= 2) {
+                return parts[0].charAt(0) + "" + parts[1].charAt(0);
+            } else {
+                return trimmed.substring(0, 2);
+            }
+        }
+
+        return trimmed;
     }
 }

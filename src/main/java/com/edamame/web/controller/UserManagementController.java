@@ -60,12 +60,10 @@ public class UserManagementController implements HttpHandler {
                 return;
             }
 
-            // 管理者権限チェック
+            // 認証済みユーザー名を取得。管理者かどうかはルート毎に判断する
             String username = authService.getUsernameBySessionId(sessionId);
-            if (username == null || !userService.isAdmin(username)) {
-                sendJsonError(exchange, 403, "Forbidden - admin role required");
-                return;
-            }
+            if (username == null) { sendJsonError(exchange, 401, "Unauthorized - authentication required"); return; }
+            final boolean isAdmin = userService.isAdmin(username);
 
             // セキュリティヘッダー
             applyApiSecurityHeaders(exchange);
@@ -78,16 +76,24 @@ public class UserManagementController implements HttpHandler {
 
             if ("GET".equals(method)) {
                 if (normalizedPath.equals("/api/fragment/users")) {
+                    if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                     handleFragment(exchange);
+                    return;
+                }
+                // 自分のプロフィール取得: GET /api/me/profile
+                if (normalizedPath.equals("/api/me/profile")) {
+                    handleGetMyProfile(exchange);
                     return;
                 }
                 // 全ロール一覧取得: GET /api/users/roles
                 if (normalizedPath.equals("/api/users/roles")) {
+                    if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                     handleListRoles(exchange);
                     return;
                 }
                 // ユーザー一覧APIは正確な /api/users またはクエリ付きの /api/users? を想定
                 if (normalizedPath.equals("/api/users") || (path != null && path.startsWith("/api/users?"))) {
+                    if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                     handleUsersApi(exchange);
                     return;
                 }
@@ -95,12 +101,20 @@ public class UserManagementController implements HttpHandler {
 
             // ユーザー作成: POST /api/users
             if ("POST".equals(method) && normalizedPath.equals("/api/users")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                 handleCreateUser(exchange);
                 return;
             }
 
-            // PUT /api/users/{username} -> update
+            // 自分のプロフィール更新: PUT /api/me/profile
+            if ("PUT".equals(method) && normalizedPath.equals("/api/me/profile")) {
+                handleUpdateMyProfile(exchange);
+                return;
+            }
+
+            // PUT /api/users/{username} -> update (管理者のみ)
             if ("PUT".equals(method) && normalizedPath.startsWith("/api/users/")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                 handleUpdateUser(exchange);
                 return;
             }
@@ -112,6 +126,7 @@ public class UserManagementController implements HttpHandler {
                 String[] seg = normalizedPath.split("/");
                 // /api/users/{username} の場合
                 if (seg.length == 4) {
+                    if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                     handleGetUserDetail(exchange);
                     return;
                 }
@@ -119,24 +134,34 @@ public class UserManagementController implements HttpHandler {
 
             // ロール追加: POST /api/users/{username}/roles
             if ("POST".equals(method) && normalizedPath.matches("/api/users/[^/]+/roles")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                 handleAddRole(exchange);
                 return;
             }
 
             // パスワードリセット: POST /api/users/{username}/reset-password
             if ("POST".equals(method) && normalizedPath.matches("/api/users/[^/]+/reset-password")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                 handleResetPassword(exchange);
+                return;
+            }
+
+            // 自分のパスワード変更: POST /api/me/password
+            if ("POST".equals(method) && normalizedPath.equals("/api/me/password")) {
+                handleChangeMyPassword(exchange);
                 return;
             }
 
             // アカウント削除: DELETE /api/users/{username}
             if ("DELETE".equals(method) && normalizedPath.matches("/api/users/[^/]+")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                 handleDeleteUser(exchange);
                 return;
             }
 
             // ロール削除: DELETE /api/users/{username}/roles/{role}
             if ("DELETE".equals(method) && normalizedPath.matches("/api/users/[^/]+/roles/[^/]+")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
                 handleRemoveRole(exchange);
                 return;
             }
@@ -364,6 +389,12 @@ public class UserManagementController implements HttpHandler {
         String password = payload.containsKey("password") ? String.valueOf(payload.get("password")) : null;
         if (password == null) { sendJsonError(exchange, 400, "password required"); return; }
 
+        // サーバ側でパスワードポリシーを検証
+        if (!isValidPassword(password)) {
+            sendJsonError(exchange, 400, "password policy violation: must be >=8 chars, include letter, digit and one of !@#$%&*()-_ and use only allowed characters");
+            return;
+        }
+
         boolean ok = userService.resetPassword(target, password);
         if (!ok) { sendJsonError(exchange, 500, "failed to reset password"); return; }
         sendJsonResponse(exchange, 200, Map.of("ok", true));
@@ -475,5 +506,83 @@ public class UserManagementController implements HttpHandler {
             if (sessionId == null) return null;
             return authService.getUsernameBySessionId(sessionId);
         } catch (Exception e) { return null; }
+    }
+
+    /**
+     * 自分のプロフィール取得: GET /api/me/profile
+     */
+    private void handleGetMyProfile(HttpExchange exchange) throws IOException {
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        String username = authService.getUsernameBySessionId(sessionId);
+        if (username == null) { sendJsonError(exchange, 401, "Unauthorized"); return; }
+        var opt = userService.findByUsername(username);
+        if (opt.isEmpty()) { sendJsonError(exchange, 404, "user not found"); return; }
+        var dto = opt.get();
+        Map<String,Object> resp = new HashMap<>();
+        resp.put("user", dto);
+        resp.put("loginHistory", userService.getLoginHistory(username, 20));
+        sendJsonResponse(exchange, 200, resp);
+    }
+
+    /**
+     * 自分のプロフィール更新: PUT /api/me/profile
+     */
+    private void handleUpdateMyProfile(HttpExchange exchange) throws IOException {
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        String username = authService.getUsernameBySessionId(sessionId);
+        if (username == null) { sendJsonError(exchange, 401, "Unauthorized"); return; }
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        Map<String, Object> payload;
+        try { payload = objectMapper.readValue(body, new TypeReference<>(){}); } catch (Exception e) { sendJsonError(exchange, 400, "invalid json"); return; }
+        String email = payload.containsKey("email") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("email"))) : null;
+        String name = payload.containsKey("name") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("name"))) : null;
+        if (email == null && name == null) { sendJsonError(exchange, 400, "nothing to update"); return; }
+        // Update only email currently (name may be stored elsewhere); reuse updateUser for email
+        boolean ok = userService.updateUser(username, email == null ? optDefault(email) : email, true);
+        if (!ok) { sendJsonError(exchange, 500, "failed to update"); return; }
+        sendJsonResponse(exchange, 200, Map.of("ok", true));
+    }
+
+    private static String optDefault(String v) { return v == null? "" : v; }
+
+    /**
+     * 自分のパスワード変更: POST /api/me/password
+     * ボディ: { "password": "newpass" }
+     */
+    private void handleChangeMyPassword(HttpExchange exchange) throws IOException {
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        String username = authService.getUsernameBySessionId(sessionId);
+        if (username == null) { sendJsonError(exchange, 401, "Unauthorized"); return; }
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        Map<String, Object> payload;
+        try { payload = objectMapper.readValue(body, new TypeReference<>(){}); } catch (Exception e) { sendJsonError(exchange, 400, "invalid json"); return; }
+        String password = payload.containsKey("password") ? String.valueOf(payload.get("password")) : null;
+        if (password == null || password.isEmpty()) { sendJsonError(exchange, 400, "password required"); return; }
+        // サーバ側で固定ポリシー検証: 最低8文字、英字・数字・許可記号を含むこと、許可外文字は不可
+        if (!isValidPassword(password)) { sendJsonError(exchange, 400, "password policy violation: must be >=8 chars, include letter, digit and one of !@#$%&*()-_ and use only allowed characters"); return; }
+        boolean ok = userService.resetPassword(username, password);
+        if (!ok) { sendJsonError(exchange, 500, "failed to change password"); return; }
+        sendJsonResponse(exchange, 200, Map.of("ok", true));
+    }
+
+    /**
+     * パスワード文字列がポリシーに合致するか検証する
+     * ポリシー: 最低8文字、英字1文字以上、数字1文字以上、許可記号(!@#$%&*()-_)のうち1文字以上、許可外文字は不可
+     */
+    private boolean isValidPassword(String pw) {
+        if (pw == null) return false;
+        if (pw.length() < 8) return false;
+        // 英字
+        if (!pw.matches(".*[A-Za-z].*")) return false;
+        // 数字
+        if (!pw.matches(".*\\d.*")) return false;
+        // 許可記号
+        if (!pw.matches(".*[!@#$%&*()\\-_].*")) return false;
+        // 全体が許可文字だけで構成されているか
+        if (!pw.matches("^[A-Za-z0-9!@#$%&*()\\-_]+$")) return false;
+        return true;
     }
 }
