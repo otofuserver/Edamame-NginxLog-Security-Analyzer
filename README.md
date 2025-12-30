@@ -139,7 +139,7 @@ docker compose down
 - **`roles`**: ロール管理（administrator, monitor）
 - **`settings`**: システム設定
 
-詳細なテーブル構造は [specification.txt](./document/specification.txt) を参照してください。
+詳細なテーブル構造は [specification.txt](document/com/edamame/specification.txt) を参照してください。
 
 ## 🔧 設定ファイル
 
@@ -241,7 +241,7 @@ Permission denied
 - テストを追加してください
 
 ## 📚 関連ドキュメント
-- [技術仕様書](./document/specification.txt)
+- [技術仕様書](document/com/edamame/specification.txt)
 - [変更履歴](./CHANGELOG.md)
 - [Copilot開発指示書](.github/copilot-instructions.md)
 

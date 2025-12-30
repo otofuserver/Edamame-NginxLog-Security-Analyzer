@@ -1,7 +1,0 @@
-*
-*.xml
-# デフォルトの無視対象ファイル
-/shelf/
-/workspace.xml
-# 環境に依存する Maven ホームディレクトリのパス
-/mavenHomeManager.xml

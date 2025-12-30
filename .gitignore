@@ -1,7 +1,6 @@
 # Gradle
 .gradle/
 build/
-!gradle/wrapper/gradle-wrapper.jar
 !gradle/wrapper/gradle-wrapper.properties
 
 # Java
@@ -56,12 +55,19 @@ secret.key
 *.dmg
 *.gz
 *.iso
-*.rar
 *.tar
-*.zip
 
 # virtual machine crash logs
 hs_err_pid*
 
 # Gradle Wrapper
+# （negate はファイルが存在する必要があるため一箇所のみ記載）
 !gradle/wrapper/gradle-wrapper.jar
+
+# -----------------------------------------------------------------------------
+# ドキュメントフォルダを Git 管理に含める
+# - 自動生成ドキュメントをリポジトリへ追加できるよう、document ディレクトリを明示的に除外対象から除外（negate）します。
+# - 既に親ディレクトリを無視するルールがない前提ですが、安全のため両方を追加します。
+# -----------------------------------------------------------------------------
+!/document/
+!document/**
