@@ -5,18 +5,19 @@
 ## 概要
 - ModSecurity のアラート（Access denied 等）を一時的に保持し、アクセスログと時間・URLで関連付けを行うキュー管理コンポーネント。
 - サーバー単位でキューを管理し、一定時間経過した古いアラートは自動でクリーンアップする。
+- 変更: クリーンアップ処理は全サーバー合計のキュー件数が 0 の場合はスキップされるようになりました（`cleanupExpiredAlerts()` が実行/スキップ結果を返します）。
 
 ## 主な機能
 - サーバー別のアラートキュー保持
 - アラート追加（raw log と抽出情報）
 - 指定アクセスログに一致するアラートの検索と取得（一致したアラートはキューから除去）
-- 期限切れアラートの定期クリーンアップ
+- 期限切れアラートの定期クリーンアップ（キューが空のときはスキップ）
 - キュー状態の取得（デバッグ用）
 
 ## 挙動
 - `addAlert` で受け取った raw log と抽出情報（rule id, msg, data, severity, url 等）を `ModSecurityAlert` レコードとしてサーバー単位のキューへ格納する。
 - `findMatchingAlerts` は指定したサーバーのキューを走査し、アクセス時刻からの時間差（デフォルト 60 秒以内）と URL 一致を元にマッチを判定する。マッチしたアラートは結果に含め、キューから除去する。
-- `startCleanupTask` に渡した ScheduledExecutorService 上で定期的に `cleanupExpiredAlerts` を呼び、一定時間より古いアラートを削除する。
+- `startCleanupTask` に渡した ScheduledExecutorService 上で定期的に `cleanupExpiredAlerts` を呼び、一定時間より古いアラートを削除する。なお全サーバー合計のキュー件数が 0 の場合はクリーンアップは実行されずスキップされる。
 
 ## 細かい指定された仕様
 - アラート保持期間は定数 `ALERT_RETENTION_SECONDS`（ソースでは 60 秒）で定義される。
@@ -35,8 +36,9 @@
 - `public synchronized List<ModSecurityAlert> findMatchingAlerts(String serverName, String method, String fullUrl, LocalDateTime accessTime)`
   - 指定されたリクエスト情報（serverName, method, fullUrl, accessTime）に一致するアラートを検索して返す。マッチしたアラートはキューから削除される。
 
-- `public synchronized void cleanupExpiredAlerts()`
+- `public synchronized boolean cleanupExpiredAlerts()`
   - 各キューについて保持期間を超えたアラートを削除する。
+  - 変更点: 戻り値が `boolean` になり、`true` を返すとクリーンアップ処理を実行したことを示します。全サーバー合計のキュー件数が 0 の場合は処理をスキップし `false` を返します。
 
 - `private String extractUrlFromRawLog(String rawLog)`
   - raw log から URL を抽出する内部ユーティリティ（複数の正規表現を試行する）。
@@ -56,7 +58,8 @@
 
 ## 変更履歴
 - 1.0.0 - 2025-12-30: 新規作成（ソースに基づく仕様書）
+- 1.0.1 - 2025-12-31: クリーンアップ時の最適化
+  - `cleanupExpiredAlerts()` を `boolean` 戻り値に変更し、全サーバー合計でキューが 0 件の場合はクリーンアップ処理をスキップするように変更しました。スケジューラ側で実行/スキップを判定して適切なデバッグログを出力します。
 
 ## コミットメッセージ例
-- docs(modsecurity): ModSecurityQueue の仕様書を追加
-
+- feat(modsecurity): キューが空のときクリーンアップをスキップするように変更

@@ -50,8 +50,12 @@ public class ModSecurityQueue {
             // クリーンアップタスク（30秒間隔）
             executor.scheduleAtFixedRate(() -> {
                 try {
-                    cleanupExpiredAlerts();
-                    AppLogger.debug("ModSecurityキューのクリーンアップ実行完了");
+                    boolean executed = cleanupExpiredAlerts();
+                    if (executed) {
+                        AppLogger.debug("ModSecurityキューのクリーンアップ実行完了");
+                    } else {
+                        //AppLogger.debug("ModSecurityキューは空のためクリーンアップをスキップしました");
+                    }
                 } catch (Exception e) {
                     AppLogger.error("ModSecurityキューのクリーンアップでエラー: " + e.getMessage());
                 }
@@ -166,9 +170,28 @@ public class ModSecurityQueue {
 
     /**
      * 期限切れアラートをクリーンアップ
+     *
+     * @return true=クリーンアップ処理を実行した（キューが空でなく、チェックを実行した）
+     *         false=キューが空のためクリーンアップをスキップした
      */
-    public synchronized void cleanupExpiredAlerts() {
+    public synchronized boolean cleanupExpiredAlerts() {
         try {
+            // キューがまったく存在しない、または全サーバー合計で0件なら処理をスキップ
+            if (alertQueues.isEmpty()) {
+                return false;
+            }
+
+            int total = 0;
+            for (Queue<ModSecurityAlert> q : alertQueues.values()) {
+                if (q != null) {
+                    total += q.size();
+                }
+            }
+
+            if (total == 0) {
+                return false;
+            }
+
             LocalDateTime cutoffTime = LocalDateTime.now().minusSeconds(ALERT_RETENTION_SECONDS);
             int removedCount = 0;
 
@@ -187,8 +210,11 @@ public class ModSecurityQueue {
                 AppLogger.debug("期限切れModSecurityアラートを削除: " + removedCount + "件");
             }
 
+            return true;
+
         } catch (Exception e) {
             AppLogger.error("ModSecurityアラートクリーンアップエラー: " + e.getMessage());
+            return false;
         }
     }
 
@@ -243,7 +269,7 @@ public class ModSecurityQueue {
     }
 
     /**
-     * 抽出されたURLを正規���
+     * 抽出されたURLを正規化
      */
     private String normalizeExtractedUrl(String url) {
         if (url == null || url.trim().isEmpty()) {
