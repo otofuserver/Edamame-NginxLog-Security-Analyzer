@@ -23,6 +23,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import com.edamame.security.action.MailActionHandler;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 /**
  * NGINXログ監視・解析メインクラス
@@ -236,8 +239,11 @@ public class NginxLogToMysql {
 
         // ActionEngineの初期化（DbService使用）
         try {
-            actionEngine = new ActionEngine();
+            // MailActionHandlerを一度だけ生成して使い回す
+            MailActionHandler sharedMailHandler = new MailActionHandler();
+            actionEngine = new ActionEngine(sharedMailHandler);
             AppLogger.log("ActionEngine初期化完了", "INFO");
+
         } catch (Exception e) {
             AppLogger.log("ActionEngine初期化でエラー: " + e.getMessage(), "ERROR");
             return false;

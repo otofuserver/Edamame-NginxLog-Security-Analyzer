@@ -10,6 +10,8 @@ import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.*;
 
+import com.edamame.security.action.MailActionHandler; // 追加: MailActionHandler を利用
+
 /**
  * アクション実行エンジン
  * 特定条件下でのアクション実行を管理・実行するクラス
@@ -17,21 +19,32 @@ import java.util.*;
  */
 public class ActionEngine {
 
-    
     // SMTP設定を起動時にキャッシュ
-    private JSONObject smtpConfig;
-    private boolean smtpConfigLoaded = false;
+    // private JSONObject smtpConfig;
+    // private boolean smtpConfigLoaded = false;
 
     // SMTP接続チェック結果のキャッシュ
-    private final Map<String, SmtpCheckResult> smtpCheckCache = new HashMap<>();
+    // private final Map<String, SmtpCheckResult> smtpCheckCache = new HashMap<>();
+    // MailActionHandler に委譲
+    // private final MailActionHandler mailActionHandler = new MailActionHandler();
+    // MailActionHandler に委譲（外部から注入可能）
+    private MailActionHandler mailActionHandler;
 
     /**
-     * コンストラクタ（DbService使用）
+     * デフォルトコンストラクタ（後方互換）
      */
     public ActionEngine() {
-        initializeSmtpConfig();
+        this(new MailActionHandler());
     }
-    
+
+    /**
+     * MailActionHandler を注入するコンストラクタ
+     * @param mailActionHandler 外部で生成した MailActionHandler
+     */
+    public ActionEngine(MailActionHandler mailActionHandler) {
+        this.mailActionHandler = mailActionHandler;
+    }
+
     /**
      * 攻撃検知時のアクション実行処理
      * @param serverName サーバー名
@@ -351,272 +364,8 @@ public class ActionEngine {
      * メールアクションの実行（最適化版）
      */
     private String executeMailAction(ActionRule rule, Map<String, Object> eventData) {
-        AppLogger.log("メールアクション実行: " + rule.ruleName, "INFO");
-
-        try {
-            JSONObject config = new JSONObject(rule.configJson);
-
-            // キャッシュされたSMTP設定を使用（毎回ファイル読み込みしない）
-            JSONObject smtpConfig = getSmtpConfig();
-            JSONObject smtp = smtpConfig.getJSONObject("smtp");
-            JSONObject defaults = smtpConfig.getJSONObject("defaults");
-
-            // メール設定を取得（外部ファイルからデフォルト値、config_jsonで上書き可能）
-            String smtpHost = smtp.getString("host");
-            int smtpPort = smtp.getInt("port");
-            String fromEmail = config.optString("from_email", defaults.getString("from_email"));
-            String fromName = config.optString("from_name", defaults.getString("from_name"));
-            String toEmail = config.getString("to_email");
-
-            // SMTP接続可能性をチェック
-            if (!isSmtpServerAvailable(smtpHost, smtpPort)) {
-                String warningMsg = String.format("SMTP接続不可: %s:%d - メール送信をスキップします", smtpHost, smtpPort);
-                AppLogger.log(warningMsg, "WARN");
-                return "SMTP接続不可のためスキップ: " + smtpHost + ":" + smtpPort;
-            }
-
-            // テンプレート変数を置換
-            String subject = replaceVariables(config.getString("subject_template"), eventData);
-            String body = replaceVariables(config.getString("body_template"), eventData);
-
-            // SMTP設定
-            Properties props = new Properties();
-            props.put("mail.smtp.host", smtpHost);
-            props.put("mail.smtp.port", smtpPort);
-            props.put("mail.smtp.auth", smtp.getBoolean("auth_required") ? "true" : "false");
-            props.put("mail.smtp.timeout", smtp.getInt("timeout") * 1000);
-            props.put("mail.smtp.connectiontimeout", smtp.getInt("connection_timeout") * 1000);
-
-            // セキュリティ設定
-            String security = smtp.getString("security");
-            if ("STARTTLS".equals(security)) {
-                props.put("mail.smtp.starttls.enable", "true");
-                props.put("mail.smtp.starttls.required", "true");
-            } else if ("SSL".equals(security)) {
-                props.put("mail.smtp.ssl.enable", "true");
-            }
-
-            // メールセッション作成
-            Session session;
-            if (smtp.getBoolean("auth_required")) {
-                String username = smtp.getString("username");
-                String password = smtp.getString("password");
-                session = Session.getInstance(props, new javax.mail.Authenticator() {
-                    protected javax.mail.PasswordAuthentication getPasswordAuthentication() {
-                        return new javax.mail.PasswordAuthentication(username, password);
-                    }
-                });
-            } else {
-                session = Session.getInstance(props);
-            }
-
-            // デバッグモード設定
-            if (smtp.getBoolean("enable_debug")) {
-                session.setDebug(true);
-            }
-
-            // メッセージ作成
-            Message message = new MimeMessage(session);
-            message.setFrom(new InternetAddress(fromEmail, fromName));
-            message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(toEmail));
-            message.setSubject(subject);
-            message.setText(body);
-            message.setSentDate(new java.util.Date());
-
-            // メール送信
-            Transport.send(message);
-
-            AppLogger.log(String.format("メール送信成功: %s", toEmail), "INFO");
-            return "メール送信完了: " + toEmail;
-
-        } catch (Exception e) {
-            AppLogger.log(String.format("メール送信失敗: %s", e.getMessage()), "ERROR");
-            return "メール送信失敗: " + e.getMessage();
-        }
-    }
-    
-    /**
-     * SMTP接続可能性をチェック（改善版）
-     * @param host SMTPホスト
-     * @param port SMTPポート
-     * @return 接続可能な場合true
-     */
-    private boolean isSmtpServerAvailable(String host, int port) {
-        // キャッシュで直近の接続失敗を記録（頻繁な接続チェックを避ける）
-        String cacheKey = host + ":" + port;
-        long currentTime = System.currentTimeMillis();
-
-        // 前回チェックから5分以内なら結果をキャッシュから返す
-        if (smtpCheckCache.containsKey(cacheKey)) {
-            SmtpCheckResult cachedResult = smtpCheckCache.get(cacheKey);
-            if (currentTime - cachedResult.timestamp < 300000) { // 5分間キャッシュ
-                if (!cachedResult.available) {
-                    AppLogger.log(String.format("SMTP接続チェック（キャッシュ）: %s:%d - 接続不可", host, port), "DEBUG");
-                }
-                return cachedResult.available;
-            }
-        }
-
-        try (java.net.Socket socket = new java.net.Socket()) {
-            // 接続タイムアウトを15秒に延長（従来の5秒では短すぎる）
-            socket.connect(new java.net.InetSocketAddress(host, port), 15000);
-
-            // 成功結果をキャッシュ
-            smtpCheckCache.put(cacheKey, new SmtpCheckResult(true, currentTime));
-            AppLogger.log(String.format("SMTP接続チェック成功: %s:%d", host, port), "DEBUG");
-            return true;
-        } catch (java.net.SocketTimeoutException e) {
-            AppLogger.log(String.format("SMTP接続タイムアウト %s:%d (15秒)", host, port), "DEBUG");
-            smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
-            return false;
-        } catch (java.net.ConnectException e) {
-            AppLogger.log(String.format("SMTP接続拒否 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
-            smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
-            return false;
-        } catch (Exception e) {
-            AppLogger.log(String.format("SMTP接続チェック失敗 %s:%d - %s", host, port, e.getMessage()), "DEBUG");
-            smtpCheckCache.put(cacheKey, new SmtpCheckResult(false, currentTime));
-            return false;
-        }
-    }
-
-    /**
-     * デフォルトSMTP設定を作成
-     * @return デフォルトSMTP設定のJSONObject
-     */
-    private JSONObject createDefaultSmtpConfig() {
-        JSONObject defaultConfig = new JSONObject();
-
-        // SMTP設定
-        JSONObject smtp = new JSONObject();
-        smtp.put("host", "localhost");
-        smtp.put("port", 25);
-        smtp.put("auth_required", false);
-        smtp.put("username", "");
-        smtp.put("password", "");
-        smtp.put("security", "NONE");
-        smtp.put("timeout", 30);
-        smtp.put("connection_timeout", 15);
-        smtp.put("enable_debug", false);
-
-        // デフォルト送信者情報
-        JSONObject defaults = new JSONObject();
-        defaults.put("from_email", "noreply@example.com");
-        defaults.put("from_name", "Edamame Security Analyzer");
-
-        defaultConfig.put("smtp", smtp);
-        defaultConfig.put("defaults", defaults);
-
-        return defaultConfig;
-    }
-
-    /**
-     * SMTP設定の初期化
-     * 起動時に一回だけ実行し、設定をキャッシュする
-     */
-    private void initializeSmtpConfig() {
-        try {
-            this.smtpConfig = loadSmtpConfigFromFile();
-            this.smtpConfigLoaded = true;
-            AppLogger.log("SMTP設定の初期化が完了しました", "INFO");
-        } catch (Exception e) {
-            AppLogger.log("SMTP設定の初期化に失敗しました。デフォルト設定を使用します: " + e.getMessage(), "WARN");
-            this.smtpConfig = createDefaultSmtpConfig();
-            this.smtpConfigLoaded = true;
-        }
-    }
-
-    /**
-     * キャッシュされたSMTP設定を取得
-     * @return SMTP設定のJSONObject
-     */
-    private JSONObject getSmtpConfig() {
-        if (!smtpConfigLoaded) {
-            initializeSmtpConfig();
-        }
-        return this.smtpConfig;
-    }
-
-    /**
-     * SMTP設定ファイルを読み込み（実際のファイル読み込み処理）
-     * @return SMTP設定のJSONObject
-     * @throws Exception 読み込みエラー
-     */
-    private JSONObject loadSmtpConfigFromFile() throws Exception {
-        // 複数の設定ファイルパスを試行
-        String[] configPaths = {
-            "container/config/smtp_config.json",  // 開発環境
-            "/app/config/smtp_config.json",       // Docker環境
-            "config/smtp_config.json",            // 相対パス
-            "smtp_config.json"                    // カレントディレクトリ
-        };
-
-        for (String configPath : configPaths) {
-            java.io.File configFile = new java.io.File(configPath);
-            if (configFile.exists()) {
-                AppLogger.log("SMTP設定ファイル読み込み成功: " + configPath, "INFO");
-
-                try (java.io.FileReader reader = new java.io.FileReader(configFile, java.nio.charset.StandardCharsets.UTF_8)) {
-                    StringBuilder content = new StringBuilder();
-                    char[] buffer = new char[1024];
-                    int length;
-                    while ((length = reader.read(buffer)) != -1) {
-                        content.append(buffer, 0, length);
-                    }
-                    return new JSONObject(content.toString());
-                } catch (Exception e) {
-                    AppLogger.log("SMTP設定ファイル読み込みエラー: " + configPath + " - " + e.getMessage(), "WARN");
-                }
-            }
-        }
-
-        // 設定ファイルが見つからない場合は例外を投げる
-        throw new Exception("SMTP設定ファイルが見つかりません");
-    }
-
-    /**
-     * SMTP接続チェック結果保持クラス
-     */
-    private static class SmtpCheckResult {
-        final boolean available;
-        final long timestamp;
-        
-        SmtpCheckResult(boolean available, long timestamp) {
-            this.available = available;
-            this.timestamp = timestamp;
-        }
-    }
-
-    /**
-     * アクションルールを表すレコードクラス
-     */
-    private static class ActionRule {
-        final int id;
-        final String ruleName;
-        final String targetServer;
-        final String conditionType;
-        final String conditionParams;
-        final int actionToolId;
-        final String actionParams;
-        final int priority;
-        final String toolName;
-        final String toolType;
-        final String configJson;
-
-        ActionRule(int id, String ruleName, String targetServer, String conditionType, String conditionParams,
-                  int actionToolId, String actionParams, int priority, String toolName, String toolType, String configJson) {
-            this.id = id;
-            this.ruleName = ruleName;
-            this.targetServer = targetServer;
-            this.conditionType = conditionType;
-            this.conditionParams = conditionParams;
-            this.actionToolId = actionToolId;
-            this.actionParams = actionParams;
-            this.priority = priority;
-            this.toolName = toolName;
-            this.toolType = toolType;
-            this.configJson = configJson;
-        }
+        // MailActionHandler に処理を委譲
+        return mailActionHandler.executeMailAction(rule.configJson, eventData);
     }
 
     /**
@@ -967,5 +716,37 @@ public class ActionEngine {
         }
 
         return stats;
+    }
+
+    /**
+     * アクションルールを表すレコードクラス
+     */
+    private static class ActionRule {
+        final int id;
+        final String ruleName;
+        final String targetServer;
+        final String conditionType;
+        final String conditionParams;
+        final int actionToolId;
+        final String actionParams;
+        final int priority;
+        final String toolName;
+        final String toolType;
+        final String configJson;
+
+        ActionRule(int id, String ruleName, String targetServer, String conditionType, String conditionParams,
+                  int actionToolId, String actionParams, int priority, String toolName, String toolType, String configJson) {
+            this.id = id;
+            this.ruleName = ruleName;
+            this.targetServer = targetServer;
+            this.conditionType = conditionType;
+            this.conditionParams = conditionParams;
+            this.actionToolId = actionToolId;
+            this.actionParams = actionParams;
+            this.priority = priority;
+            this.toolName = toolName;
+            this.toolType = toolType;
+            this.configJson = configJson;
+        }
     }
 }

@@ -81,9 +81,12 @@ public class DbInitialData {
                 }
 
                 if (isEmpty) {
+                    // 挿入順により自動採番される id を利用して継承関係を初期化します。
+                    // 想定: 1=admin, 2=operator, 3=viewer
+                    // admin は operator と viewer を継承、operator は viewer を継承します。
                     String[][] initialRoles = {
-                        {"admin", "管理者", "[]"},
-                        {"operator", "オペレーター", "[]"},
+                        {"admin", "管理者", "[2,3]"},
+                        {"operator", "オペレーター", "[3]"},
                         {"viewer", "閲覧者", "[]"}
                     };
 
