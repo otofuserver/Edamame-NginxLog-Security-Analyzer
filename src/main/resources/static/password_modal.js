@@ -39,12 +39,13 @@
             const p1 = document.getElementById('new-password').value || '';
             const p2 = document.getElementById('confirm-password').value || '';
             const MIN_LEN = 8;
-            const symbolRegex = /[!@#$%&*()\\-_]/;
-            const allowedCharsRegex = /^[A-Za-z0-9!@#$%&*()\\-_]+$/;
+            // 許可する記号に @ を含め、ハイフンはエスケープして扱う
+            const symbolRegex = /[!@#$%&*()_\-@]/;
+            const allowedCharsRegex = /^[A-Za-z0-9!@#$%&*()_\-@]+$/;
 
             if (p1 !== p2) { if (errEl) { errEl.textContent = 'パスワードが一致しません'; errEl.style.display = 'block'; } return; }
             if (p1.length < MIN_LEN) { if (errEl) { errEl.textContent = 'パスワードは最低' + MIN_LEN + '文字必要です'; errEl.style.display = 'block'; } return; }
-            if (!/[A-Za-z]/.test(p1) || !/\\d/.test(p1) || !symbolRegex.test(p1)) { if (errEl) { errEl.textContent = 'パスワードは英字・数字・記号のすべてを含める必要があります'; errEl.style.display = 'block'; } return; }
+            if (!/[A-Za-z]/.test(p1) || !/\d/.test(p1) || !symbolRegex.test(p1)) { if (errEl) { errEl.textContent = 'パスワードは英字・数字・記号のすべてを含める必要があります'; errEl.style.display = 'block'; } return; }
             if (!allowedCharsRegex.test(p1)) { if (errEl) { errEl.textContent = 'パスワードに使用できない文字が含まれています'; errEl.style.display = 'block'; } return; }
 
             const resp = await fetch('/api/me/password', { method: 'POST', credentials: 'same-origin', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ password: p1 }) });

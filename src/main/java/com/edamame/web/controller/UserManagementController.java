@@ -146,6 +146,13 @@ public class UserManagementController implements HttpHandler {
                 return;
             }
 
+            // 再送: POST /api/users/{username}/resend-activation
+            if ("POST".equals(method) && normalizedPath.matches("/api/users/[^/]+/resend-activation")) {
+                if (!isAdmin) { sendJsonError(exchange, 403, "Forbidden - admin role required"); return; }
+                handleResendActivation(exchange);
+                return;
+            }
+
             // 自分のパスワード変更: POST /api/me/password
             if ("POST".equals(method) && normalizedPath.equals("/api/me/password")) {
                 handleChangeMyPassword(exchange);
@@ -311,6 +318,13 @@ public class UserManagementController implements HttpHandler {
         resp.put("user", dto);
         resp.put("roles", roles);
         resp.put("allRoles", userService.listAllRoles());
+        // ユーザーが無効で、未使用かつ期限切れの activation token が存在するかを返す（モーダルで再送ボタン表示制御用）
+        try {
+            boolean hasExpired = userService.hasExpiredUnusedActivationToken(target);
+            resp.put("hasExpiredUnusedActivationToken", hasExpired);
+        } catch (Exception e) {
+            resp.put("hasExpiredUnusedActivationToken", false);
+        }
         sendJsonResponse(exchange, 200, resp);
     }
 
@@ -400,6 +414,26 @@ public class UserManagementController implements HttpHandler {
         sendJsonResponse(exchange, 200, Map.of("ok", true));
     }
 
+    /**
+     * 再送処理: POST /api/users/{username}/resend-activation
+     */
+    private void handleResendActivation(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        String[] seg = path.split("/");
+        if (seg.length < 4) { sendJsonError(exchange, 400, "username missing"); return; }
+        String target = WebSecurityUtils.sanitizeInput(seg[3]);
+
+        try {
+            boolean ok = userService.resendActivationEmail(target);
+            if (!ok) { sendJsonError(exchange, 404, "user not found or resend failed"); return; }
+        } catch (Exception e) {
+            sendJsonError(exchange, 500, "failed to resend activation email");
+            return;
+        }
+
+        sendJsonResponse(exchange, 200, Map.of("ok", true));
+    }
+
     private void handleListRoles(HttpExchange exchange) throws IOException {
         var roles = userService.listAllRoles();
         sendJsonResponse(exchange, 200, roles);
@@ -413,15 +447,16 @@ public class UserManagementController implements HttpHandler {
         try { payload = objectMapper.readValue(body, new TypeReference<>(){}); } catch (Exception e) { sendJsonError(exchange, 400, "invalid json"); return; }
         String username = payload.containsKey("username") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("username"))) : null;
         String email = payload.containsKey("email") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("email"))) : null;
-        boolean enabled = true;
+        // デフォルトで無効（Web経由の登録はデフォルトで無効にする）
+        boolean enabled = false;
         if (payload.containsKey("enabled")) {
             try { enabled = Boolean.parseBoolean(String.valueOf(payload.get("enabled"))); } catch (Exception ignored) {}
         }
         if (username == null || username.isEmpty()) { sendJsonError(exchange, 400, "username required"); return; }
         try {
-            boolean ok = userService.createUser(username, email, enabled);
-            if (!ok) {
-                // サービスが false を返した場合、既に存在する可能性があるため念のため確認
+            String plain = userService.createUserWithActivation(username, email, enabled);
+            if (plain == null) {
+                // サービスが null を返した場合、既に存在する可能性があるため念のため確認
                 try {
                     var maybe = userService.findByUsername(username);
                     if (maybe.isPresent()) {
@@ -574,15 +609,13 @@ public class UserManagementController implements HttpHandler {
      */
     private boolean isValidPassword(String pw) {
         if (pw == null) return false;
-        if (pw.length() < 8) return false;
-        // 英字
-        if (!pw.matches(".*[A-Za-z].*")) return false;
-        // 数字
-        if (!pw.matches(".*\\d.*")) return false;
-        // 許可記号
-        if (!pw.matches(".*[!@#$%&*()\\-_].*")) return false;
-        // 全体が許可文字だけで構成されているか
-        if (!pw.matches("^[A-Za-z0-9!@#$%&*()\\-_]+$")) return false;
-        return true;
+        boolean lengthOk = pw.length() >= 8;
+        boolean hasLetter = pw.matches(".*[A-Za-z].*");
+        boolean hasDigit = pw.matches(".*\\d.*");
+        // 記号として @ を許可する
+        boolean hasSymbol = pw.matches(".*[!@#$%&*()\\-@].*");
+        // 全体が許可文字だけで構成されているか（@ を許可）
+        boolean allAllowed = pw.matches("^[A-Za-z0-9!@#$%&*()\\-@_]+$");
+        return lengthOk && hasLetter && hasDigit && hasSymbol && allAllowed;
     }
 }
