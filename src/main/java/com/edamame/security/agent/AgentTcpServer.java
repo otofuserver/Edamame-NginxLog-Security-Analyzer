@@ -718,11 +718,7 @@ public class AgentTcpServer {
                         registerOrUpdateServer(actualServerName, "エージェント自動登録", sourcePath);
 
                         // サーバー名に対してadmin/operator/viewerロールを追加
-                        try {
-                            addDefaultRolesForServer(actualServerName);
-                        } catch (Exception e) {
-                            AppLogger.warn("ロール自動追加エラー: " + actualServerName + " - " + e.getMessage());
-                        }
+                        // ロール追加は registerOrUpdateServer 側で新規登録時のみ実行されるため、ここでは呼び出さない
 
                         processedServers.add(actualServerName);
                         AppLogger.debug("サーバー自動登録/更新: " + actualServerName);

@@ -63,6 +63,12 @@ public class DbRegistry {
                         int inserted = insertStmt.executeUpdate();
                         if (inserted > 0) {
                             AppLogger.log("新規サーバーを登録しました: " + finalServerName, "INFO");
+                            // 新規登録時のみサーバー固有ロールを作成（同一コネクション内で実行）
+                            try {
+                                addDefaultRolesForServerInternal(conn, finalServerName);
+                            } catch (Exception e) {
+                                AppLogger.warn("新規サーバー登録後のロール自動追加エラー: " + finalServerName + " - " + e.getMessage());
+                            }
                         }
                     }
                 }
@@ -71,6 +77,117 @@ public class DbRegistry {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    /**
+     * 内部ユーティリティ: 同一Connection上でサーバー固有のadmin/operator/viewerロールを追加する
+     * registerOrUpdateServer 内で新規挿入直後に呼び出すことを想定
+     */
+    private static void addDefaultRolesForServerInternal(Connection conn, String serverName) throws SQLException {
+        if (serverName == null || serverName.trim().isEmpty()) {
+            AppLogger.warn("ロール追加時のサーバー名がnull/空です");
+            return;
+        }
+        String[] roles = {"admin", "operator", "viewer"};
+        for (String role : roles) {
+            String roleName = serverName + "_" + role;
+            String description = serverName + "限定" + role;
+            String sql = "INSERT IGNORE INTO roles (role_name, description, inherited_roles, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW())";
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setString(1, roleName);
+                pstmt.setString(2, description);
+                pstmt.setString(3, "[]");
+                int affected = pstmt.executeUpdate();
+                if (affected > 0) {
+                    AppLogger.info("ロール追加: " + roleName);
+                }
+            } catch (SQLException e) {
+                AppLogger.error("ロール追加エラー: " + roleName + " - " + e.getMessage());
+            }
+        }
+
+        // 追加したロールをデフォルトロールの下位ロールとして登録（同一コネクション上でマージ処理）
+        try {
+            // operator <- viewer
+            Integer adminId = null, operatorId = null, viewerId = null;
+            String idSql = "SELECT id FROM roles WHERE role_name = ?";
+            try (PreparedStatement ps = conn.prepareStatement(idSql)) {
+                ps.setString(1, serverName + "_admin");
+                try (ResultSet rs = ps.executeQuery()) { if (rs.next()) adminId = rs.getInt(1); }
+            }
+            try (PreparedStatement ps = conn.prepareStatement(idSql)) {
+                ps.setString(1, serverName + "_operator");
+                try (ResultSet rs = ps.executeQuery()) { if (rs.next()) operatorId = rs.getInt(1); }
+            }
+            try (PreparedStatement ps = conn.prepareStatement(idSql)) {
+                ps.setString(1, serverName + "_viewer");
+                try (ResultSet rs = ps.executeQuery()) { if (rs.next()) viewerId = rs.getInt(1); }
+            }
+
+            // operator inherits viewer
+            if (operatorId != null && viewerId != null) {
+                String sel = "SELECT inherited_roles FROM roles WHERE role_name = ?";
+                String upd = "UPDATE roles SET inherited_roles = ? , updated_at = NOW() WHERE role_name = ?";
+                try (PreparedStatement selSt = conn.prepareStatement(sel)) {
+                    selSt.setString(1, serverName + "_operator");
+                    try (ResultSet rs = selSt.executeQuery()) {
+                        java.util.List<Integer> list = new java.util.ArrayList<>();
+                        if (rs.next()) {
+                            String inheritedJson = rs.getString(1);
+                            if (inheritedJson != null && !inheritedJson.isBlank() && !inheritedJson.equals("[]")) {
+                                @SuppressWarnings("unchecked")
+                                java.util.List<Integer> parsed = (java.util.List<Integer>) new com.fasterxml.jackson.databind.ObjectMapper().readValue(inheritedJson, java.util.List.class);
+                                list.addAll(parsed);
+                            }
+                        }
+                        if (!list.contains(viewerId)) {
+                            list.add(viewerId);
+                            String newJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(list);
+                            try (PreparedStatement updSt = conn.prepareStatement(upd)) {
+                                updSt.setString(1, newJson);
+                                updSt.setString(2, serverName + "_operator");
+                                updSt.executeUpdate();
+                                AppLogger.info("ロール階層(inherited_roles)追加: " + serverName + "_operator -> id=" + viewerId);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // admin inherits operator and viewer
+            if (adminId != null) {
+                String sel = "SELECT inherited_roles FROM roles WHERE role_name = ?";
+                String upd = "UPDATE roles SET inherited_roles = ? , updated_at = NOW() WHERE role_name = ?";
+                try (PreparedStatement selSt = conn.prepareStatement(sel)) {
+                    selSt.setString(1, serverName + "_admin");
+                    try (ResultSet rs = selSt.executeQuery()) {
+                        java.util.List<Integer> list = new java.util.ArrayList<>();
+                        if (rs.next()) {
+                            String inheritedJson = rs.getString(1);
+                            if (inheritedJson != null && !inheritedJson.isBlank() && !inheritedJson.equals("[]")) {
+                                @SuppressWarnings("unchecked")
+                                java.util.List<Integer> parsed = (java.util.List<Integer>) new com.fasterxml.jackson.databind.ObjectMapper().readValue(inheritedJson, java.util.List.class);
+                                list.addAll(parsed);
+                            }
+                        }
+                        boolean updated = false;
+                        if (operatorId != null && !list.contains(operatorId)) { list.add(operatorId); updated = true; }
+                        if (viewerId != null && !list.contains(viewerId)) { list.add(viewerId); updated = true; }
+                        if (updated) {
+                            String newJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(list);
+                            try (PreparedStatement updSt = conn.prepareStatement(upd)) {
+                                updSt.setString(1, newJson);
+                                updSt.setString(2, serverName + "_admin");
+                                updSt.executeUpdate();
+                                AppLogger.info("ロール階層(inherited_roles)追加: " + serverName + "_admin -> operator/viewer ids added");
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            AppLogger.error("サーバー固有ロール間の継承追加エラー(内部): " + e.getMessage());
+        }
     }
 
     /**
