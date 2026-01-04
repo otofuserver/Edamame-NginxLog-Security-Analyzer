@@ -28,6 +28,10 @@ services:
       # エージェントTCP通信設定
       - AGENT_TCP_PORT=2591
       - AGENT_TCP_BIND_ADDRESS=0.0.0.0
+      - # URL設定
+      - WEB_BASE_URL=http://192.168.10.5:8080
+      - USE_SUBDIR=false
+      - WEB_SUBDIR=/sub
     secrets:
       - db_config_enc
       - db_secret_key

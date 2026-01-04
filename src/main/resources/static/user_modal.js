@@ -183,6 +183,8 @@
                 const newUsername = (els.modalUsername && els.modalUsername.value ? els.modalUsername.value : '').trim();
                 if (!newUsername) { alert('ユーザー名を入力してください'); return; }
                 payload.username = newUsername;
+                // 作成時はデフォルトで無効化（有効化はメールのリンクまたは管理者操作で行うため）
+                payload.enabled = false;
                 const resp = await fetch('/api/users', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
                 if (!resp.ok) {
                     await showModalErrorFromResponse(resp, 'create');
@@ -315,6 +317,11 @@
             try { const merr = document.getElementById('modal-error'); if (merr) { merr.innerText = ''; merr.style.display = 'none'; } } catch(e) {}
             try { const uerr = document.getElementById('username-error'); if (uerr) { uerr.innerText = ''; uerr.style.display = 'none'; } } catch(e) {}
              if (els.modalEnabled) els.modalEnabled.checked = !!user.enabled;
+            // 編集モードでは有効チェックを表示する
+            if (els.modalEnabled) {
+                try { els.modalEnabled.style.display = ''; } catch(e) {}
+                try { const row = els.modalEnabled.closest && els.modalEnabled.closest('.form-row'); if (row) row.style.display = 'flex'; } catch(e) {}
+            }
              if (els.modalDelete) els.modalDelete.style.display = user.enabled ? 'none' : 'inline-block';
             // 編集モードではパスワード生成を許可
             try {
@@ -341,6 +348,29 @@
                  .then(data => {
                      populateRoleSelect(data.allRoles||[], data.roles||[]);
                      renderUserRoles(data.roles||[]);
+                    // アクティベーション再送ボタンの表示制御
+                    try {
+                        const resendBtn = document.getElementById('resend-activation-btn');
+                        if (resendBtn) {
+                            if (data.user && data.user.enabled === false && data.hasExpiredUnusedActivationToken === true) {
+                                resendBtn.style.display = 'inline-block';
+                                resendBtn.onclick = async function() {
+                                    if (!confirm('アクティベーションメールを再送しますか？')) return;
+                                    try {
+                                        const resp = await fetch('/api/users/' + encodeURIComponent(user.username) + '/resend-activation', { method: 'POST', credentials: 'same-origin' });
+                                        if (!resp.ok) {
+                                            try { const txt = await resp.text(); alert('再送に失敗しました: ' + txt); } catch(e) { alert('再送に失敗しました'); }
+                                            return;
+                                        }
+                                        alert('アクティベーションメールを再送しました');
+                                    } catch (e) { alert('通信エラー: ' + e.message); }
+                                };
+                            } else {
+                                resendBtn.style.display = 'none';
+                                resendBtn.onclick = null;
+                            }
+                        }
+                    } catch(e) {}
                      // モーダルを表示（フェッチ成功後）
                      try { els.modal.setAttribute('aria-hidden','false'); els.modal.style.display = 'flex'; } catch(e) {}
                      try { const content = els.modal.querySelector('.modal-content'); if (els.modalBackdrop) { els.modalBackdrop.style.zIndex='1000'; els.modalBackdrop.style.position='fixed'; } if (content) { content.style.zIndex='1001'; content.style.position='relative'; } } catch(e) {}
@@ -356,8 +386,13 @@
              if (els.modalId) els.modalId.innerText = '';
              if (els.modalUsername) { els.modalUsername.value = ''; els.modalUsername.readOnly = false; }
              if (els.modalEmail) els.modalEmail.value = '';
-             if (els.modalEnabled) els.modalEnabled.checked = true;
-             if (els.modalDelete) els.modalDelete.style.display = 'none';
+             // 作成モードでは「有効」チェックボックスは廃止（表示しない）し、デフォルトは無効
+             if (els.modalEnabled) {
+                 try { els.modalEnabled.checked = false; } catch(e) {}
+                 try { els.modalEnabled.style.display = 'none'; } catch(e) {}
+                 try { const row = els.modalEnabled.closest && els.modalEnabled.closest('.form-row'); if (row) row.style.display = 'none'; } catch(e) {}
+             }
+              if (els.modalDelete) els.modalDelete.style.display = 'none';
              // モーダルエラーをクリア
              try { const merr = document.getElementById('modal-error'); if (merr) { merr.innerText = ''; merr.style.display = 'none'; } } catch(e) {}
              try { const uerr = document.getElementById('username-error'); if (uerr) { uerr.innerText = ''; uerr.style.display = 'none'; } } catch(e) {}

@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **全Webコントローラーのセキュリティ強化**
   - DashboardController: 全出力データのHTMLエスケープ適用
   - ApiController: JSON出力の完全サニタイズ
-  - StaticResourceController: パストラバーサル攻撃���止
+  - StaticResourceController: パストラバーサル攻撃防止
 - **多層防御システム実装**
   - リクエスト検証（User-Agent、Referer、クエリパラメータ）
   - セキュリティヘッダー設定（CSP、XSS Protection、Frame Options）
@@ -96,7 +96,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 統一された更新処理による保守性向上
 
 ### Changed
-- **設計���一貫性向上**
+- **設計の一貫性向上**
   - カスタムlog()メソッドによる統一されたログ処理
   - 複数サーバー監視アーキテクチャへの完全移行
   - コード整理により保守性とメンテナンス性を向上
@@ -123,6 +123,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 管理者ロールのみ閲覧可能（AuthenticationService / users_roles を参照して判定）。
   - 検索はサーバーサイドで実行（ユーザー名・メールアドレスで部分一致検索、ページング対応）。
   - 断片テンプレート: `src/main/resources/fragments/user_management.html` を追加。
+- fix(web): Web経由の新規ユーザー登録時はデフォルトで無効（is_active=false）で作成するように変更。管理者が明示的に `enabled` を渡した場合はその値を尊重します。
 
 ### Changed
 - DB: `action_tools` / `action_rules` のスキーマ互換性対応を実施（2025-11-27）

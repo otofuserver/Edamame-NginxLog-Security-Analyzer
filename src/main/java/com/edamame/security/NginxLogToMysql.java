@@ -24,8 +24,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import com.edamame.security.action.MailActionHandler;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 
 /**
  * NGINXログ監視・解析メインクラス
@@ -87,6 +85,8 @@ public class NginxLogToMysql {
     // エージェントTCPサーバー
     private static AgentTcpServer agentTcpServer = null;
 
+    // 共有の MailActionHandler（メインで一度生成して使い回す）
+    private static com.edamame.security.action.MailActionHandler sharedMailHandler = null;
 
     /**
      * 環境変数を取得し、存在しない場合はデフォルト値を返す
@@ -240,7 +240,7 @@ public class NginxLogToMysql {
         // ActionEngineの初期化（DbService使用）
         try {
             // MailActionHandlerを一度だけ生成して使い回す
-            MailActionHandler sharedMailHandler = new MailActionHandler();
+            sharedMailHandler = new MailActionHandler();
             actionEngine = new ActionEngine(sharedMailHandler);
             AppLogger.log("ActionEngine初期化完了", "INFO");
 
@@ -496,5 +496,13 @@ public class NginxLogToMysql {
             AppLogger.log("ModSecurityキュー初期化エラー: " + e.getMessage(), "ERROR");
             return false;
         }
+    }
+
+    /**
+     * メインで生成した共有 MailActionHandler を外部から取得するための getter
+     * 他クラスからは NginxLogToMysql.getSharedMailHandler() で取得可能
+     */
+    public static com.edamame.security.action.MailActionHandler getSharedMailHandler() {
+        return sharedMailHandler;
     }
 }

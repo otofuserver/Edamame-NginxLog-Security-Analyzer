@@ -86,6 +86,23 @@ public interface UserService {
     boolean createUser(String username, String email, boolean enabled);
 
     /**
+     * 新規ユーザーを作成し、初期パスワードを生成、必要に応じてアクティベーション用メールを送信する。
+     * メール送信先はユーザーのメールアドレスに送る。生成した平文パスワードを返す（失敗時はnull）。
+     * @param username ユーザー名
+     * @param email メールアドレス
+     * @param enabled 有効フラグ（false の場合は activation token を生成してメール内のリンクで有効化する）
+     * @return 生成した平文パスワード（失敗時は null）
+     */
+    String createUserWithActivation(String username, String email, boolean enabled);
+
+    /**
+     * アクティベーショントークンを検証し、該当ユーザーを有効化する
+     * @param token アクティベーショントークン
+     * @return 有効化成功ならtrue
+     */
+    boolean activateUserByToken(String token);
+
+    /**
      * 指定ユーザーのパスワードをリセット（平文を与える）
      * メソッド内でハッシュ化してDBに保存する
      * @param username ユーザー名
@@ -109,4 +126,18 @@ public interface UserService {
      * @return ログイン履歴（ISO日時文字列または空のリスト）
      */
     java.util.List<java.util.Map<String, String>> getLoginHistory(String username, int limit);
+
+    /**
+     * 指定ユーザーに未使用かつ期限切れのアクティベーショントークンが存在するかを返す
+     * @param username ユーザー名
+     * @return 存在する場合 true
+     */
+    boolean hasExpiredUnusedActivationToken(String username);
+
+    /**
+     * 指定ユーザー宛にアクティベーションメールを再送する（新しいトークンを発行して保存し送信する）
+     * @param username ユーザー名
+     * @return 送信成功なら true
+     */
+    boolean resendActivationEmail(String username);
 }

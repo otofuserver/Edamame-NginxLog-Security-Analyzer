@@ -132,6 +132,8 @@ public class WebApplication {
         // 管理者専用のユーザー管理断片と検索APIは専用コントローラで処理
         server.createContext("/api/fragment/users", new UserManagementController(authService));
         server.createContext("/api/users", new UserManagementController(authService));
+        // アクティベーション用エンドポイントを追加
+        server.createContext("/api/activate", new com.edamame.web.controller.ActivationController());
         // 自分用のプロフィール/パスワード変更は ApiController にルーティングされると Method Not Allowed になるため
         // 明示的に UserManagementController を割り当てる（/api より前に登録）
         server.createContext("/api/me/profile", new UserManagementController(authService));

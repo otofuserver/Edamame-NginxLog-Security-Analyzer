@@ -85,9 +85,10 @@ public class DbInitialData {
                     // 想定: 1=admin, 2=operator, 3=viewer
                     // admin は operator と viewer を継承、operator は viewer を継承します。
                     String[][] initialRoles = {
-                        {"admin", "管理者", "[2,3]"},
+                        {"admin", "管理者", "[2,3,4]"},
                         {"operator", "オペレーター", "[3]"},
-                        {"viewer", "閲覧者", "[]"}
+                        {"viewer", "閲覧者", "[]"},
+                        {"auditor", "監査", "[]"}
                     };
 
                     String insertSql = "INSERT INTO roles (role_name, description, inherited_roles) VALUES (?, ?, ?)";

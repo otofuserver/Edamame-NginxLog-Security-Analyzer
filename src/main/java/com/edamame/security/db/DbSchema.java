@@ -116,6 +116,24 @@ public class DbSchema {
         usersDefs.put("is_active", "BOOLEAN DEFAULT TRUE");
         autoSyncTableColumns(dbSession, "users", usersDefs, null);
 
+        // --------------------------------------------------
+        // activation_tokens
+        // ユーザー有効化用トークンを管理するテーブル
+        // セキュリティ上、生トークンは保存せずハッシュ(token_hash)を保存する設計とする
+        // users テーブルが存在する前提で外部キーを設定（users 作成後に定義）
+        var activationTokensDefs = new java.util.LinkedHashMap<String, String>();
+        activationTokensDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
+        activationTokensDefs.put("user_id", "INT NOT NULL");
+        // token_hash は検索性のため一意である必要があり、カラム定義レベルで UNIQUE を付与する
+        activationTokensDefs.put("token_hash", "CHAR(64) NOT NULL UNIQUE");
+        activationTokensDefs.put("is_used", "BOOLEAN DEFAULT FALSE");
+        activationTokensDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        activationTokensDefs.put("expires_at", "DATETIME NULL");
+        activationTokensDefs.put("created_by", "VARCHAR(128) NULL");
+        // テーブル制約：token_hash は一意、user_id に対して外部キー制約を付与
+        activationTokensDefs.put("constraint fk_activation_tokens_user", "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE");
+        autoSyncTableColumns(dbSession, "activation_tokens", activationTokensDefs, null);
+
         // users_roles（ユーザー・ロール中間テーブル）
         var usersRolesDefs = new java.util.LinkedHashMap<String, String>();
         usersRolesDefs.put("user_id", "INT NOT NULL");
