@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import com.edamame.security.db.DbService;
 import static com.edamame.security.db.DbService.*;
 import com.edamame.security.tools.AppLogger;
 /**
@@ -134,10 +133,10 @@ public class DataService {
     public List<Map<String, Object>> getRecentAlerts(int limit) {
         List<Map<String, Object>> alerts = new ArrayList<>();
         String sql = """
-            SELECT server_name, alert_type, severity, message, source_ip, target_url, 
+            SELECT server_name, alert_type, severity, message, source_ip, target_url,
                    rule_id, is_resolved, created_at
-            FROM alerts 
-            ORDER BY created_at DESC 
+            FROM alerts
+            ORDER BY created_at DESC
             LIMIT ?
             """;
         try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
@@ -173,11 +172,11 @@ public class DataService {
     public List<Map<String, Object>> getServerList() {
         List<Map<String, Object>> servers = new ArrayList<>();
         String sql = """
-            SELECT s.*, 
-                   COALESCE((SELECT COUNT(*) FROM access_log a 
+            SELECT s.*,
+                   COALESCE((SELECT COUNT(*) FROM access_log a
                             WHERE a.server_name COLLATE utf8mb4_unicode_ci = s.server_name COLLATE utf8mb4_unicode_ci
                             AND DATE(a.access_time) = CURDATE()), 0) as today_access_count
-            FROM servers s 
+            FROM servers s
             ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
             """;
         try (PreparedStatement stmt = getConnection().prepareStatement(sql);
