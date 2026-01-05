@@ -47,6 +47,68 @@
         } catch(e) { console.warn('startClock error', e); }
     }
 
+    // --- fragment auto-refresh ---
+    /**
+     * 指定 root 内の .fragment-root 要素の data-auto-refresh を検出し、自動更新をセットする
+     * data-fragment-name 属性で再取得先 (/api/fragment/<name>) を決定する
+     * フェッチは同一オリジンの資格情報を送る (credentials: 'same-origin')
+     */
+    function setupFragmentAutoRefresh(root) {
+        try {
+            const container = root || document;
+            const elements = (container && container.querySelectorAll) ? container.querySelectorAll('.fragment-root[data-auto-refresh][data-fragment-name]') : [];
+            elements.forEach(el => {
+                try {
+                    const s = parseInt(el.getAttribute('data-auto-refresh') || '0', 10);
+                    const name = el.getAttribute('data-fragment-name');
+                    if (!name || !s || s <= 0) return; // 無効な設定なら無視
+
+                    // 既存の interval があればクリアしてから再設定
+                    if (el.__edamame_refresh_interval_id) {
+                        try { clearInterval(el.__edamame_refresh_interval_id); } catch(_) {}
+                        el.__edamame_refresh_interval_id = null;
+                    }
+
+                    const refreshFn = async () => {
+                        try {
+                            const path = '/api/fragment/' + encodeURIComponent(name);
+                            const resp = await fetch(path, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'text/html, application/json' } });
+                            if (resp.status === 401) { console.warn('Auto-refresh: unauthorized for fragment', name); return; }
+                            if (!resp.ok) { console.warn('Auto-refresh: fetch failed for', name, resp.status); return; }
+                            const ct = resp.headers.get('content-type') || '';
+                            if (ct.includes('text/html')) {
+                                const html = await resp.text();
+                                const tmp = document.createElement('div');
+                                tmp.innerHTML = html;
+                                // 返却された HTML の .fragment-root を探す（なければルートの内容を使用）
+                                const newFragment = tmp.querySelector('.fragment-root') || tmp;
+                                // 要素の属性は維持して innerHTML を差し替える
+                                el.innerHTML = newFragment.innerHTML || '';
+
+                                // もし users フラグメントなら、依存スクリプトをロードして初期化を試みる
+                                if (name === 'users') {
+                                    loadScriptsSequential(['/static/user_list.js','/static/user_modal.js']).then(() => {
+                                        if (window.UserList && typeof window.UserList.initUserManagement === 'function') {
+                                            try { window.UserList.initUserManagement(new URLSearchParams(window.location.search).get('q')); } catch(e){ console.error('UserList.initUserManagement error', e); }
+                                        } else if (typeof window.initUserManagement === 'function') {
+                                            try { window.initUserManagement(new URLSearchParams(window.location.search).get('q')); } catch(e){ console.error('initUserManagement error', e); }
+                                        }
+                                    }).catch(()=>{});
+                                }
+                            } else {
+                                console.warn('Auto-refresh: unexpected content-type for fragment', name, ct);
+                            }
+                        } catch (e) { console.warn('Auto-refresh error for', name, e); }
+                    };
+
+                    // setInterval を登録（即時実行は行わず、周期実行で更新）
+                    el.__edamame_refresh_interval_id = setInterval(refreshFn, s * 1000);
+                    dbg('setupFragmentAutoRefresh set for', name, 'interval(s)=', s);
+                } catch(e) { console.warn('setupFragmentAutoRefresh element error', e); }
+            });
+        } catch(e) { console.warn('setupFragmentAutoRefresh error', e); }
+    }
+
     // --- navigation helper ---
     async function navigateTo(view, push = true) {
         dbg('navigateTo called, view=', view, 'push=', push);
@@ -62,6 +124,10 @@
             if (ct.includes('text/html')) {
                 const html = await resp.text();
                 main.innerHTML = html;
+
+                // 自動更新対象があればセットアップする
+                try { setupFragmentAutoRefresh(main); } catch(e) { console.warn('setupFragmentAutoRefresh after navigateTo error', e); }
+
                 // users ビューの場合は依存スクリプトを読み込んで初期化
                 if (view === 'users') {
                     await loadScriptsSequential(['/static/user_list.js','/static/user_modal.js']);
@@ -187,6 +253,9 @@
                     const newUrl = '/main?view=' + encodeURIComponent(initialView);
                     history.replaceState({view: initialView}, '', newUrl);
                 } catch(e) { /* ignore */ }
+
+                // サーバレンダされたコンテンツがある場合は、ここで fragment の自動更新をセットアップする
+                try { setupFragmentAutoRefresh(mainEl); } catch(e) { /* ignore */ }
             }
         } catch(e) { /* ignore */ }
     });

@@ -62,7 +62,8 @@ public class FragmentService {
 
         // ラップして data-auto-refresh を付与（dashboard は 30秒で自動更新）
         String wrapped = template.replace("{{CONTENT}}", content);
-        return "<div class=\"fragment-root\" data-auto-refresh=\"30\">" + wrapped + "</div>";
+        // data-fragment-name を付与してクライアント側から再取得できるようにする
+        return "<div class=\"fragment-root\" data-auto-refresh=\"30\" data-fragment-name=\"dashboard\">" + wrapped + "</div>";
     }
 
     /**
@@ -73,8 +74,9 @@ public class FragmentService {
         String template = loadResourceFragment("test");
         if (template != null) {
             // テンプレートがある場合は自動更新無効にして返す
-            return "<div class=\"fragment-root\" data-auto-refresh=\"0\">" + template + "</div>";
+            // data-fragment-name を付与（自動更新は無効）
+            return "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"test\">" + template + "</div>";
         }
-        return "<div class=\"fragment-root\" data-auto-refresh=\"0\"><div class=\"card\"><h2>テストページ</h2><p>これはテスト用の空テンプレートです。</p></div></div>";
+        return "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"test\"><div class=\"card\"><h2>テストページ</h2><p>これはテスト用の空テンプレートです。</p></div></div>";
     }
 }
