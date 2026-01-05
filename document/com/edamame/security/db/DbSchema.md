@@ -22,6 +22,28 @@
 - PRIMARY KEY やテーブル制約は columnDefs 内で特別扱いし、テーブル作成時に末尾へ追加する。
 - スキーマ変更はデータ破壊のリスクがあるため、本番環境では事前にバックアップを取得してから実行すること。
 
+### email_change_requests テーブル仕様（追加）
+- 目的: ユーザーが自分のメールアドレスを変更する際に「メール所有者確認」フローの一時リクエストを保存する。
+- 主キー/カラム:
+  - `id` BIGINT AUTO_INCREMENT PRIMARY KEY
+  - `user_id` INT NOT NULL  -- users(id) を参照
+  - `new_email` VARCHAR(255) NOT NULL
+  - `code_hash` CHAR(64) NOT NULL  -- 送信した6桁コードのハッシュ（SHA-256 等）を保存
+  - `is_used` BOOLEAN DEFAULT FALSE
+  - `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+  - `expires_at` DATETIME NULL  -- 有効期限（例: created_at + 15分）
+  - `request_ip` VARCHAR(45) DEFAULT ''
+  - `attempts` INT DEFAULT 0  -- 検証試行回数
+- 外部キー: `FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE`
+- 挙動（実装上の期待）:
+  - 新しいメール変更リクエスト作成時に6桁コードを生成してメール送信し、`code_hash` にハッシュを保存する。生コードは保存しないこと。
+  - デフォルトの有効期限は短め（実装では 15 分が推奨）。期限切れは `expires_at` をみて判定する。
+  - `verify` 処理は受け取ったコードをハッシュ化して `code_hash` と比較する。成功時は `is_used` を true に更新し、`users.email` をトランザクション内で更新する。
+  - `attempts` をインクリメントして閾値（例: 5回）を超えた場合は検証を拒否するかリクエストを無効化するロジックを実装することを推奨する。
+- セキュリティ注意点:
+  - `code_hash` は SHA-256 等の安全なハッシュで保存し、ソルトや HMAC の利用を検討する（単純なハッシュだけだと辞書攻撃のリスクがある）。
+  - メール送信には送信ログ・監査を実装し、不正アクセスの痕跡を追えるようにする。
+
 ## その他
 - スキーマ同期は環境やDBのバージョン差により動作が変わる可能性がある。大きなスキーマ変更はマイグレーション手順書を別途用意すること。
 - 生成される SQL は MySQL 向けを想定しており、他のDBでは互換性がない可能性がある。
@@ -42,6 +64,7 @@
 
 ## 変更履歴
 - 2.0.0 - 2025-12-31: ドキュメント作成
+- 2026-01-05: `email_change_requests` テーブルを追加（メール変更の所有者確認フロー用）
 
 ## コミットメッセージ例
-- docs(db): DbSchema の仕様書を追加
+- docs(db): DbSchema に email_change_requests の仕様を追加

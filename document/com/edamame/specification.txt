@@ -1,9 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.51
-- **最終更新**: 2025-12-25
-- 注記: 2025-12-24 〜 2025-12-25 にユーザー管理機能の改善を実施しました（自己編集禁止、最後のadmin保護、ロール編集時の保護、フロント側のモーダル/エラー表示改善等）。詳細は以下の "ユーザー管理" セクションを参照してください。
+- **specification.txt version**: v1.0.52
+- **最終更新**: 2026-01-06
+- 注記: 2026-01-05 〜 2026-01-06 にユーザー管理機能の拡張を実施しました（自己メール変更時の所有者確認フロー追加、フロント側の確認コードモーダル実装、DBスキーマ email_change_requests の追加等）。詳細は以下の "ユーザー管理" セクションおよび `document/com/edamame/security/db/DbSchema.md`, `document/resources/static/profile_modal.md` を参照してください。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 

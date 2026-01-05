@@ -744,6 +744,149 @@ public class UserServiceImpl implements UserService {
     }
 
     /**
+     * メール変更リクエストを作成し、6桁コードを新しいメール宛に送信する
+     */
+    @Override
+    public long requestEmailChange(String username, String newEmail, String requestIp) {
+        if (username == null || newEmail == null || newEmail.trim().isEmpty()) return -1L;
+        long userId = -1L;
+        String userSql = "SELECT id, email FROM users WHERE username = ? LIMIT 1";
+        try (PreparedStatement ps = getConnection().prepareStatement(userSql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) { userId = rs.getLong(1); String cur = rs.getString(2); if (cur != null && cur.equalsIgnoreCase(newEmail.trim())) { AppLogger.log("requestEmailChange: 新しいメールが現在のメールと同一です", "DEBUG"); return -1L; } } else { return -1L; } }
+        } catch (SQLException e) { AppLogger.warn("requestEmailChange: ユーザー検索でエラー: " + e.getMessage()); return -1L; }
+
+        // 6桁コード生成
+        java.security.SecureRandom rnd = new java.security.SecureRandom();
+        int n = rnd.nextInt(1_000_000);
+        String code = String.format("%06d", n);
+        String codeHash = sha256Hex(code);
+        java.sql.Timestamp created = java.sql.Timestamp.valueOf(LocalDateTime.now());
+        java.sql.Timestamp expires = java.sql.Timestamp.valueOf(LocalDateTime.now().plusMinutes(15));
+
+        String insertSql = "INSERT INTO email_change_requests (user_id, new_email, code_hash, is_used, created_at, expires_at, request_ip, attempts) VALUES (?, ?, ?, FALSE, ?, ?, ?, 0)";
+        long requestId = -1L;
+
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try (PreparedStatement ps = getConnection().prepareStatement(insertSql, java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                ps.setLong(1, userId);
+                ps.setString(2, newEmail);
+                ps.setString(3, codeHash);
+                ps.setTimestamp(4, created);
+                ps.setTimestamp(5, expires);
+                ps.setString(6, requestIp == null ? "" : requestIp);
+                int v = ps.executeUpdate();
+                if (v <= 0) { AppLogger.warn("requestEmailChange: email_change_requests 挿入が0件でした attempt=" + attempt); continue; }
+                try (ResultSet gk = ps.getGeneratedKeys()) { if (gk.next()) requestId = gk.getLong(1); }
+                break;
+            } catch (SQLException e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+                if (msg.contains("unknown table") || msg.contains("doesn't exist") || msg.contains("no such table")) {
+                    AppLogger.warn("requestEmailChange: email_change_requests テーブルが見つかりません: " + e.getMessage());
+                    return -1L;
+                }
+                AppLogger.warn("requestEmailChange SQLエラー (試行:" + attempt + "): " + e.getMessage());
+                try { Thread.sleep(100 * attempt); } catch (InterruptedException ignored) {}
+            }
+        }
+
+        if (requestId <= 0) { AppLogger.warn("requestEmailChange: リクエストID取得に失敗しました"); return -1L; }
+
+        // メール送信
+        try {
+            MailActionHandler mailer = com.edamame.security.NginxLogToMysql.getSharedMailHandler();
+            if (mailer == null) mailer = new MailActionHandler();
+            String base = System.getenv("WEB_BASE_URL"); if (base == null || base.isEmpty()) base = "http://localhost:8080";
+            String subject = "[Edamame] メールアドレス変更確認コード";
+            String body = "以下の6桁の確認コードを入力して、メールアドレスの変更を完了してください。\n\nコード: " + code + "\n有効期限: 15分\nリクエストID: " + requestId + "\n\nもし心当たりがない場合はこのメールを破棄してください。\n\n--\nEdamame Security Analyzer\n";
+            String res = mailer.sendToAddress("noreply@example.com", "Edamame Security Analyzer", newEmail, subject, body);
+            AppLogger.log("requestEmailChange: メール送信結果: " + res, "INFO");
+            if (res != null && res.startsWith("送信成功")) {
+                return requestId;
+            } else {
+                AppLogger.warn("requestEmailChange: メール送信が失敗したためリクエストID=" + requestId + " を無効化します");
+                try (PreparedStatement ups = getConnection().prepareStatement("UPDATE email_change_requests SET is_used = TRUE WHERE id = ?")) { ups.setLong(1, requestId); ups.executeUpdate(); } catch (SQLException ignored) {}
+                return -1L;
+            }
+        } catch (Exception e) { AppLogger.warn("requestEmailChange: メール送信に失敗: " + e.getMessage());
+            try (PreparedStatement ups = getConnection().prepareStatement("UPDATE email_change_requests SET is_used = TRUE WHERE id = ?")) { ups.setLong(1, requestId); ups.executeUpdate(); } catch (SQLException ignored) {}
+            return -1L; }
+    }
+
+    /**
+     * メール変更リクエストの6桁コードを検証し、成功したらユーザーのメールアドレスを更新する
+     */
+    @Override
+    public boolean verifyEmailChange(String username, long requestId, String code) {
+        if (username == null || requestId <= 0 || code == null) return false;
+        long userId = -1L;
+        String findUserSql = "SELECT id FROM users WHERE username = ? LIMIT 1";
+        try (PreparedStatement ps = getConnection().prepareStatement(findUserSql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) userId = rs.getLong(1); else return false; }
+        } catch (SQLException e) { AppLogger.warn("verifyEmailChange: ユーザー検索でエラー: " + e.getMessage()); return false; }
+
+        String selSql = "SELECT id, user_id, new_email, code_hash, is_used, expires_at, attempts FROM email_change_requests WHERE id = ? LIMIT 1";
+        String codeHash = sha256Hex(code);
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try (PreparedStatement ps = getConnection().prepareStatement(selSql)) {
+                ps.setLong(1, requestId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (!rs.next()) { AppLogger.log("verifyEmailChange: リクエストが見つかりません id=" + requestId, "WARN"); return false; }
+                    long rid = rs.getLong("id");
+                    long uid = rs.getLong("user_id");
+                    String newEmail = rs.getString("new_email");
+                    String storedHash = rs.getString("code_hash");
+                    boolean used = false; try { used = rs.getBoolean("is_used"); } catch (Exception ignored) {}
+                    java.sql.Timestamp expires = null; try { expires = rs.getTimestamp("expires_at"); } catch (Exception ignored) {}
+                    int attempts = 0; try { attempts = rs.getInt("attempts"); } catch (Exception ignored) {}
+
+                    if (uid != userId) { AppLogger.warn("verifyEmailChange: リクエストのユーザーIDが一致しません"); return false; }
+                    if (used) { AppLogger.log("verifyEmailChange: 既に使用済みのリクエストです id=" + requestId, "WARN"); return false; }
+                    if (expires != null && expires.getTime() < System.currentTimeMillis()) { AppLogger.log("verifyEmailChange: リクエスト期限切れ id=" + requestId, "WARN"); return false; }
+
+                    if (storedHash != null && storedHash.equals(codeHash)) {
+                        // 成功: トランザクションで users.email を更新し、リクエストを使用済みにする
+                        try {
+                            var conn = getConnection();
+                            boolean oldAuto = conn.getAutoCommit();
+                            try {
+                                conn.setAutoCommit(false);
+                                try (PreparedStatement ups = conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?")) {
+                                    ups.setString(1, newEmail);
+                                    ups.setLong(2, userId);
+                                    int updated = ups.executeUpdate();
+                                    if (updated <= 0) { conn.rollback(); AppLogger.warn("verifyEmailChange: users 更新が0件でした"); return false; }
+                                }
+                                try (PreparedStatement mps = conn.prepareStatement("UPDATE email_change_requests SET is_used = TRUE WHERE id = ?")) { mps.setLong(1, requestId); mps.executeUpdate(); }
+                                conn.commit();
+                                return true;
+                            } catch (SQLException se) {
+                                try { conn.rollback(); } catch (Exception ignored) {}
+                                AppLogger.warn("verifyEmailChange: トランザクションエラー: " + se.getMessage());
+                                return false;
+                            } finally {
+                                try { conn.setAutoCommit(oldAuto); } catch (Exception ignored) {}
+                            }
+                        } catch (Exception ex) { AppLogger.warn("verifyEmailChange: DB接続/更新で例外: " + ex.getMessage()); return false; }
+                    } else {
+                        // 不正コード: 試行回数をインクリメント
+                        try (PreparedStatement ups = getConnection().prepareStatement("UPDATE email_change_requests SET attempts = attempts + 1 WHERE id = ?")) { ups.setLong(1, requestId); ups.executeUpdate(); } catch (SQLException e) { AppLogger.warn("verifyEmailChange: attempts 更新エラー: " + e.getMessage()); }
+                        return false;
+                    }
+                }
+            } catch (SQLException e) {
+                String msg = e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+                if (msg.contains("unknown table") || msg.contains("doesn't exist") || msg.contains("no such table")) { AppLogger.warn("verifyEmailChange: email_change_requests テーブルが見つかりません: " + e.getMessage()); return false; }
+                AppLogger.warn("verifyEmailChange SQLエラー (試行:" + attempt + "): " + e.getMessage());
+                try { Thread.sleep(100 * attempt); } catch (InterruptedException ignored) {}
+            }
+        }
+        AppLogger.error("verifyEmailChange に失敗しました: 最大試行回数到達");
+        return false;
+    }
+
+    /**
      * 入力文字列のSHA-256ハッシュを16進文字列で返すユーティリティ
      */
     private static String sha256Hex(String input) {

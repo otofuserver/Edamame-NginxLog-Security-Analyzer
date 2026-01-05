@@ -170,7 +170,7 @@ public class WebConfig {
                          <div class="form-row">
                            <label>メール</label>
                            <div style="display:flex;gap:.5rem;align-items:center;">
-                             <input type="email" id="profile-email" readonly style="flex:1;min-width:0;padding:.45rem .5rem;border:1px solid #d7dbe2;border-radius:6px;" />
+                             <input type="email" id="profile-email" inputmode="email" autocomplete="email" readonly style="flex:1;min-width:0;padding:.45rem .5rem;border:1px solid #d7dbe2;border-radius:6px;" />
                              <button type="button" id="profile-edit-btn" style="flex:0 0 auto;white-space:nowrap;">編集</button>
                            </div>
                          </div>

@@ -134,6 +134,23 @@ public class DbSchema {
         activationTokensDefs.put("constraint fk_activation_tokens_user", "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE");
         autoSyncTableColumns(dbSession, "activation_tokens", activationTokensDefs, null);
 
+        // --------------------------------------------------
+        // email_change_requests
+        // ユーザーのメールアドレス変更リクエスト（6桁コードのハッシュを保存）
+        var emailChangeDefs = new java.util.LinkedHashMap<String, String>();
+        emailChangeDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
+        emailChangeDefs.put("user_id", "INT NOT NULL");
+        emailChangeDefs.put("new_email", "VARCHAR(255) NOT NULL");
+        emailChangeDefs.put("code_hash", "CHAR(64) NOT NULL");
+        emailChangeDefs.put("is_used", "BOOLEAN DEFAULT FALSE");
+        emailChangeDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        emailChangeDefs.put("expires_at", "DATETIME NULL");
+        emailChangeDefs.put("request_ip", "VARCHAR(45) DEFAULT ''");
+        emailChangeDefs.put("attempts", "INT DEFAULT 0");
+        // 外部キー制約: user_id -> users(id)
+        emailChangeDefs.put("constraint fk_email_change_user", "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE");
+        autoSyncTableColumns(dbSession, "email_change_requests", emailChangeDefs, null);
+
         // users_roles（ユーザー・ロール中間テーブル）
         var usersRolesDefs = new java.util.LinkedHashMap<String, String>();
         usersRolesDefs.put("user_id", "INT NOT NULL");

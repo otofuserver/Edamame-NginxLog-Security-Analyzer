@@ -124,23 +124,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 検索はサーバーサイドで実行（ユーザー名・メールアドレスで部分一致検索、ページング対応）。
   - 断片テンプレート: `src/main/resources/fragments/user_management.html` を追加。
 - fix(web): Web経由の新規ユーザー登録時はデフォルトで無効（is_active=false）で作成するように変更。管理者が明示的に `enabled` を渡した場合はその値を尊重します。
+- feat(auth): メール変更の所有者確認フローを追加
+  - `email_change_requests` テーブルを追加し、6桁ワンタイムコードによるメール所有者確認を実装
+  - API: `POST /api/me/email-change/request` (リクエスト作成) および `POST /api/me/email-change/verify` (確認コード検証)
+  - フロントエンド: `profile_modal.js` に確認コードモーダルを実装し、メール変更時にコード入力を促すUIを追加
 
 ### Changed
-- DB: `action_tools` / `action_rules` のスキーマ互換性対応を実施（2025-11-27）
-  - `action_tools` に `command_template` (TEXT) を追加
-  - `action_tools.tool_type` に `DEFAULT 'shell'` を設定して初期データとの互換性を確保
-  - `action_rules` に `condition_expression` (TEXT)、`is_active` (BOOLEAN DEFAULT TRUE)、`description` (TEXT) を追加
-  - `DbInitialData` の初期データ挿入処理を互換化（テーブルのカラム存在チェックを行い、存在するカラムのみでINSERTする方式に改修）
+- fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）
+- docs: ドキュメントを追記/更新
+  - `document/resources/static/profile_modal.md` を追加
+  - `document/com/edamame/security/db/DbSchema.md` に `email_change_requests` テーブル仕様を追加
+  - `document/com/edamame/web/controller/UserManagementController.md` にメール変更フローを追記
+  - `document/com/edamame/web/service/UserService.md` に `requestEmailChange` / `verifyEmailChange` 契約を追加
 
 ### Notes
-- この変更は起動時の "Unknown column" や "Field ... doesn't have a default value" のエラーを解消する目的で行われました。
-- スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により既存DBに不足しているカラムが自動追加されることを想定しています。ステージングでの十分な確認と本番移行前のDBバックアップを必ず行ってください。
+- DB スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により `email_change_requests` が自動生成される想定だが、本番適用前に必ず DB のフルバックアップを取得すること。
+- メール送信の監査ログと検証試行回数制限（attempts に基づくロック）を運用ルールとして推奨する。
 
-### 2025-12-17 - ドキュメント追加とDB接続耐障害性の改善
-- docs(web): `document/web` に Web パッケージ仕様書を追加（ダッシュボード/断片/認証/コントローラ/サービス等の仕様）
-- fix(db): `DbSession.ensureConnected()` を追加し、`DbService.getConnection()` が接続の健全性を確認して必要に応じて再接続を試行するように変更（最大リトライ既存設定に従う）
-- fix(auth): 認証処理のログ記録を堅牢化（`insertLoginHistory` をユーザーID取得→INSERT の方式に変更）および SQLException 詳細ログ出力を追加
+### Commits
+- docs(ui): profile_modal.js の仕様書を追加
+- feat(api): メール変更所有者確認フローを追加（/api/me/email-change/*）
+- docs(db): DbSchema に email_change_requests を追加
 
-### Notes
-- 上記の DB 側の改善により、MySQL 再起動等で既存 Connection が切断された場合でも自動で再接続を試み、アプリケーションの一時的な障害を低減します。長時間の停止や継続的な接続障害に対しては追加の監視・アラート設定を推奨します。
-- ドキュメント追加は `document/web` に格納されています。`document/` が .gitignore に設定されている場合は、必要なファイルを強制追加(-f)してコミット済みです。
+---

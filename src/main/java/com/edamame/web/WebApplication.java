@@ -138,6 +138,11 @@ public class WebApplication {
         // 明示的に UserManagementController を割り当てる（/api より前に登録）
         server.createContext("/api/me/profile", new UserManagementController(authService));
         server.createContext("/api/me/password", new UserManagementController(authService));
+        // /api/me 配下の汎用ルートも UserManagementController に任せる（email-change など）
+        server.createContext("/api/me", new UserManagementController(authService));
+        // 明示的に email-change のエンドポイントを UserManagementController に割り当て（POST を許可するため）
+        server.createContext("/api/me/email-change/request", new UserManagementController(authService));
+        server.createContext("/api/me/email-change/verify", new UserManagementController(authService));
 
         server.createContext("/api", new ApiController(dataService, authService));
 

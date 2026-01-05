@@ -21,6 +21,7 @@ import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * ユーザー管理関連のAPIコントローラ
@@ -32,6 +33,9 @@ public class UserManagementController implements HttpHandler {
     private final UserService userService;
     private final FragmentService fragmentService;
     private final ObjectMapper objectMapper;
+
+    // 正規表現によるメール検証（サーバ側）
+    private static final Pattern EMAIL_PATTERN = Pattern.compile("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
 
     public UserManagementController(AuthenticationService authService) {
         this.authService = authService;
@@ -109,6 +113,18 @@ public class UserManagementController implements HttpHandler {
             // 自分のプロフィール更新: PUT /api/me/profile
             if ("PUT".equals(method) && normalizedPath.equals("/api/me/profile")) {
                 handleUpdateMyProfile(exchange);
+                return;
+            }
+
+            // メール変更リクエスト作成: POST /api/me/email-change/request
+            if ("POST".equals(method) && normalizedPath.equals("/api/me/email-change/request")) {
+                handleRequestEmailChange(exchange);
+                return;
+            }
+
+            // メール変更検証: POST /api/me/email-change/verify
+            if ("POST".equals(method) && normalizedPath.equals("/api/me/email-change/verify")) {
+                handleVerifyEmailChange(exchange);
                 return;
             }
 
@@ -562,6 +578,7 @@ public class UserManagementController implements HttpHandler {
 
     /**
      * 自分のプロフィール更新: PUT /api/me/profile
+     * サーバ側でメール形式を検証し、メールが変更される場合は所有者確認フローを起動する
      */
     private void handleUpdateMyProfile(HttpExchange exchange) throws IOException {
         String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
@@ -574,10 +591,99 @@ public class UserManagementController implements HttpHandler {
         String email = payload.containsKey("email") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("email"))) : null;
         String name = payload.containsKey("name") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("name"))) : null;
         if (email == null && name == null) { sendJsonError(exchange, 400, "nothing to update"); return; }
-        // Update only email currently (name may be stored elsewhere); reuse updateUser for email
-        boolean ok = userService.updateUser(username, email == null ? optDefault(email) : email, true);
-        if (!ok) { sendJsonError(exchange, 500, "failed to update"); return; }
-        sendJsonResponse(exchange, 200, Map.of("ok", true));
+
+        // サーバ側でメール形式を検証（信頼できないクライアントを考慮）
+        if (email != null && !EMAIL_PATTERN.matcher(email).matches()) {
+            sendJsonError(exchange, 400, "invalid email format");
+            return;
+        }
+
+        // 名前のみの更新は既存フローで許可
+        if (email == null) {
+            boolean ok = userService.updateUser(username, optDefault(email), true);
+            if (!ok) { sendJsonError(exchange, 500, "failed to update"); return; }
+            sendJsonResponse(exchange, 200, Map.of("ok", true));
+            return;
+        }
+
+        // メールが現在と同じなら直接更新
+        var opt = userService.findByUsername(username);
+        if (opt.isPresent()) {
+            var dto = opt.get();
+            String currentEmail = dto.getEmail();
+            if (currentEmail != null && currentEmail.equalsIgnoreCase(email)) {
+                boolean ok = userService.updateUser(username, email, true);
+                if (!ok) { sendJsonError(exchange, 500, "failed to update"); return; }
+                sendJsonResponse(exchange, 200, Map.of("ok", true));
+                return;
+            }
+        }
+
+        // メールが変更される場合は確認フローを開始する
+        String reqIp = "";
+        try { reqIp = exchange.getRemoteAddress() == null ? "" : exchange.getRemoteAddress().getAddress().getHostAddress(); } catch (Exception ignored) {}
+        long requestId = -1L;
+        try { requestId = userService.requestEmailChange(username, email, reqIp); } catch (Exception e) { AppLogger.warn("handleUpdateMyProfile: requestEmailChange エラー: " + e.getMessage()); }
+        if (requestId > 0) {
+            // 検証が必要であることを示す応答を返す
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("ok", true);
+            resp.put("verificationRequired", true);
+            resp.put("requestId", requestId);
+            sendJsonResponse(exchange, 200, resp);
+            return;
+        } else {
+            sendJsonError(exchange, 500, "failed to initiate email change request");
+            return;
+        }
+    }
+
+    /**
+     * POST /api/me/email-change/request
+     * body: { "newEmail": "..." }
+     */
+    private void handleRequestEmailChange(HttpExchange exchange) throws IOException {
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        String username = authService.getUsernameBySessionId(sessionId);
+        if (username == null) { sendJsonError(exchange, 401, "Unauthorized"); return; }
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        Map<String, Object> payload;
+        try { payload = objectMapper.readValue(body, new TypeReference<>(){}); } catch (Exception e) { sendJsonError(exchange, 400, "invalid json"); return; }
+        String newEmail = payload.containsKey("newEmail") ? WebSecurityUtils.sanitizeInput(String.valueOf(payload.get("newEmail"))) : null;
+        if (newEmail == null || !EMAIL_PATTERN.matcher(newEmail).matches()) { sendJsonError(exchange, 400, "invalid email format"); return; }
+        String reqIp = "";
+        try { reqIp = exchange.getRemoteAddress() == null ? "" : exchange.getRemoteAddress().getAddress().getHostAddress(); } catch (Exception ignored) {}
+        long requestId = -1L;
+        try { requestId = userService.requestEmailChange(username, newEmail, reqIp); } catch (Exception e) { AppLogger.warn("handleRequestEmailChange: userService.requestEmailChange エラー: " + e.getMessage()); }
+        if (requestId > 0) {
+            sendJsonResponse(exchange, 200, Map.of("ok", true, "requestId", requestId));
+        } else {
+            sendJsonError(exchange, 500, "failed to create email change request");
+        }
+    }
+
+    /**
+     * POST /api/me/email-change/verify
+     * body: { "requestId": 123, "code": "012345" }
+     */
+    private void handleVerifyEmailChange(HttpExchange exchange) throws IOException {
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        String username = authService.getUsernameBySessionId(sessionId);
+        if (username == null) { sendJsonError(exchange, 401, "Unauthorized"); return; }
+        String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+        Map<String, Object> payload;
+        try { payload = objectMapper.readValue(body, new TypeReference<>(){}); } catch (Exception e) { sendJsonError(exchange, 400, "invalid json"); return; }
+        long requestId = -1L;
+        try {
+            if (payload.containsKey("requestId")) requestId = Long.parseLong(String.valueOf(payload.get("requestId")));
+        } catch (Exception ignored) {}
+        String code = payload.containsKey("code") ? String.valueOf(payload.get("code")) : null;
+        if (requestId <= 0 || code == null) { sendJsonError(exchange, 400, "requestId and code required"); return; }
+        boolean ok = false;
+        try { ok = userService.verifyEmailChange(username, requestId, code); } catch (Exception e) { AppLogger.warn("handleVerifyEmailChange: userService.verifyEmailChange エラー: " + e.getMessage()); }
+        if (ok) sendJsonResponse(exchange, 200, Map.of("ok", true)); else sendJsonError(exchange, 400, "verification failed");
     }
 
     private static String optDefault(String v) { return v == null? "" : v; }

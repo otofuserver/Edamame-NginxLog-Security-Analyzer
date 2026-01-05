@@ -140,4 +140,23 @@ public interface UserService {
      * @return 送信成功なら true
      */
     boolean resendActivationEmail(String username);
+
+    /**
+     * メールアドレス変更リクエストを作成し、6桁コードを新しいメール宛に送信する。
+     * サーバ側でコードはハッシュ化して保存され、有効期限が設定される。
+     * @param username リクエストを行うユーザー名
+     * @param newEmail 新しいメールアドレス
+     * @param requestIp 要求元IP（ログ用）
+     * @return 作成されたリクエストID（失敗時は -1）
+     */
+    long requestEmailChange(String username, String newEmail, String requestIp);
+
+    /**
+     * メール変更リクエストの6桁コードを検証し、成功したらユーザーのメールアドレスを更新する
+     * @param username 検証を行うユーザー名
+     * @param requestId リクエストID
+     * @param code ユーザーに送信された6桁の数字コード
+     * @return 検証成功かつ更新成功なら true
+     */
+    boolean verifyEmailChange(String username, long requestId, String code);
 }
