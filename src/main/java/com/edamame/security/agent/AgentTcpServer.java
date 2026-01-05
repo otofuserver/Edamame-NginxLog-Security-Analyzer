@@ -734,7 +734,7 @@ public class AgentTcpServer {
                         String request = (String) logData.get("request");
                         if (ModSecHandler.isModSecurityRawLog(request)) {
                             ModSecHandler.processModSecurityAlertToQueue(request, actualServerName, modSecurityQueue);
-                            AppLogger.debug("ModSecurityアラートをキューに追加: サーバー=" + actualServerName);
+                            AppLogger.debug("ModSecurityアラート処理実行: サーバー=" + actualServerName);
                             continue; // ModSecurityエラーログは詳細情報保存のみで、access_logには記録しない
                         }
                     }
@@ -823,7 +823,7 @@ public class AgentTcpServer {
                     LocalDateTime accessTime = (LocalDateTime) parsedLog.get("access_time");
 
                     List<ModSecurityQueue.ModSecurityAlert> matchingAlerts =
-                        modSecurityQueue.findMatchingAlerts(actualServerName, method, fullUrl, accessTime);
+                        modSecurityQueue.findMatchingAlerts(actualServerName, fullUrl, accessTime);
 
                     if (!matchingAlerts.isEmpty()) {
                         AppLogger.info("ModSecurityアラート一致検出: " + matchingAlerts.size() + "件, access_log ID=" + accessLogId);

@@ -20,7 +20,7 @@ public class ModSecurityQueue {
     /**
      * ModSecurityアラート情報を保持するレコード
      */
-    public static record ModSecurityAlert(
+    public record ModSecurityAlert(
         String ruleId,
         String message,
         String dataValue,
@@ -36,8 +36,8 @@ public class ModSecurityQueue {
     // サーバー名単位でアラートキューを管理
     private final Map<String, Queue<ModSecurityAlert>> alertQueues = new HashMap<>();
 
-    // アラートの保持期間（秒）- 60秒に延長して関連付け成功率を向上
-    private static final int ALERT_RETENTION_SECONDS = 60;
+    // アラートの保持期間（秒）: ModSecログとアクセスログのマッチングは +-30 秒以内を採用
+    private static final int ALERT_RETENTION_SECONDS = 30;
 
     /**
      * ModSecurityクリーンアップタスクを開始
@@ -53,8 +53,6 @@ public class ModSecurityQueue {
                     boolean executed = cleanupExpiredAlerts();
                     if (executed) {
                         AppLogger.debug("ModSecurityキューのクリーンアップ実行完了");
-                    } else {
-                        //AppLogger.debug("ModSecurityキューは空のためクリーンアップをスキップしました");
                     }
                 } catch (Exception e) {
                     AppLogger.error("ModSecurityキューのクリーンアップでエラー: " + e.getMessage());
@@ -107,7 +105,7 @@ public class ModSecurityQueue {
     /**
      * 指定されたHTTPリクエストに一致するModSecurityアラートを検索・取得
      */
-    public synchronized List<ModSecurityAlert> findMatchingAlerts(String serverName, String method,
+    public synchronized List<ModSecurityAlert> findMatchingAlerts(String serverName,
                                                                 String fullUrl, LocalDateTime accessTime) {
         List<ModSecurityAlert> matchingAlerts = new ArrayList<>();
 
@@ -137,7 +135,7 @@ public class ModSecurityQueue {
                 }
 
                 // URL一致チェック（詳細ログ付き）
-                if (isUrlMatching(alert.extractedUrl(), fullUrl, method)) {
+                if (isUrlMatching(alert.extractedUrl(), fullUrl)) {
                     matchingAlerts.add(alert);
                     alertsToRemove.add(alert);
                     AppLogger.info("ModSecurityアラート一致成功: ルール=" + alert.ruleId() +
@@ -286,7 +284,7 @@ public class ModSecurityQueue {
         // URLデコードが必要な場合は実行
         try {
             if (url.contains("%")) {
-                url = java.net.URLDecoder.decode(url, "UTF-8");
+                url = java.net.URLDecoder.decode(url, java.nio.charset.StandardCharsets.UTF_8);
             }
         } catch (Exception e) {
             AppLogger.debug("URLデコードエラー: " + e.getMessage());
@@ -303,28 +301,33 @@ public class ModSecurityQueue {
     /**
      * URL一致判定
      */
-    private boolean isUrlMatching(String alertUrl, String requestUrl, String method) {
+    private boolean isUrlMatching(String alertUrl, String requestUrl) {
         try {
             if (alertUrl == null || alertUrl.isEmpty()) {
                 return false;
             }
 
-            // 完全一致
-            if (alertUrl.equals(requestUrl)) {
-                return true;
-            }
+            // 正規化（デコード・小文字化・末尾スラッシュ削除など）
+            String normAlert = normalizeForComparison(alertUrl);
+            String normRequest = normalizeForComparison(requestUrl);
 
-            // パス部分の一致（クエリパラメータ除去して比較）
-            String alertPath = alertUrl.split("\\?")[0];
-            String requestPath = requestUrl.split("\\?")[0];
+            // 1) 完全一致（正規化済）
+            if (normAlert.equals(normRequest)) return true;
 
-            if (alertPath.equals(requestPath)) {
-                return true;
-            }
+            // 2) パス部分の一致（クエリパラメータを除去して比較）
+            String alertPath = stripQuery(normAlert);
+            String requestPath = stripQuery(normRequest);
+            if (!alertPath.isEmpty() && alertPath.equals(requestPath)) return true;
 
-            // 部分一致（アラートURLがリクエストURLに含まれる場合）
-            if (requestUrl.contains(alertUrl)) {
-                return true;
+            // 3) 部分一致（アラートURLがリクエストURLに含まれる、またはその逆）
+            if (!normAlert.isEmpty() && normRequest.contains(normAlert)) return true;
+            if (!normRequest.isEmpty() && normAlert.contains(normRequest)) return true;
+
+            // 4) クエリパラメータ内の値が一致するケース（例: ?q=<script>...）
+            String alertQuery = extractQuery(normAlert);
+            String requestQuery = extractQuery(normRequest);
+            if (!alertQuery.isEmpty() && !requestQuery.isEmpty()) {
+                if (requestQuery.contains(alertQuery) || alertQuery.contains(requestQuery)) return true;
             }
 
             return false;
@@ -332,6 +335,40 @@ public class ModSecurityQueue {
             AppLogger.debug("URL一致判定エラー: " + e.getMessage());
             return false;
         }
+    }
+
+    // URL比較用の正規化（デコード・小文字化・末尾スラッシュ削除）
+    private String normalizeForComparison(String url) {
+        if (url == null) return "";
+        String s = url.trim();
+        try {
+            if (s.contains("%")) {
+                s = java.net.URLDecoder.decode(s, java.nio.charset.StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            AppLogger.debug("URLデコードエラー(normalizeForComparison): " + e.getMessage());
+        }
+        // HTMLエンティティが含まれる場合は基本的な置換
+        s = s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+        // 小文字化して比較の緩和
+        s = s.toLowerCase();
+        // 末尾のスラッシュを除去（ルートは / のまま）
+        if (s.length() > 1 && s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
+    }
+
+    // クエリ以降を削除してパスだけを返す
+    private String stripQuery(String url) {
+        if (url == null) return "";
+        int idx = url.indexOf('?');
+        return idx >= 0 ? url.substring(0, idx) : url;
+    }
+
+    // クエリ文字列を取り出す（?以降）
+    private String extractQuery(String url) {
+        if (url == null) return "";
+        int idx = url.indexOf('?');
+        return idx >= 0 ? url.substring(idx + 1) : "";
     }
 
     /**
@@ -343,5 +380,31 @@ public class ModSecurityQueue {
             status.put(entry.getKey(), entry.getValue().size());
         }
         return status;
+    }
+
+    /**
+     * 指定サーバーのキューから rawLog に一致するアラートを削除（破棄）する
+     * @param serverName サーバー名
+     * @param rawLog ModSecurity の生ログテキスト（完全一致を試す）
+     */
+    public synchronized void removeAlertsForServerByRawLog(String serverName, String rawLog) {
+        try {
+            Queue<ModSecurityAlert> queue = alertQueues.get(serverName);
+            if (queue == null || queue.isEmpty()) return;
+            Iterator<ModSecurityAlert> it = queue.iterator();
+            int removed = 0;
+            while (it.hasNext()) {
+                ModSecurityAlert a = it.next();
+                if (a.rawLog() != null && a.rawLog().equals(rawLog)) {
+                    it.remove();
+                    removed++;
+                }
+            }
+            if (removed > 0) {
+                AppLogger.debug("キューから該当ModSecurityアラートを削除(破棄): server=" + serverName + ", removed=" + removed);
+            }
+        } catch (Exception e) {
+            AppLogger.error("キューからアラート削除エラー: " + e.getMessage());
+        }
     }
 }

@@ -94,9 +94,9 @@ public class ModSecHandler {
                     continue;
                 }
 
-                // ModSecurityアラートキューから一致するアラートを検索
+                // ModSecurityキューから一致するアラートを検索（method 引数は不要になったため削除）
                 List<ModSecurityQueue.ModSecurityAlert> matchingAlerts =
-                    modSecurityQueue.findMatchingAlerts(serverName, method, fullUrl, accessTime);
+                    modSecurityQueue.findMatchingAlerts(serverName, fullUrl, accessTime);
 
                 if (!matchingAlerts.isEmpty()) {
                     AppLogger.info("定期チェックでModSecurityアラート一致検出: " + matchingAlerts.size() +
@@ -310,7 +310,7 @@ public class ModSecHandler {
         // URLデコードが必要な場合は実行
         try {
             if (url.contains("%")) {
-                url = java.net.URLDecoder.decode(url, "UTF-8");
+                url = java.net.URLDecoder.decode(url, java.nio.charset.StandardCharsets.UTF_8);
             }
         } catch (Exception e) {
             AppLogger.debug("URLデコードエラー: " + e.getMessage());
@@ -341,10 +341,12 @@ public class ModSecHandler {
     }
 
     /**
-     * ModSecurityエラーログを解析してキューに追加
+     * ModSecurityエラーログを解析して即時紐づけを試行する
+     *  - favicon は破棄
+     *  - 同一秒で一致すれば即時紐づけ、見つからなければ ±30秒で再検索
+     *  - 見つからなければ破棄
      * @param rawLog ModSecurityのログ行
      * @param serverName サーバー名
-     * @param modSecurityQueue ModSecurityキュー
      */
     public static void processModSecurityAlertToQueue(String rawLog, String serverName, ModSecurityQueue modSecurityQueue) {
         try {
@@ -352,20 +354,134 @@ public class ModSecHandler {
             Map<String, String> extractedInfo = extractModSecInfo(rawLog);
 
             if (!extractedInfo.isEmpty()) {
-                // キューに追加（時刻情報を詳細ログ出力）
+                // 抽出されたURL情報
+                String extractedUrl = extractedInfo.getOrDefault("url", "");
+
+                // 1) favicon は破棄
+                if (extractedUrl != null && !extractedUrl.isBlank()) {
+                    String normalized = extractedUrl.trim();
+                    int qIdx = normalized.indexOf('?');
+                    if (qIdx >= 0) normalized = normalized.substring(0, qIdx);
+                    if ("/favicon.ico".equalsIgnoreCase(normalized) || normalized.endsWith("/favicon.ico")) {
+                        AppLogger.debug("ModSecurityアラート破棄: favicon のためキュー登録しない - URL=" + extractedUrl);
+                        return; // 破棄
+                    }
+                }
+
+                // アラート検出時刻を記録
                 LocalDateTime alertTime = LocalDateTime.now();
-                modSecurityQueue.addAlert(serverName, extractedInfo, rawLog);
-                AppLogger.info("ModSecurityアラートをキューに追加: サーバー=" + serverName +
-                              ", ルール=" + extractedInfo.get("id") +
-                              ", URL=" + extractedInfo.get("url") +
-                              ", 検出時刻=" + alertTime +
-                              ", メッセージ=" + extractedInfo.get("msg"));
-            } else {
-                AppLogger.warn("ModSecurityログの解析に失敗: " + rawLog);
+                AppLogger.info("ModSecurityアラート検出: サーバー=" + serverName + ", ルール=" + extractedInfo.get("id") + ", URL=" + extractedInfo.get("url") + ", 時刻=" + alertTime + ", メッセージ=" + extractedInfo.get("msg"));
+
+                // --- 即時マッチング: 直近の access_log を取得してキュー内アラートと突合せを試行 ---
+                try {
+                    // 直近1分以内のログを取得（±30秒探索のため1分範囲を取得）
+                    List<Map<String, Object>> recentAccessLogs = selectRecentAccessLogsForModSecMatching(1);
+                    Long matchedAccessLogId = null;
+                    long bestDiff = Long.MAX_VALUE;
+
+                    // 比較用に抽出URLを正規化
+                    String extractedUrlNorm = normalizeUrlForComparison(extractedInfo.getOrDefault("url", ""));
+
+                    // 1) 同一秒で先に一致を探す
+                    for (Map<String, Object> accessLog : recentAccessLogs) {
+                        Long accessLogId = (Long) accessLog.get("id");
+                        String alServer = (String) accessLog.get("server_name");
+                        if (!serverName.equals(alServer)) continue;
+                        String fullUrl = (String) accessLog.get("full_url");
+                        LocalDateTime accessTime = (LocalDateTime) accessLog.get("access_time");
+
+                        long secondsDiff = Math.abs(java.time.Duration.between(alertTime, accessTime).getSeconds());
+                        if (secondsDiff != 0) continue; // 同一秒のみ
+
+                        String fullUrlNorm = normalizeUrlForComparison(fullUrl);
+                        if (extractedUrlNorm.equals(fullUrlNorm)) {
+                            matchedAccessLogId = accessLogId;
+                            bestDiff = secondsDiff;
+                            break;
+                        }
+                    }
+
+                    // 2) 同一秒で見つからなければ ±30 秒で検索
+                    if (matchedAccessLogId == null) {
+                        for (Map<String, Object> accessLog : recentAccessLogs) {
+                            Long accessLogId = (Long) accessLog.get("id");
+                            String alServer = (String) accessLog.get("server_name");
+                            if (!serverName.equals(alServer)) continue;
+                            String fullUrl = (String) accessLog.get("full_url");
+                            LocalDateTime accessTime = (LocalDateTime) accessLog.get("access_time");
+
+                            long secondsDiff = Math.abs(java.time.Duration.between(alertTime, accessTime).getSeconds());
+                            if (secondsDiff <= 30) {
+                                String fullUrlNorm = normalizeUrlForComparison(fullUrl);
+                                if (extractedUrlNorm.equals(fullUrlNorm)) {
+                                    if (secondsDiff < bestDiff) {
+                                        matchedAccessLogId = accessLogId;
+                                        bestDiff = secondsDiff;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (matchedAccessLogId != null) {
+                        AppLogger.info("ModSecurityアラート即時紐づけ成功: access_log ID=" + matchedAccessLogId + ", ルール=" + extractedInfo.get("id") + ", 時間差=" + bestDiff + "秒");
+                        // access_logのblocked_by_modsecをtrueに更新
+                        updateAccessLogModSecStatus(matchedAccessLogId, true);
+
+                        // DB保存用の構造体を作る（modSecurityQueue 内の alert を使わないため）
+                        ModSecurityQueue.ModSecurityAlert alertForSave = new ModSecurityQueue.ModSecurityAlert(
+                                extractedInfo.getOrDefault("id", "unknown"),
+                                extractedInfo.getOrDefault("msg", "ModSecurity Alert"),
+                                extractedInfo.getOrDefault("data", ""),
+                                extractedInfo.getOrDefault("severity", "unknown"),
+                                serverName,
+                                rawLog,
+                                alertTime,
+                                extractedInfo.getOrDefault("url", "")
+                        );
+
+                        saveModSecurityAlertToDatabase(matchedAccessLogId, alertForSave);
+                        AppLogger.info("即時マッチング - ModSecurityアラート保存: access_log ID=" + matchedAccessLogId + ", ルール=" + extractedInfo.getOrDefault("id", "unknown") + ", メッセージ=" + extractedInfo.getOrDefault("msg", ""));
+                        return; // 紐づけ済みなのでキューには入れない
+                    }
+
+                    // 見つからなければキューに追加して保持（後続のアクセスログと照合できるようにする）
+                    try {
+                        modSecurityQueue.addAlert(serverName, extractedInfo, rawLog);
+                        AppLogger.info("ModSecurityアラートをキューに追加: サーバー=" + serverName + ", ルール=" + extractedInfo.getOrDefault("id", "unknown") + ", URL=" + extractedInfo.getOrDefault("url", "") + ", 検出時刻=" + alertTime + ", メッセージ=" + extractedInfo.getOrDefault("msg", ""));
+                    } catch (Exception qe) {
+                        AppLogger.error("ModSecurityアラートのキュー追加エラー: " + qe.getMessage());
+                    }
+                    return;
+                } catch (Exception e) {
+                    AppLogger.warn("即時マッチングでエラー: " + e.getMessage());
+                    return;
+                }
+             } else {
+                 AppLogger.warn("ModSecurityログの解析に失敗: " + rawLog);
+             }
+         } catch (Exception e) {
+             AppLogger.error("ModSecurityアラートキュー追加エラー: " + e.getMessage());
+         }
+     }
+
+    // アラートとアクセスログのURLを比較するための正規化
+    private static String normalizeUrlForComparison(String url) {
+        if (url == null) return "";
+        String s = url.trim();
+        try {
+            if (s.contains("%")) {
+                s = java.net.URLDecoder.decode(s, java.nio.charset.StandardCharsets.UTF_8);
             }
         } catch (Exception e) {
-            AppLogger.error("ModSecurityアラートキュー追加エラー: " + e.getMessage());
+            AppLogger.debug("URLデコードエラー(normalizeUrlForComparison): " + e.getMessage());
         }
+        s = s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&");
+        s = s.toLowerCase();
+        // クエリはそのまま残す（比較で必要な場合がある）
+        // remove trailing slash except root
+        if (s.length() > 1 && s.endsWith("/")) s = s.substring(0, s.length() - 1);
+        return s;
     }
 
     /**

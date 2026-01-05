@@ -13,20 +13,30 @@
 - **定期的アラート照合**: `ModSecHandler.startPeriodicAlertMatching()`で5秒間隔の照合タスクを開始
 - **時間差対応**: ModSecurityアラートが先に到着してもアクセスログと適切に関連付け
 
+## 追記（2026-01-05）: 呼び出し側の変更点
+- `ModSecHandler.processModSecurityAlertToQueue` のシグネチャが `processModSecurityAlertToQueue(String rawLog, String serverName, ModSecurityQueue modSecurityQueue)` に変更されました。
+  - これにより `AgentTcpServer` は内部で `modSecurityQueue` を保持し、ModSecurity 生ログ（error.log 由来）を処理する際にこのキューを渡して即時処理を委譲します。
+- `processModSecurityAlertToQueue` の挙動変更により、受信した ModSecurity 生ログは次の流れで処理されます :
+  1. 抽出 URL が `/favicon.ico` の場合は破棄（キュー登録しない）。
+  2. 抽出時刻を基準に、まず同一秒（差=0）でアクセスログを検索し一致を試みる。見つかれば即時に access_log を更新して DB に保存する。
+  3. 同一秒で見つからなければ ±30 秒で再検索し、最も近い一致を採用する。
+  4. 即時照合で一致しなかった場合は `modSecurityQueue.addAlert(...)` によりキューに追加し一定時間保持する（デフォルト目安: 30 秒）。
+- `AgentTcpServer` は `processLogEntries` 内で error.log 由来のログを検出した際に `modSecurityQueue` を渡して `ModSecHandler.processModSecurityAlertToQueue` を呼び出すようになりました（該当箇所は `handleClientConnection` -> `processLogEntries` の中）。
+
 ## 主な処理フロー
 1. エージェントがログを収集し、必要なデコード・パースを実施
 2. サーバーはエージェントから受信したデータをそのまま利用（再decode不要）
-3. **ModSecurityアラート処理**: `ModSecHandler.extractModSecInfo()`で情報抽出、外部キューに追加
-4. **アラートキュー照合**: 注入されたModSecurityキューから一致するアラートを検索
+3. **ModSecurityアラート処理**: `ModSecHandler.extractModSecInfo()`で情報抽出、`ModSecHandler.processModSecurityAlertToQueue(request, serverName, modSecurityQueue)` を呼び出して即時紐づけを試行、紐づかなければキューへ追加
+4. **アラートキュー照合**: 注入されたModSecurityキューから一致するアラートを検索（アクセスログ保存時や定期タスクで照合）
 5. DB保存・攻撃判定・ホワイトリスト判定等は全てデコード済み値で統一
 
 ## 主なメソッド・処理
 
 ### コンストラクタ（v3.0.0変更）
-- `public AgentTcpServer(DbService dbService, ModSecurityQueue modSecurityQueue)`
+- `public AgentTcpServer(ModSecurityQueue modSecurityQueue)`
   - **必須パラメータ**: ModSecurityキューを外部から注入
   - **依存性注入**: キュー管理の責務を外部に委譲
-- `public AgentTcpServer(int port, DbService dbService, ModSecurityQueue modSecurityQueue)`
+- `public AgentTcpServer(int port, ModSecurityQueue modSecurityQueue)`
   - ポート指定版コンストラクタ
 
 ### 基本メソッド
@@ -61,13 +71,12 @@
   - エージェントから受信したログバッチ（JSON形式）を処理し、DBに保存。
   - 受信データはすべてデコード済み値を利用。
   - ログ保存後、攻撃判定・ホワイトリスト判定・**外部ModSecurityキューとの照合**を実施。
-  - **rawLogLineが空の場合のみbuildParsedLogFromAgentDataを使い、サーバー側でのLogParser.parseLogLineは廃止**。
+  - `ModSecHandler.processModSecurityAlertToQueue` を呼ぶ際には `modSecurityQueue` を渡すこと。
 - `private void handleBlockRequest(AgentSession session, byte[] data)`
   - ブロック要求の処理。
 - `private int processLogEntries(AgentSession session, List<Map<String, Object>> logs)`
   - ログバッチ内の各エントリを処理し、DB保存・攻撃判定・**外部ModSecurityキューとの関連付け**等を行う。
-  - **エージェント側でデコード済み値のみを利用し、サーバー側での生ログパースは行わない**。
-  - **外部ModSecurityキューからの一致検索・保存処理を含む**。
+  - **error.log 由来の行**については `ModSecHandler.processModSecurityAlertToQueue(request, serverName, modSecurityQueue)` を呼び出す。
 
 ### ユーティリティメソッド
 - `private String generateStrictRequestKey(Map<String, Object> parsedLog, String serverName)`
@@ -90,9 +99,9 @@
 - URLデコードはagent受信時のみ1回だけ実施。以降の全処理はデコード済み値を使い回す。
 - DB保存・攻撃判定・ホワイトリスト判定等は全てデコード済み値で統一。
 - **ModSecurityアラート管理**: 外部から注入されたModSecurityキューを使用。
-- **キュー管理の責務分離**: キュ���の初期化・タスク管理は`NginxLogToMysql`クラスが担当。
+- **キュー管理の責務分離**: キューの初期化・タスク管理は`NginxLogToMysql`クラスが担当。
 - **定期的アラート照合**: 外部で管理されるタスクによる自動照合。
-- **時間差対応**: ModSecurityアラートが先に到着してもアクセスログとの関連付けを保証。
+- **時間差対応**: ModSecurityアラートが先に到着してもアクセスログとの関連付けを保証（即時照合→未紐づけはキュー保持）。
 - 例外は呼び出し元でハンドリング。
 
 ## アーキテクチャ（v3.0.0変更）
@@ -117,16 +126,19 @@ NginxLogToMysql (メインクラス)
 - **キュー管理・タスク管理の機能は削除済み**。
 - **定期的アラート照合は外部で管理される**。
 
-## 2025/08/13 仕様追記（v3.0.0）
-- すべての攻撃判定・ホワイトリスト判定・DB保存は「デコード済み値」を使うこと。
-- **ModSecurityアラート管理アーキテクチャを大幅改善**：
-  - キュー管理の責務を`NginxLogToMysql`クラスに移管
-  - `AgentTcpServer`は外部から注入された��ューを使用する方式に変更
-  - 関心の分離と依存関係の明確化を実現
-- 仕様変更内容は`specification.txt`にも反映すること。
+## 変更履歴
+- 1.0.0 - 2025-12-30: 新規作成（ソースに基づく仕様書）
+- 1.0.1 - 2025-08-13: ModSecurityアラート管理アーキテクチャの改善（v3.0.0）
+- 1.0.2 - 2026-01-05: 呼び出し側の ModSecHandler 連携を更新（シグネチャ変更と即時紐づけの委譲）
+  - `processModSecurityAlertToQueue` のシグネチャに `ModSecurityQueue` 引数を追加し、`AgentTcpServer` は `modSecurityQueue` を渡すように変更されました。
+  - `processModSecurityAlertToQueue` は即時紐づけ（同一秒→±30秒）を試み、紐づかなければキューに追加する挙動を採用しました。
 
 ## バージョン情報
-- **AgentTcpServer.md version**: v3.0.0
-- **最終更新**: 2025-08-13
-- **主要変更**: ModSecurityアラート管理アーキテクチャの改善・責務分離・依存性注入パターンの導入
-- ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
+- **AgentTcpServer.md version**: v3.0.1
+- **最終更新**: 2026-01-05
+
+## 注意
+- このファイルを更新した場合は、`specification.txt` の冒頭バージョンを合わせて更新してください。
+
+## コミットメッセージ例
+- feat(agent): ModSecHandler 呼び出しに ModSecurityQueue を渡すよう変更（即時紐づけ→未紐づけはキュー保持）
