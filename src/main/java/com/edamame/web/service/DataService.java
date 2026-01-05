@@ -36,7 +36,10 @@ public class DataService {
             stats.put("totalAccess", getTotalAccessToday());
 
             // 攻撃検知数（今日）
-            stats.put("totalAttacks", getTotalAttacksToday());
+            // 互換性のために 'totalAttacks' とテンプレートで参照される可能性がある 'attackCount' の両方を設定
+            int totalAttacks = getTotalAttacksToday();
+            stats.put("totalAttacks", totalAttacks);
+            stats.put("attackCount", totalAttacks);
 
             // ModSecurityブロック数（今日）
             stats.put("modsecBlocks", getModSecBlocksToday());
@@ -80,12 +83,18 @@ public class DataService {
      * @return 攻撃検知数
      */
     private int getTotalAttacksToday() {
+        // 攻撃検知は URL レジストリで攻撃タイプが記載されているレコード、
+        // または ModSecurity によりブロックされたログを含める。
+        // LEFT JOIN を使い、url_registry に存在しない場合でも blocked_by_modsec=true を検出する。
         String sql = """
             SELECT COUNT(DISTINCT al.id)
             FROM access_log al
-            JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url
+            LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url
             WHERE DATE(al.access_time) = CURDATE()
-            AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal')
+            AND (
+                al.blocked_by_modsec = TRUE
+                OR (ur.attack_type IS NOT NULL AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal'))
+            )
             """;
         return executeCountQuery(sql);
     }
@@ -132,11 +141,21 @@ public class DataService {
      */
     public List<Map<String, Object>> getRecentAlerts(int limit) {
         List<Map<String, Object>> alerts = new ArrayList<>();
+        // alerts テーブルが存在しない環境向けに、modsec_alerts と access_log から必要情報を取得する
         String sql = """
-            SELECT server_name, alert_type, severity, message, source_ip, target_url,
-                   rule_id, is_resolved, created_at
-            FROM alerts
-            ORDER BY created_at DESC
+            SELECT s.server_name AS server_name,
+                   ma.rule_id AS rule_id,
+                   ma.severity AS severity,
+                   ma.message AS message,
+                   al.ip_address AS source_ip,
+                   al.full_url AS target_url,
+                   'MODSEC' AS alert_type,
+                   FALSE AS is_resolved,
+                   ma.created_at AS created_at
+            FROM modsec_alerts ma
+            LEFT JOIN access_log al ON ma.access_log_id = al.id
+            LEFT JOIN servers s ON al.server_name = s.server_name
+            ORDER BY ma.created_at DESC
             LIMIT ?
             """;
         try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
@@ -205,7 +224,35 @@ public class DataService {
      */
     public List<Map<String, Object>> getServerStats() {
         List<Map<String, Object>> serverStats = new ArrayList<>();
-        String sql = "SELECT * FROM server_stats";
+        // server_stats テーブルが存在しない場合は servers テーブルとアクセスログを集計して取得する
+        String sql = """
+            SELECT s.server_name,
+                   s.server_description,
+                   s.is_active,
+                   s.last_log_received,
+                   COALESCE(a.total_access, 0) AS total_access,
+                   COALESCE(ar.attack_count, 0) AS attack_count,
+                   COALESCE(m.modsec_blocks, 0) AS modsec_blocks
+            FROM servers s
+            LEFT JOIN (
+                SELECT server_name, COUNT(*) AS total_access FROM access_log GROUP BY server_name
+            ) a ON a.server_name = s.server_name
+            LEFT JOIN (
+                SELECT al.server_name, COUNT(DISTINCT al.id) AS attack_count
+                FROM access_log al
+                LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url
+                WHERE (
+                    al.blocked_by_modsec = TRUE
+                    OR (ur.attack_type IS NOT NULL AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal'))
+                )
+                GROUP BY al.server_name
+            ) ar ON ar.server_name = s.server_name
+            LEFT JOIN (
+                SELECT server_name, SUM(CASE WHEN blocked_by_modsec=TRUE THEN 1 ELSE 0 END) AS modsec_blocks
+                FROM access_log GROUP BY server_name
+            ) m ON m.server_name = s.server_name
+            ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
+            """;
         try (PreparedStatement stmt = getConnection().prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
