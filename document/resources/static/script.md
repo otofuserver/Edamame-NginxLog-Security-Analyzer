@@ -3,37 +3,41 @@
 対象: `src/main/resources/static/script.js`
 
 ## 概要
-- フロントエンドの軽量ブートストラップ兼ユーティリティスクリプト。モジュールの逐次ロード、クライアントナビゲーション、時計表示、デバッグユーティリティ等を提供する。
+- フロントエンドの軽量ブートストラップ兼ユーティリティスクリプト。ページロード時にコアUIモジュールを順に読み込み、分割された機能モジュール（`clock.js`, `fragment_refresh.js`, `navigation.js`）を初期化する役割を持つ。
+- 逐次読み込みローダー（`loadScript` / `loadScriptsSequential`）をグローバルに公開し、他モジュールからのスクリプト読み込みを一本化している。
 
 ## 主な機能
-- モジュールの順次読み込み（loadScript / loadScriptsSequential）
-- クライアントサイドの断片（fragment）取得と挿入（navigateTo）
-- UI 初期化フック（DOMContentLoaded 時）
-- クライアント時計（startClock）とデバッグ出力（dbg）
+- スクリプトの順次読み込み（グローバル: `loadScript`, `loadScriptsSequential`）
+- サイドバーのリンククリックをインターセプトしてクライアントナビゲーション（`navigateTo`）へ委譲
+- popstate を用いたブラウザ戻る/進むのサポート
+- コアモジュールの順次読み込み（`sidebar_mini_menu.js`, `profile_modal.js`, `password_modal.js`, `logout.js`）
+- 分割モジュール（`clock.js`, `fragment_refresh.js`, `navigation.js`）の読み込みと初期化開始
+- デバッグユーティリティ `window.dbg` の提供
 
 ## 挙動
-- DOMContentLoaded イベントでコアモジュール（sidebar_mini_menu.js, profile_modal.js, password_modal.js, logout.js）を順に読み込み、必要な初期化関数を呼ぶ。
-- 指定された view（dashboard, users, template 等）に対して /api/fragment/<view> を取得して #main-content に挿入する。users ビューの場合は user_list.js, user_modal.js を動的に読み込む。
-- 内部の loadScriptsSequential は各スクリプトを同期的に読み込み順序を保証する。エラーは console.warn / dbg で出力される。
+- `DOMContentLoaded` 時にコアモジュールを逐次ロードし、初期化フックを呼ぶ。
+- 続けて `clock.js`, `fragment_refresh.js`, `navigation.js` を読み込む。これらは分割された機能（時計、断片自動更新、断片ナビゲーション）を提供する。
+- `loadScriptsSequential` は各スクリプトを同期的に読み込み順序を保証するために使用される。
+- ページ内 `#main-content` の `data-no-client-nav` 属性が `true` の場合はサーバ側でレンダリングされたコンテンツを尊重し、必要なクライアント初期化のみ行う。
 
 ## 細かい指定された仕様
-- スクリプトのロードはブラウザの CSP を考慮して行い、可能な限り inline スクリプトや inline イベントハンドラは避ける（addEventListener を使用）。
-- navigateTo はレスポンスの Content-Type を見て HTML なら DOM 挿入、JSON なら整形して表示する。401 は /login へリダイレクトする。
-- startClock は重複起動検出を行い、1 秒ごとに .current-time 要素を更新する。
+- `window.loadScript` / `window.loadScriptsSequential` をグローバルに公開し、他モジュールはこれを利用すること（一本化）。
+- 分割ファイルが `script.js` より先に読み込まれるのを許容しない（`fragment_refresh.js` はグローバル loader を必須とする仕様に変更済み）。
+- `startClock`, `setupFragmentAutoRefresh`, `navigateTo` 等の初期化呼び出しは、対応モジュールがロードされているかを確認してから行う。
+- CSP や非同期ロードの影響により `async=false`（同期挿入）でスクリプトを追加している点に注意。
 
 ## その他
-- フロントエンドの構成変更（API パス変更やフラグメント追加）時は script.js の routeMap と依存スクリプトの読み込み箇所を同時に更新すること。
-- テストとしては、静的な DOM を用意して loadScriptsSequential と navigateTo の動作を確認することを推奨。
+- `script.js` はブートストラップ責務のみに限定し、UIロジックや断片ロジックは分割ファイルへ移譲することで可読性を向上させた。
+- 今後、追加機能を分割する場合は `script.js` の `loadScriptsSequential` 呼び出し箇所を更新すること。
 
-## 主な関数一覧（参考）
-- loadScript(url)
-- loadScriptsSequential(urls)
-- navigateTo(view, push)
-- startClock()
-- dbg(...args)
+## 主な関数一覧
+- `loadScript(url)` - 単一スクリプトを動的挿入して読み込む
+- `loadScriptsSequential(urls)` - 配列のスクリプトを逐次的に読み込む（グローバル公開）
+- `dbg(...args)` - デバッグ出力ユーティリティ（`window.dbg`）
+- DOMContentLoaded ハンドラ - コアモジュール/分割モジュールの逐次読み込みと初期化を実行
 
 ## 変更履歴
-- 1.0.0 - 2025-12-29: 統一フォーマットでドキュメント化
+- 2026-01-09: `script.js` を軽量ブートストラップ化し、`clock.js`, `fragment_refresh.js`, `navigation.js` へ機能分割。`loadScriptsSequential` をグローバル公開してローダを一本化。
 
 ## コミットメッセージ例
-- docs(web): script.js の仕様書を統一フォーマットへ変換
+- docs(front): script.js の仕様を分割後の構成に合わせて更新

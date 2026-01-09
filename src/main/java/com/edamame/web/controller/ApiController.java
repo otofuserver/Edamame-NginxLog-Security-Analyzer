@@ -81,7 +81,18 @@ public class ApiController implements HttpHandler {
                 return;
             }
 
-            // GETメソッドのみ許可
+            // POST を受け付けるエンドポイント（サーバー操作など）
+            if ("POST".equals(method)) {
+                // サーバー操作: /api/servers/{id}/{action}
+                if (path != null && path.startsWith("/api/servers/")) {
+                    handleServersPostApi(exchange);
+                    return;
+                }
+                sendJsonError(exchange, 405, "Method Not Allowed");
+                return;
+            }
+
+            // GETメソッドのみ許可（POST は上で処理）
             if (!"GET".equals(method)) {
                 sendJsonError(exchange, 405, "Method Not Allowed");
                 return;
@@ -119,7 +130,7 @@ public class ApiController implements HttpHandler {
         
         // CORS ヘッダー（制限的に設定）
         exchange.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS");
+        exchange.getResponseHeaders().set("Access-Control-Allow-Methods", "GET, OPTIONS, POST");
         exchange.getResponseHeaders().set("Access-Control-Allow-Headers", "Content-Type");
         exchange.getResponseHeaders().set("Access-Control-Max-Age", "3600");
         
@@ -226,23 +237,113 @@ public class ApiController implements HttpHandler {
     }
 
     /**
-     * サーバー情報APIを処理（セキュア版）
-     * @param exchange HTTPエクスチェンジ
-     * @throws IOException I/O例外
+     * サーバー関連の POST 操作ハンドラ（/api/servers/{id}/disable など）
+     */
+    private void handleServersPostApi(HttpExchange exchange) throws IOException {
+        String path = exchange.getRequestURI().getPath();
+        String[] segments = path.split("/");
+        AppLogger.debug("handleServersPostApi segments=" + java.util.Arrays.toString(segments));
+        if (segments.length < 5) {
+            sendJsonError(exchange, 400, "invalid servers action path");
+            return;
+        }
+        String idStr = segments[3];
+        String action = segments[4];
+        int id;
+        try {
+            id = Integer.parseInt(idStr);
+        } catch (NumberFormatException e) {
+            sendJsonError(exchange, 400, "invalid server id");
+            return;
+        }
+
+        // 認可チェック: API 呼び出し元のセッションを検証し、管理者でなければ 403 を返す
+        // 実行者のユーザー名をログに残す（認可チェックを行い、管理者でなければ403を返す）
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        var sessionInfo = sessionId == null ? null : authService.validateSession(sessionId);
+        if (sessionInfo == null) {
+            // 未認証なら401
+            sendJsonError(exchange, 401, "Unauthorized - authentication required");
+            return;
+        }
+        String username = sessionInfo.getUsername();
+        AppLogger.info("ユーザー操作: " + username + " がサーバー操作を要求しました: id=" + id + ", action=" + action);
+
+        // 管理者権限チェック（UserServiceImpl を利用）
+        boolean isAdmin = false;
+        try {
+            isAdmin = new com.edamame.web.service.impl.UserServiceImpl().isAdmin(username);
+        } catch (Exception e) {
+            AppLogger.warn("isAdmin チェック失敗: " + e.getMessage());
+        }
+        if (!isAdmin) {
+            AppLogger.warn("Forbidden: user " + username + " attempted server action without admin role");
+            sendJsonError(exchange, 403, "Forbidden - admin required");
+            return;
+        }
+
+        boolean ok = false;
+        try {
+            switch (action) {
+                case "disable" -> ok = dataService.disableServerById(id);
+                case "enable" -> ok = dataService.enableServerById(id);
+                default -> { sendJsonError(exchange, 404, "server action not found: " + action); return; }
+            }
+        } catch (Exception e) {
+            AppLogger.error("サーバー操作実行中にエラー: " + e.getMessage());
+            sendJsonError(exchange, 500, "internal server error");
+            return;
+        }
+
+        if (!ok) {
+            sendJsonError(exchange, 500, "operation failed");
+            return;
+        }
+
+        Map<String, Object> res = Map.of("success", true);
+        sendJsonResponse(exchange, 200, res);
+    }
+
+    /**
+     * サーバー一覧API（検索 q / ページ page / サイズ size をサポート）
      */
     private void handleServersApi(HttpExchange exchange) throws IOException {
-        var servers = dataService.getServerList();
-        
-        // サーバーデータをサニタイズ
-        var sanitizedServers = sanitizeListData(servers);
-        
-        Map<String, Object> response = Map.of(
-            "servers", sanitizedServers,
-            "total", sanitizedServers.size()
-        );
+        String query = exchange.getRequestURI().getQuery();
+        java.util.Map<String, String> params = WebSecurityUtils.parseQueryParams(query);
+        String q = params.getOrDefault("q", "").trim();
+        int page = 1; int size = 20;
+        try { if (params.containsKey("page")) page = Math.max(1, Integer.parseInt(params.get("page"))); } catch (Exception ignored) {}
+        try { if (params.containsKey("size")) size = Math.max(1, Integer.parseInt(params.get("size"))); } catch (Exception ignored) {}
 
+        var servers = dataService.getServerList();
+        // フィルタリング（サーバー名に q を部分一致）
+        java.util.List<Map<String, Object>> filtered = new java.util.ArrayList<>();
+        if (q.isEmpty()) {
+            filtered.addAll(servers);
+        } else {
+            String lowerQ = q.toLowerCase();
+            for (Map<String, Object> s : servers) {
+                Object nameObj = s.get("serverName");
+                String name = nameObj != null ? nameObj.toString().toLowerCase() : "";
+                if (name.contains(lowerQ)) filtered.add(s);
+            }
+        }
+
+        int total = filtered.size();
+        int from = Math.min((page - 1) * size, total);
+        int to = Math.min(from + size, total);
+        java.util.List<Map<String, Object>> pageList = filtered.subList(from, to);
+
+        var sanitized = sanitizeListData(pageList);
+        Map<String, Object> response = Map.of(
+            "servers", sanitized,
+            "total", total,
+            "page", page,
+            "size", size
+        );
         sendJsonResponse(exchange, 200, response);
-        AppLogger.debug("サーバー情報API呼び出し完了（セキュア版） (サーバー数: " + sanitizedServers.size() + ")");
+        AppLogger.debug("サーバー情報API呼び出し完了（セキュア版） (returned=" + pageList.size() + ", total=" + total + ")");
     }
 
     /**
@@ -299,23 +400,38 @@ public class ApiController implements HttpHandler {
         AppLogger.debug("fragment requested name=" + name);
 
         // ここでは簡易的に 'dashboard' と 'test' をサポート
-        String html;
+        String html = null;
         switch (name) {
             case "dashboard" -> html = fragmentService.dashboardFragment(dataService.getDashboardStats());
             case "test" -> html = fragmentService.testFragment();
+            case "servers" -> {
+                // server_management.html を返却（フラグメント名とファイル名が異なるため明示的にマッピング）
+                String tpl = fragmentService.getFragmentTemplate("server_management");
+                if (tpl != null) {
+                    html = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"servers\">" + tpl + "</div>";
+                }
+            }
             default -> {
-                sendJsonError(exchange, 404, "fragment not found: " + name);
-                return;
+                // フォールバック: フラグメント名と同名のテンプレートがあれば返す
+                String tpl = fragmentService.getFragmentTemplate(name);
+                if (tpl != null) {
+                    html = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"" + name + "\">" + tpl + "</div>";
+                }
             }
         }
 
-        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
-        exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
-        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
-        exchange.sendResponseHeaders(200, bytes.length);
-        try (OutputStream os = exchange.getResponseBody()) {
-            os.write(bytes);
+        if (html == null) {
+            sendJsonError(exchange, 404, "fragment not found: " + name);
+            return;
         }
+
+         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
+         exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
+         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+         exchange.sendResponseHeaders(200, bytes.length);
+         try (OutputStream os = exchange.getResponseBody()) {
+             os.write(bytes);
+         }
     }
 
     /**

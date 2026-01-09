@@ -1,47 +1,46 @@
 # DataService
-- docs(web): DataService の仕様書を追加
-## コミットメッセージ例
-
-- 1.0.0 - 2025-12-30: 新規作成（実装に基づく仕様書）
-## 変更履歴
-
-- 出力する文字列は HTML 表示等でサニタイズして使用する。
-- 大量データを扱うクエリはパフォーマンスに注意し、必要であればインデックス追加や集計テーブル（マテリアライズドビュー）を検討する。
-## 注意事項 / 運用
-
-- SQL 実行時に SQLException が発生した場合は AppLogger にエラーを記録し、安全なデフォルト（0 や空配列）を返す。
-## エラーハンドリング
-
-- `public Map<String,Object> getApiStats()` - API 用の軽量統計を返す。
-- `public List<Map<String,Object>> getAttackTypeStats()` - URL レジストリから攻撃タイプ別の集計を取得する。
-- `public List<Map<String,Object>> getServerStats()` - サーバー統計データを取得する。
-- `public List<Map<String,Object>> getServerList()` - サーバーの一覧と当日のアクセス数を取得する。
-- `public List<Map<String,Object>> getRecentAlerts(int limit)` - 最近のアラートを取得する。
-- `public Map<String,Object> getDashboardStats()` - ダッシュボードで必要な集計をまとめて取得する。
-## メソッド一覧と機能（主なもの）
-
-- 攻撃の深刻度判定は `determineSeverityLevel` で攻撃タイプ・ModSecurity severity に基づいて行う。
-- サーバーステータス判定（`determineServerStatus`）は最終ログ受信時刻と現在時刻の差で判定（30分以内を online とする）。
-- `getRecentAlerts` は最大取得件数をパラメータで指定し、access_time 等を LocalDateTime に変換して返す。
-- DB 接続は `DbService.getConnection()` を利用する（例: PreparedStatement を使用して SQL インジェクション対策）。
-## 細かい指定された仕様
-
-- 日時は `formatDateTime` で `yyyy-MM-dd HH:mm:ss` の文字列へ変換して返却する。
-- 集計系クエリは COUNT / JOIN / GROUP BY を利用し、例外時はログ出力してデフォルト値（0 / 空リスト）を返す。
-- JDBC を用いて SQL を直接発行し、ResultSet を Map / List に変換して返す。
-## 挙動
-
-- API 用の簡易統計（`getApiStats`）
-- 攻撃タイプ別統計取得（`getAttackTypeStats`）
-- サーバー一覧取得（`getServerList` / `getServerStats`）
-- 最近のアラート取得（`getRecentAlerts`）
-- ダッシュボード統計データ取得（`getDashboardStats`）
-## 主な機能
-
-- ダッシュボード表示や API で利用する統計情報（アクセス数、攻撃数、サーバー一覧、最新アラート等）を提供する。
-- Web フロントエンド向けの集計・表示用データを DB から取得して整形するサービスクラス。
-## 概要
 
 対象: `src/main/java/com/edamame/web/service/DataService.java`
 
+## 概要
+- データベースからダッシュボードや一覧表示用のデータを取得するサービスクラス。
+- SQL を直接発行して集計・整形を行い、フロントエンドへ渡すための Map/List を構築する。
+
+## 主な機能
+- ダッシュボード向け統計取得 (`getDashboardStats`)：総アクセス、攻撃数、ModSecurity ブロック数、サーバー統計、最近のアラート等をまとめて返却。
+- サーバー一覧取得 (`getServerList`)：照合順序に注意したサーバー一覧・最終ログ・状態を取得。
+- サーバー単位集計 (`getServerStats`)：サーバごとのアクセス数や攻撃検知数、ModSec ブロック数を集計。
+- 最近のアラート取得 (`getRecentAlerts`)：modsec_alerts と access_log を組み合わせてアラート情報を返却。
+- サポート系ユーティリティ：日時フォーマット、数値フォーマット、ステータス判定など。
+
+## 挙動
+- 各メソッドは内部で SQL を組み立てて PreparedStatement を使い実行する。例外時はログ出力 (`AppLogger.error`) して可能な限り安全なデフォルト値（空リストや0）を返す。
+- 返却する Map/List のキー名はフロントエンド（テンプレート）側で期待されるキーに合わせてある（例: `serverName`, `lastLogReceived`, `todayAccessCount`）。
+
+## 細かい指定された仕様
+- 日時は `yyyy-MM-dd HH:mm:ss` フォーマットで返す（`formatDateTime` 使用）。
+- `getServerList` は `server_name` の照合順序を `utf8mb4_unicode_ci` で指定して整列する。
+- SQL 実行時の SQLException はキャッチしてログ出力し、呼び出し元に影響を与えないようにする。
+
+## 存在するメソッドと機能（主なもの）
+- `public Map<String, Object> getDashboardStats()` - ダッシュボード用に複数の統計をまとめて返す。
+- `public List<Map<String, Object>> getRecentAlerts(int limit)` - 最新アラートを取得。
+- `public List<Map<String, Object>> getServerList()` - サーバー一覧取得
+- `public List<Map<String, Object>> getServerStats()` - サーバ別統計取得
+- `public List<Map<String, Object>> getAttackTypeStats()` - 攻���タイプ別統計
+- `public Map<String, Object> getApiStats()` - API 用の簡易統計
+- `public boolean isConnectionValid()` - DB 接続有効チェック
+- `public boolean disableServerById(int id)` - サーバ無効化
+- `public boolean enableServerById(int id)` - サーバ有効化
+- `private String formatDateTime(Timestamp)` - 日時フォーマット
+- `private String determineServerStatus(boolean, Timestamp)` - サーバ状態判定
+
+## 変更履歴
+- 2026-01-09: `scheduleAddServerById` を廃止（フロントの "後で追加" 機能を撤去に合わせて削除）。
+
+## その他
+- データベーススキーマ変更時は `document/com/edamame/security/db/DbSchema.md` と `document/com/edamame/web/service/DataService.md` の両方を更新すること。
+
+## コミットメッセージ例
+- docs(service): DataService の仕様書を追加・schedule_add 廃止を反映
 

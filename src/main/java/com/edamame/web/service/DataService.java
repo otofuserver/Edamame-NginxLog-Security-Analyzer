@@ -202,8 +202,10 @@ public class DataService {
              ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
                 Map<String, Object> server = new HashMap<>();
-                server.put("name", rs.getString("server_name"));
-                server.put("description", rs.getString("server_description"));
+                // クライアント側で期待されるキー名に合わせてマップを作成
+                server.put("id", rs.getInt("id"));
+                server.put("serverName", rs.getString("server_name"));
+                server.put("serverDescription", rs.getString("server_description"));
                 server.put("isActive", rs.getBoolean("is_active"));
                 server.put("lastLogReceived", formatDateTime(rs.getTimestamp("last_log_received")));
                 server.put("todayAccessCount", rs.getInt("today_access_count"));
@@ -405,5 +407,39 @@ public class DataService {
      */
     public boolean isConnectionValid() {
         return isConnected();
+    }
+
+    /**
+     * 指定サーバーを無効化する（is_active = FALSE）
+     * @param id サーバーID
+     * @return 成功したらtrue
+     */
+    public boolean disableServerById(int id) {
+        String sql = "UPDATE servers SET is_active = FALSE, updated_at = NOW() WHERE id = ?";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            int updated = stmt.executeUpdate();
+            return updated > 0;
+        } catch (SQLException e) {
+            AppLogger.error("サーバー無効化エラー: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 指定サーバーを有効化する（is_active = TRUE）
+     * @param id サーバーID
+     * @return 成功したらtrue
+     */
+    public boolean enableServerById(int id) {
+        String sql = "UPDATE servers SET is_active = TRUE, updated_at = NOW() WHERE id = ?";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setInt(1, id);
+            int updated = stmt.executeUpdate();
+            return updated > 0;
+        } catch (SQLException e) {
+            AppLogger.error("サーバー有効化エラー: " + e.getMessage());
+            return false;
+        }
     }
 }

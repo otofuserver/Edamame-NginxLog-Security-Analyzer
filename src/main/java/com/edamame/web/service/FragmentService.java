@@ -22,7 +22,23 @@ public class FragmentService {
     private String loadResourceFragment(String name) {
         String resourcePath = "fragments/" + name + ".html";
         try (InputStream is = getClass().getClassLoader().getResourceAsStream(resourcePath)) {
-            if (is == null) return null;
+            if (is == null) {
+                // クラスパスにリソースがない場合、開発環境向けにワークスペースの src/main/resources を参照してみる
+                try {
+                    java.nio.file.Path p = java.nio.file.Paths.get("src", "main", "resources", resourcePath);
+                    if (java.nio.file.Files.exists(p)) {
+                        try (InputStream fis = java.nio.file.Files.newInputStream(p)) {
+                            try (java.util.Scanner s = new java.util.Scanner(fis, StandardCharsets.UTF_8)) {
+                                s.useDelimiter("\\A");
+                                return s.hasNext() ? s.next() : "";
+                            }
+                        }
+                    }
+                } catch (Exception ex) {
+                    // フォールバック失敗は無視して null を返す
+                }
+                return null;
+            }
             try (Scanner s = new Scanner(is, StandardCharsets.UTF_8)) {
                 s.useDelimiter("\\A");
                 return s.hasNext() ? s.next() : "";

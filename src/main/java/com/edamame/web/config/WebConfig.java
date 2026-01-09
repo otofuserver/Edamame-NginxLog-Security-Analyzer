@@ -345,6 +345,7 @@ public class WebConfig {
                  <li><a class="nav-link" href="/main?view=test">サンプル</a></li>
                  <!-- ユーザー管理は管理者のみ閲覧可能。サーバー側でロールチェックしてください -->
                  <li><a class="nav-link" href="/main?view=users">ユーザー管理</a></li>
+                 <li><a class="nav-link" href="/main?view=servers">サーバー管理</a></li>
              </ul>
              """;
      }

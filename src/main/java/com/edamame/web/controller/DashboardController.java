@@ -460,7 +460,11 @@ public class DashboardController implements HttpHandler {
         if (isAdmin) {
             sb.append("<li><a class=\"nav-link\" href=\"/main?view=users\">ユーザー管理</a></li>");
         }
+        // サーバー管理は管理者以外でも利用できるように、常時表示する
+        sb.append("<li><a class=\"nav-link\" href=\"/main?view=servers\">サーバー管理</a></li>");
         sb.append("</ul>");
+        // クライアント側で参照するために管理者フラグを隠し要素で出力
+        sb.append("<div id=\"current-user-admin\" data-is-admin=\"" + (isAdmin ? "true" : "false") + "\" style=\"display:none;\"></div>");
         return sb.toString();
     }
 
