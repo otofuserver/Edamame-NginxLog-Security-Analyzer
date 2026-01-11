@@ -1,0 +1,12 @@
+<!-- main fragment: サイドメニューとアプリ名/バージョンのみ表示する断片 -->
+<div class="main-fragment card">
+  <header class="main-header">
+    <h1>{{APP_TITLE}}</h1>
+    <div class="app-version">{{APP_VERSION}}</div>
+  </header>
+  <nav class="fragment-menu">
+    <!-- MENU_HTML はサーバ側で置換されるため、ここではプレースホルダを利用 -->
+    <div class="menu-container">{{MENU_HTML}}</div>
+  </nav>
+</div>
+

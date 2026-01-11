@@ -201,21 +201,27 @@ public class WebSecurityUtils {
     }
 
     /**
-     * URL表示用サニタイズ（表示目的で安全化��
+     * URL表示用サニタイズ（表示目的で安全化）
+     * - HTMLエスケープは行うが、URLの可読性を損なう「/」のエスケープは除去して表示する。
      * @param url URL文字列
-     * @return サニタイズ済みURL
+     * @return サニタイズ済みURL（表示用）
      */
     public static String sanitizeUrlForDisplay(String url) {
         if (url == null) {
             return "";
         }
-        
-        // 長すぎるURLは���り詰め
-        if (url.length() > 200) {
-            url = url.substring(0, 197) + "...";
+
+        // 長すぎるURLは切り詰める
+        String trimmed = url;
+        if (trimmed.length() > 200) {
+            trimmed = trimmed.substring(0, 197) + "...";
         }
-        
-        return escapeHtml(url);
+
+        // 標準の HTML エスケープを行うが、スラッシュは可読性のため復元する
+        String escaped = escapeHtml(trimmed);
+        // escapeHtml は '/' を '&#x2F;' に置換しているため、表示目的では元に戻す
+        escaped = escaped.replace("&#x2F;", "/");
+        return escaped;
     }
 
     /**

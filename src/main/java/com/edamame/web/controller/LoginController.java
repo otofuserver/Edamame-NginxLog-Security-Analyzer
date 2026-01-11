@@ -348,7 +348,7 @@ public class LoginController implements HttpHandler {
      */
     private void sendLoginSuccessResponse(HttpExchange exchange) throws IOException {
         // 明示的に view を付与してクライアント側の初期化を一貫させる
-        exchange.getResponseHeaders().set("Location", "/main?view=dashboard");
+        exchange.getResponseHeaders().set("Location", "/main?view=main");
         exchange.sendResponseHeaders(302, -1);
     }
 
@@ -357,7 +357,7 @@ public class LoginController implements HttpHandler {
      */
     private void sendDashboardRedirect(HttpExchange exchange) throws IOException {
         // 明示的に view パラメータを付与
-        exchange.getResponseHeaders().set("Location", "/main?view=dashboard");
+        exchange.getResponseHeaders().set("Location", "/main?view=main");
         exchange.sendResponseHeaders(302, -1);
     }
 

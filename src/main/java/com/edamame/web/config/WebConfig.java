@@ -65,6 +65,15 @@ public class WebConfig {
     }
 
     /**
+     * アプリケーションバージョンを取得
+     * 将来的にビルドプロセスで差し替え可能にするためメソッド化しています。
+     * @return アプリケーションバージョン文字列
+     */
+    public String getAppVersion() {
+        return "v1.0.0";
+    }
+
+    /**
      * HTMLテンプレートを取得
      * @param templateName テンプレート名
      * @return HTMLテンプレート

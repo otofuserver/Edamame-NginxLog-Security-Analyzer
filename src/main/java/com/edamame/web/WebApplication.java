@@ -124,9 +124,9 @@ public class WebApplication {
         server.createContext("/dashboard", new AuthenticationFilter(authService,
             new DashboardController(dataService)));
 
-        // 新しいメインパス: /main を /dashboard と同じコントローラーで扱う
+        // 新しいメインパス: /main を独立した MainController で扱う（DashboardController から分離）
         server.createContext("/main", new AuthenticationFilter(authService,
-            new DashboardController(dataService)));
+            new MainController()));
 
         // /api は AJAX 呼び出しが多いため、フィルターでリダイレクトさせず ApiController 側で認証を扱う
         // 管理者専用のユーザー管理断片と検索APIは専用コントローラで処理
@@ -148,7 +148,7 @@ public class WebApplication {
 
         // ルートパス（ダッシュボードにリダイレクト）
         server.createContext("/", new AuthenticationFilter(authService,
-            new DashboardController(dataService)));
+            new MainController()));
     }
 
     /**

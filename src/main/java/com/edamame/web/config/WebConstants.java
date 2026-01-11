@@ -19,6 +19,12 @@ public final class WebConstants {
     // リダイレクトURL
     public static final String LOGOUT_SUCCESS_REDIRECT = LOGIN_PATH + "?logout=success";
 
+    // リクエスト属性名（一元管理）
+    // HTTP ハンドラ間で共有される属性名を定数化してタイプミスを防止する
+    public static final String REQUEST_ATTR_USERNAME = "username";
+    public static final String REQUEST_ATTR_IS_ADMIN = "isAdmin";
+    public static final String REQUEST_ATTR_SCRIPT_NONCE = "scriptNonce";
+
     /**
      * プライベートコンストラクタ（インスタンス化を防止）
      */

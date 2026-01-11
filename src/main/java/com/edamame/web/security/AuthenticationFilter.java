@@ -7,6 +7,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import com.edamame.security.tools.AppLogger;
+import com.edamame.web.service.UserService;
+import com.edamame.web.service.impl.UserServiceImpl;
+import com.edamame.web.config.WebConstants;
 
 /**
  * HTTP認証フィルター
@@ -38,8 +41,22 @@ public class AuthenticationFilter implements HttpHandler {
                 AuthenticationService.SessionInfo sessionInfo = authService.validateSession(sessionId);
                 if (sessionInfo != null) {
                     // セッション有効
-                    exchange.setAttribute("username", sessionInfo.getUsername());
+                    exchange.setAttribute(WebConstants.REQUEST_ATTR_USERNAME, sessionInfo.getUsername());
                     AppLogger.debug("認証済みユーザー: " + sessionInfo.getUsername() + " (セッションID: " + sessionId + ")");
+                    // isAdmin を一度だけ判定してリクエスト属性に保存（コントローラで再判定を避けるため）
+                    try {
+                        UserService us = new UserServiceImpl();
+                        boolean isAdmin = us.isAdmin(sessionInfo.getUsername());
+                        exchange.setAttribute(WebConstants.REQUEST_ATTR_IS_ADMIN, isAdmin);
+                        // nonce をリクエスト単位で生成して共有し、CSP をレスポンスヘッダで送信する
+                        String scriptNonce = generateNonce();
+                        exchange.setAttribute(WebConstants.REQUEST_ATTR_SCRIPT_NONCE, scriptNonce);
+                        String csp = "default-src 'self'; script-src 'self' 'nonce-" + scriptNonce + "'; style-src 'self' 'unsafe-inline'";
+                        exchange.getResponseHeaders().set("Content-Security-Policy", csp);
+                    } catch (Exception e) {
+                        AppLogger.warn("isAdmin 判定失敗: " + e.getMessage());
+                        exchange.setAttribute(WebConstants.REQUEST_ATTR_IS_ADMIN, false);
+                    }
                     protectedHandler.handle(exchange);
                     return;
                 } else {
@@ -74,5 +91,15 @@ public class AuthenticationFilter implements HttpHandler {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(errorMessage.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * リクエストスコープのnonceを生成
+     */
+    private String generateNonce() {
+        var random = new java.security.SecureRandom();
+        byte[] nonceBytes = new byte[16];
+        random.nextBytes(nonceBytes);
+        return java.util.Base64.getEncoder().encodeToString(nonceBytes);
     }
 }

@@ -3,18 +3,16 @@ package com.edamame.web.controller;
 import com.edamame.web.config.WebConfig;
 import com.edamame.web.service.DataService;
 import com.edamame.web.security.WebSecurityUtils;
+import com.edamame.web.config.WebConstants;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.edamame.security.tools.AppLogger;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
-import com.edamame.web.service.UserService;
-import com.edamame.web.service.impl.UserServiceImpl;
+import com.edamame.web.service.FragmentService; // 追加: フラグメント取得用
 
 /**
  * ダッシュボードコントローラークラス
@@ -24,7 +22,6 @@ public class DashboardController implements HttpHandler {
 
     private final DataService dataService;
     private final WebConfig webConfig;
-    private final UserService userService;
 
     /**
      * コンストラクタ
@@ -33,7 +30,6 @@ public class DashboardController implements HttpHandler {
     public DashboardController(DataService dataService) {
         this.dataService = dataService;
         this.webConfig = new WebConfig(); // WebConfigを内部で初期化
-        this.userService = new UserServiceImpl();
     }
 
     @Override
@@ -54,27 +50,13 @@ public class DashboardController implements HttpHandler {
             }
 
             // セッション情報を取得（認証フィルターで設定済み）
-            String username = (String) exchange.getAttribute("username");
+            String username = (String) exchange.getAttribute(WebConstants.REQUEST_ATTR_USERNAME);
             if (username == null) {
                 // 認証情報がない場合はログイン画面にリダイレクト
                 exchange.getResponseHeaders().set("Location", "/login");
                 exchange.sendResponseHeaders(302, -1);
                 return;
             }
-
-            // リクエストから view パラメータを抽出（なければ 'dashboard' をデフォルト）
-            String currentView = "dashboard";
-            try {
-                String q = exchange.getRequestURI().getQuery();
-                if (q != null) {
-                    for (String p : q.split("&")) {
-                        if (p.startsWith("view=")) {
-                            currentView = java.net.URLDecoder.decode(p.substring(5), StandardCharsets.UTF_8);
-                            break;
-                        }
-                    }
-                }
-            } catch (Exception e) { /* ignore, use default */ }
 
             // セキュリティヘッダーを設定
             applySecurityHeaders(exchange);
@@ -97,11 +79,13 @@ public class DashboardController implements HttpHandler {
 
             // 現在のユーザー情報をデータに追加
             dashboardData.put("currentUser", username);
-            // レンダリング時にクライアントが参照する view 情報を埋める
-            dashboardData.put("currentView", currentView);
+            // サーバ側レンダリング時は dashboard 固定ビューを想定する
 
-            // HTMLを生成（XSS対策適用）
-            String html = generateSecureDashboardHtml(dashboardData);
+            // HTMLを生成（断片はDashboard側で作り、フルページの置換はMain側に一元化）
+            boolean isAdmin = Boolean.TRUE.equals(exchange.getAttribute(WebConstants.REQUEST_ATTR_IS_ADMIN));
+            String innerFragment = generateDashboardFragmentHtml(dashboardData);
+            // AuthenticationFilter がリクエスト属性 'scriptNonce' とレスポンスヘッダを設定している想定
+            String html = MainController.renderFullPage(innerFragment, username, isAdmin, "dashboard");
 
             // レスポンス送信
             exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
@@ -163,24 +147,11 @@ public class DashboardController implements HttpHandler {
     }
 
     /**
-     * セキュアなダッシュボードHTMLを生成（XSS対策適用）
+     * ダッシュボードの断片HTMLを生成して返す。フルページのテンプレート置換は MainController に委譲する。
      * @param data ダッシュボードデータ
-     * @return 生成されたHTML
+     * @return 断片HTML（fragment-root でラップ済み）
      */
-    private String generateSecureDashboardHtml(Map<String, Object> data) {
-        // セッション情報を取得
-        String username = (String) data.get("currentUser");
-        if (username == null) {
-            username = "Unknown";
-        }
-        // ユーザー名の頭文字を生成（アバター用）
-        String userInitial = generateUserInitial(username);
-        // nonce生成（CSP用）
-        String scriptNonce = generateNonce();
-        data.put("scriptNonce", scriptNonce);
-
-        String template = webConfig.getTemplate("dashboard");
-
+    private String generateDashboardFragmentHtml(Map<String, Object> data) {
         // 各部分HTMLを生成
         String dashboardContent = "";
         dashboardContent += generateSecureServerStatsHtml(data.get("serverStats"));
@@ -188,35 +159,14 @@ public class DashboardController implements HttpHandler {
         dashboardContent += generateSecureServersHtml(data.get("serverList"));
         dashboardContent += generateSecureAttackTypesHtml(data.get("attackTypes"));
 
-        // 基本情報を置換してそのまま返す（ローカル変数は不要）
-        return template
-            .replace("{{APP_TITLE}}", WebSecurityUtils.escapeHtml(webConfig.getAppTitle()))
-            .replace("{{APP_DESCRIPTION}}", WebSecurityUtils.escapeHtml(webConfig.getAppDescription()))
-            .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml("v1.0.0"))
-            .replace("{{CURRENT_TIME}}", WebSecurityUtils.escapeHtml(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))))
-            .replace("{{CURRENT_USER}}", WebSecurityUtils.escapeHtml(username))
-            .replace("{{CURRENT_USER_INITIAL}}", WebSecurityUtils.escapeHtml(userInitial))
-            .replace("{{DASHBOARD_CONTENT}}", dashboardContent)
-            .replace("{{MENU_HTML}}", generateMenuHtml(WebSecurityUtils.sanitizeInput(username)))
-            .replace("{{SECURITY_HEADERS}}", getSecurityHeadersHtml(scriptNonce))
-            // サーバ側でレンダリングされたときにクライアントが参照する view 情報を埋める
-            .replace("{{CURRENT_VIEW}}", WebSecurityUtils.escapeHtml((String) data.getOrDefault("currentView", "dashboard")))
-            // ページ全体を定期的にリロードするグローバルスクリプトは無効化。
-            // フラグメント単位の data-auto-refresh による管理を優先する。
-            .replace("{{AUTO_REFRESH_SCRIPT}}", "");
-
-        // セキュリティヘッダ挿入や自動リロードスクリプト等は従来通り
-        // ...
-    }
-
-    /**
-     * セキュリティヘッダHTMLを生成（CSPにnonceを付与）
-     */
-    private String getSecurityHeadersHtml(String scriptNonce) {
-        // script-srcにnonceを追加
-        // default-src を 'self' にしつつ、style-src を明示的に設定する（外部CSS を許可）。
-        // 一部の古いテンプレートや断片でインライン style 属性が残る場合があるため、ここでは暫定的に 'unsafe-inline' を許可しています。
-        return "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'self'; script-src 'self' 'nonce-" + scriptNonce + "'; style-src 'self' 'unsafe-inline'\">";
+        FragmentService fragmentService = new FragmentService();
+        String fragmentTemplate = fragmentService.getFragmentTemplate("dashboard");
+        if (fragmentTemplate != null) {
+            String filled = fragmentTemplate.replace("{{CONTENT}}", dashboardContent);
+            return "<div class=\"fragment-root\" data-auto-refresh=\"30\" data-fragment-name=\"dashboard\">" + filled + "</div>";
+        } else {
+            return "<div class=\"fragment-root\" data-auto-refresh=\"0\">" + dashboardContent + "</div>";
+        }
     }
 
     /**
@@ -282,11 +232,15 @@ public class DashboardController implements HttpHandler {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> serverMap = (Map<String, Object>) server;
 
-                String name = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("name", "unknown"));
-                String description = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("description", ""));
+                // DataService 側では isActive=true のみを返す想定だが、念のため isActive をチェックして無効サーバはスキップする
+                boolean isActive = Boolean.TRUE.equals(serverMap.getOrDefault("isActive", Boolean.FALSE));
+                if (!isActive) continue; // 無効サーバは表示しない
+
+                String name = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("serverName", "unknown"));
+                String description = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("serverDescription", ""));
                 String status = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("status", "unknown"));
                 String lastLogReceived = WebSecurityUtils.sanitizeInput((String) serverMap.getOrDefault("lastLogReceived", "未記録"));
-                Object accessCount = serverMap.getOrDefault("todayAccessCount", 0);
+                Object accessCount = serverMap.getOrDefault("todayAccessCount", serverMap.getOrDefault("today_access_count", serverMap.getOrDefault("todayAccess", 0)));
 
                 String statusClass = "online".equals(status) ? "online" : "offline";
 
@@ -436,77 +390,5 @@ public class DashboardController implements HttpHandler {
         }
 
         AppLogger.warn(String.format("エラーレスポンス送信: %d - %s", statusCode, message));
-    }
-
-    /**
-     * サイドバーメニューHTMLを動的に生成（管理者のみユーザー管理リンクを表示）
-     * @param username 現在のユーザー名
-     * @return メニューHTML
-     */
-    private String generateMenuHtml(String username) {
-        boolean isAdmin = false;
-        try {
-            if (username != null && !username.isEmpty()) {
-                isAdmin = userService.isAdmin(username);
-            }
-        } catch (Exception e) {
-            AppLogger.warn("isAdmin チェックに失敗: " + e.getMessage());
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("<ul>");
-        sb.append("<li><a class=\"nav-link\" href=\"/main?view=dashboard\">ダッシュボード</a></li>");
-        sb.append("<li><a class=\"nav-link\" href=\"/main?view=test\">サンプル</a></li>");
-        if (isAdmin) {
-            sb.append("<li><a class=\"nav-link\" href=\"/main?view=users\">ユーザー管理</a></li>");
-        }
-        // サーバー管理は管理者以外でも利用できるように、常時表示する
-        sb.append("<li><a class=\"nav-link\" href=\"/main?view=servers\">サーバー管理</a></li>");
-        sb.append("</ul>");
-        // クライアント側で参照するために管理者フラグを隠し要素で出力
-        sb.append("<div id=\"current-user-admin\" data-is-admin=\"" + (isAdmin ? "true" : "false") + "\" style=\"display:none;\"></div>");
-        return sb.toString();
-    }
-
-    /**
-     * セキュアなランダムnonceを生成
-     */
-    private String generateNonce() {
-        var random = new java.security.SecureRandom();
-        byte[] nonceBytes = new byte[16];
-        random.nextBytes(nonceBytes);
-        return java.util.Base64.getEncoder().encodeToString(nonceBytes);
-    }
-
-    /**
-     * ユーザー名からアバター用の頭文字を生成
-     * @param username ユーザー名
-     * @return 頭文字（1-2文字）
-     */
-    private String generateUserInitial(String username) {
-        if (username == null || username.trim().isEmpty()) {
-            return "?";
-        }
-
-        String trimmed = username.trim().toUpperCase();
-
-        // 日本語の場合は最初の1文字
-        if (trimmed.matches(".*[\\p{IsHiragana}\\p{IsKatakana}\\p{IsHan}].*")) {
-            return String.valueOf(trimmed.charAt(0));
-        }
-        // 英語の場合は最初の1-2文字
-        if (trimmed.length() == 1) {
-            return trimmed;
-        } else if (trimmed.length() >= 2) {
-            // スペースが含まれている場合は名前と姓の頭文字
-            String[] parts = trimmed.split("\\s+");
-            if (parts.length >= 2) {
-                return parts[0].charAt(0) + "" + parts[1].charAt(0);
-            } else {
-                return trimmed.substring(0, 2);
-            }
-        }
-
-        return trimmed;
     }
 }

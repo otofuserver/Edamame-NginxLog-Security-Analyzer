@@ -402,15 +402,40 @@ public class ApiController implements HttpHandler {
         // ここでは簡易的に 'dashboard' と 'test' をサポート
         String html = null;
         switch (name) {
+            case "main" -> {
+                // main フラグメントはテンプレート内に APP_TITLE / APP_VERSION / MENU_HTML 等のプレースホルダを含む
+                String tpl = fragmentService.getFragmentTemplate("main");
+                if (tpl != null) {
+                    // セッションからユーザー名を取得して isAdmin を判定
+                    String cookieHeaderLocal = exchange.getRequestHeaders().getFirst("Cookie");
+                    String sessionIdLocal = com.edamame.web.config.WebConstants.extractSessionId(cookieHeaderLocal);
+                    String usernameLocal = null;
+                    boolean isAdminLocal = false;
+                    if (sessionIdLocal != null) {
+                        var sessionInfoLocal = authService.validateSession(sessionIdLocal);
+                        if (sessionInfoLocal != null) {
+                            usernameLocal = sessionInfoLocal.getUsername();
+                            try {
+                                isAdminLocal = new com.edamame.web.service.impl.UserServiceImpl().isAdmin(usernameLocal);
+                            } catch (Exception ignored) {}
+                        }
+                    }
+                    String filled = tpl
+                        .replace("{{APP_TITLE}}", WebSecurityUtils.escapeHtml(new com.edamame.web.config.WebConfig().getAppTitle()))
+                        .replace("{{APP_VERSION}}", WebSecurityUtils.escapeHtml(new com.edamame.web.config.WebConfig().getAppVersion()))
+                        .replace("{{MENU_HTML}}", MainController.generateMenuHtml(usernameLocal == null ? "" : usernameLocal, isAdminLocal));
+                    html = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"main\">" + filled + "</div>";
+                }
+            }
             case "dashboard" -> html = fragmentService.dashboardFragment(dataService.getDashboardStats());
             case "test" -> html = fragmentService.testFragment();
             case "servers" -> {
-                // server_management.html を返却（フラグメント名とファイル名が異なるため明示的にマッピング）
-                String tpl = fragmentService.getFragmentTemplate("server_management");
-                if (tpl != null) {
-                    html = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"servers\">" + tpl + "</div>";
-                }
-            }
+                 // server_management.html を返却（フラグメント名とファイル名が異なるため明示的にマッピング）
+                 String tpl = fragmentService.getFragmentTemplate("server_management");
+                 if (tpl != null) {
+                     html = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"servers\">" + tpl + "</div>";
+                 }
+             }
             default -> {
                 // フォールバック: フラグメント名と同名のテンプレートがあれば返す
                 String tpl = fragmentService.getFragmentTemplate(name);
@@ -424,6 +449,28 @@ public class ApiController implements HttpHandler {
             sendJsonError(exchange, 404, "fragment not found: " + name);
             return;
         }
+        // フォールバック：主要なテンプレートプレースホルダが残っている場合はここで置換
+        try {
+            com.edamame.web.config.WebConfig cfg = new com.edamame.web.config.WebConfig();
+            String appTitle = WebSecurityUtils.escapeHtml(cfg.getAppTitle());
+            String appVersion = WebSecurityUtils.escapeHtml(cfg.getAppVersion());
+            // メニューはセッションから判断する（既に上で判定済みの usernameLocal/isAdminLocal が存在するかもしれない）
+            // ここでは簡易的に空メニューを生成し、MainController のユーティリティを利用して埋める
+            String menuHtmlFallback = "";
+            try {
+                // attempt to get username/isAdmin from request attributes if set by AuthenticationFilter
+                Object unameAttr = exchange.getAttribute(com.edamame.web.config.WebConstants.REQUEST_ATTR_USERNAME);
+                Object isAdminAttr = exchange.getAttribute(com.edamame.web.config.WebConstants.REQUEST_ATTR_IS_ADMIN);
+                String uname = unameAttr == null ? "" : String.valueOf(unameAttr);
+                boolean isAdm = Boolean.TRUE.equals(isAdminAttr);
+                menuHtmlFallback = MainController.generateMenuHtml(uname, isAdm);
+            } catch (Exception ignored) { }
+
+            html = html.replace("{{APP_TITLE}}", appTitle)
+                       .replace("{{APP_VERSION}}", appVersion)
+                       .replace("{{MENU_HTML}}", menuHtmlFallback)
+                       .replace("{{CURRENT_VIEW}}", WebSecurityUtils.escapeHtml(name == null ? "" : name));
+        } catch (Exception ignored) { /* 最終フォールバックは無視 */ }
 
          exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
          exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");

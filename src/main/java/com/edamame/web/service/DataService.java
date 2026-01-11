@@ -56,8 +56,7 @@ public class DataService {
             // サーバー一覧
             stats.put("serverList", getServerList());
 
-            // 攻撃タイプ別統計
-            stats.put("attackTypes", getAttackTypeStats());
+            // 攻撃タイプ別統計はダッシュボード表示から除外（不要・集計範囲が他と一致しないため）
 
             AppLogger.debug("ダッシュボード統計情報取得完了");
 
@@ -74,7 +73,8 @@ public class DataService {
      * @return アクセス数
      */
     private int getTotalAccessToday() {
-        String sql = "SELECT COUNT(*) FROM access_log WHERE DATE(access_time) = CURDATE()";
+        // アクティブなサーバーのみ集計する
+        String sql = "SELECT COUNT(*) FROM access_log al JOIN servers s ON al.server_name COLLATE utf8mb4_unicode_ci = s.server_name COLLATE utf8mb4_unicode_ci WHERE DATE(al.access_time) = CURDATE() AND s.is_active = TRUE";
         return executeCountQuery(sql);
     }
 
@@ -83,18 +83,18 @@ public class DataService {
      * @return 攻撃検知数
      */
     private int getTotalAttacksToday() {
-        // 攻撃検知は URL レジストリで攻撃タイプが記載されているレコード、
-        // または ModSecurity によりブロックされたログを含める。
-        // LEFT JOIN を使い、url_registry に存在しない場合でも blocked_by_modsec=true を検出する。
+        // 各 access_log を servers と結合し、is_active = TRUE のサーバーのみを対象に攻撃判定を行う
         String sql = """
             SELECT COUNT(DISTINCT al.id)
             FROM access_log al
+            JOIN servers s ON al.server_name COLLATE utf8mb4_unicode_ci = s.server_name COLLATE utf8mb4_unicode_ci
             LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url
             WHERE DATE(al.access_time) = CURDATE()
-            AND (
-                al.blocked_by_modsec = TRUE
-                OR (ur.attack_type IS NOT NULL AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal'))
-            )
+              AND s.is_active = TRUE
+              AND (
+                  al.blocked_by_modsec = TRUE
+                  OR (ur.attack_type IS NOT NULL AND ur.attack_type NOT IN ('CLEAN', 'UNKNOWN', 'normal'))
+              )
             """;
         return executeCountQuery(sql);
     }
@@ -104,7 +104,7 @@ public class DataService {
      * @return ブロック数
      */
     private int getModSecBlocksToday() {
-        String sql = "SELECT COUNT(*) FROM access_log WHERE DATE(access_time) = CURDATE() AND blocked_by_modsec = TRUE";
+        String sql = "SELECT COUNT(*) FROM access_log al JOIN servers s ON al.server_name COLLATE utf8mb4_unicode_ci = s.server_name COLLATE utf8mb4_unicode_ci WHERE DATE(al.access_time) = CURDATE() AND al.blocked_by_modsec = TRUE AND s.is_active = TRUE";
         return executeCountQuery(sql);
     }
 
@@ -190,6 +190,7 @@ public class DataService {
      */
     public List<Map<String, Object>> getServerList() {
         List<Map<String, Object>> servers = new ArrayList<>();
+        // サーバー管理画面向け: 全サーバーを返す（有効/無効の両方を管理画面で確認できるようにする）
         String sql = """
             SELECT s.*,
                    COALESCE((SELECT COUNT(*) FROM access_log a
@@ -233,12 +234,19 @@ public class DataService {
                    s.is_active,
                    s.last_log_received,
                    COALESCE(a.total_access, 0) AS total_access,
+                   COALESCE(today.total_access_today, 0) AS today_access_count,
                    COALESCE(ar.attack_count, 0) AS attack_count,
                    COALESCE(m.modsec_blocks, 0) AS modsec_blocks
             FROM servers s
             LEFT JOIN (
                 SELECT server_name, COUNT(*) AS total_access FROM access_log GROUP BY server_name
             ) a ON a.server_name = s.server_name
+            LEFT JOIN (
+                SELECT server_name, COUNT(*) AS total_access_today
+                FROM access_log
+                WHERE DATE(access_time) = CURDATE()
+                GROUP BY server_name
+            ) today ON today.server_name = s.server_name
             LEFT JOIN (
                 SELECT al.server_name, COUNT(DISTINCT al.id) AS attack_count
                 FROM access_log al
@@ -253,6 +261,7 @@ public class DataService {
                 SELECT server_name, SUM(CASE WHEN blocked_by_modsec=TRUE THEN 1 ELSE 0 END) AS modsec_blocks
                 FROM access_log GROUP BY server_name
             ) m ON m.server_name = s.server_name
+            WHERE s.is_active = TRUE
             ORDER BY s.server_name COLLATE utf8mb4_unicode_ci
             """;
         try (PreparedStatement stmt = getConnection().prepareStatement(sql);
@@ -264,6 +273,8 @@ public class DataService {
                 stat.put("isActive", rs.getBoolean("is_active"));
                 stat.put("lastLogReceived", formatDateTime(rs.getTimestamp("last_log_received")));
                 stat.put("totalAccess", rs.getInt("total_access"));
+                // 今日のアクセス数を追加
+                stat.put("todayAccessCount", rs.getInt("today_access_count"));
                 stat.put("attackCount", rs.getInt("attack_count"));
                 stat.put("modsecBlocks", rs.getInt("modsec_blocks"));
                 stat.put("status", determineServerStatus(rs.getBoolean("is_active"), rs.getTimestamp("last_log_received")));
@@ -283,20 +294,64 @@ public class DataService {
      */
     public List<Map<String, Object>> getAttackTypeStats() {
         List<Map<String, Object>> attackTypes = new ArrayList<>();
-        String sql = "SELECT attack_type, COUNT(*) as count FROM url_registry GROUP BY attack_type";
+        // 今日のアクセスログをベースに、攻撃判定と同一のフィルタで攻撃タイプ別に集計する
+        // 範囲: DATE(access_time)=CURDATE(), サーバは active のみを集計対象
+        // 攻撃タイプは url_registry.attack_type を優先し、マッピングが無く ModSecurity によるブロックがある場合は 'MODSEC' とする
+        // only_full_group_by 回避のため、サブクエリで各アクセスごとに attack_type を決定し
+        // 外側で集計（GROUP BY）する方式に変更
+        String sql = """
+            SELECT attack_type, COUNT(*) AS count FROM (
+                SELECT al.id AS log_id,
+                       CASE
+                           WHEN ur.attack_type IS NOT NULL AND ur.attack_type NOT IN ('CLEAN','UNKNOWN','normal') THEN ur.attack_type
+                           WHEN al.blocked_by_modsec = TRUE THEN 'MODSEC'
+                           ELSE 'UNKNOWN'
+                       END AS attack_type
+                FROM access_log al
+                JOIN servers s ON al.server_name COLLATE utf8mb4_unicode_ci = s.server_name COLLATE utf8mb4_unicode_ci
+                LEFT JOIN url_registry ur ON al.method = ur.method AND al.full_url = ur.full_url
+                WHERE DATE(al.access_time) = CURDATE()
+                  AND s.is_active = TRUE
+                  AND (
+                      al.blocked_by_modsec = TRUE
+                      OR (ur.attack_type IS NOT NULL AND ur.attack_type NOT IN ('CLEAN','UNKNOWN','normal'))
+                  )
+            ) sub
+            GROUP BY attack_type
+            ORDER BY count DESC
+            """;
+
+        int sum = 0;
         try (PreparedStatement stmt = getConnection().prepareStatement(sql);
              ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
+                String typeName = rs.getString("attack_type");
+                int cnt = rs.getInt("count");
                 Map<String, Object> type = new HashMap<>();
-                type.put("type", rs.getString("attack_type"));
-                type.put("count", rs.getInt("count"));
-                type.put("description", getAttackTypeDescription(rs.getString("attack_type")));
-
+                String finalizedName = typeName == null ? "UNKNOWN" : typeName;
+                type.put("type", finalizedName);
+                type.put("count", cnt);
+                type.put("description", "MODSEC".equals(finalizedName) ? "ModSecurity によるブロック" : getAttackTypeDescription(finalizedName));
                 attackTypes.add(type);
+                sum += cnt;
             }
         } catch (SQLException e) {
             AppLogger.error("攻撃タイプ統計取得エラー: " + e.getMessage());
         }
+
+        // 総攻撃数と突合し、差分があれば 'UNMAPPED' エントリとして補正
+        try {
+            int totalAttacksToday = getTotalAttacksToday();
+            if (totalAttacksToday > sum) {
+                int diff = totalAttacksToday - sum;
+                Map<String, Object> other = new HashMap<>();
+                other.put("type", "UNMAPPED");
+                other.put("count", diff);
+                other.put("description", "集計差分（マッピングされていない/ModSecurity以外の検知）");
+                attackTypes.add(other);
+            }
+        } catch (Exception ignored) {}
+
         return attackTypes;
     }
 

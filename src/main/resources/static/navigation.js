@@ -16,6 +16,9 @@
                 const html = await resp.text();
                 main.innerHTML = html;
 
+                // update data-view so server/client initialization can rely on it
+                try { main.setAttribute('data-view', view); } catch(e) { /* ignore */ }
+
                 try { if (window.setupFragmentAutoRefresh) setupFragmentAutoRefresh(main); } catch(e) { console.warn('setupFragmentAutoRefresh after navigateTo error', e); }
 
                 if (view === 'users' || view === 'servers') {
@@ -37,9 +40,17 @@
             } else {
                 const j = await resp.json(); main.innerHTML = '<pre>'+JSON.stringify(j,null,2)+'</pre>';
             }
-            if (push) {
-                const newUrl = '/main?view=' + encodeURIComponent(view);
-                history.pushState({}, '', newUrl);
+            // always reflect view in the URL: pushState when push=true, otherwise replaceState
+            const newUrl = '/main?view=' + encodeURIComponent(view);
+            try {
+                if (push) {
+                    history.pushState({}, '', newUrl);
+                } else {
+                    history.replaceState({}, '', newUrl);
+                }
+            } catch(e) {
+                // some old browsers may throw; fallback to direct location change only if push requested
+                if (push) window.location.href = newUrl;
             }
         } catch (e) {
             const main = document.getElementById('main-content'); if (main) main.innerHTML = '<div class="card"><p>データ取得エラー</p></div>';
@@ -49,4 +60,3 @@
 
     window.navigateTo = navigateTo;
 })();
-
