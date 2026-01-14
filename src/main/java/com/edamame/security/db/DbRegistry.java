@@ -69,6 +69,12 @@ public class DbRegistry {
                             } catch (Exception e) {
                                 AppLogger.warn("新規サーバー登録後のロール自動追加エラー: " + finalServerName + " - " + e.getMessage());
                             }
+                            // 基本ロール(admin/operator/viewer)の下位にサーバー固有ロールを登録
+                            try {
+                                DbUpdate.addDefaultRoleHierarchy(dbSession, finalServerName);
+                            } catch (Exception e) {
+                                AppLogger.warn("基本ロールへの階層付与に失敗: " + finalServerName + " - " + e.getMessage());
+                            }
                         }
                     }
                 }
