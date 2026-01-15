@@ -26,18 +26,15 @@
   </div>
 </div>
 
-<!-- コンテキストメニュー（行クリックで表示）。初期は非表示 -->
-<div id="server-context-menu" class="context-menu" aria-hidden="true" style="display:none;">
-  <ul style="list-style:none; margin:0; padding:.5rem;">
-    <li><button id="ctx-disable" type="button">無効化</button></li>
-    <li><button id="ctx-enable" type="button" style="display:none;">有効化</button></li>
-  </ul>
+<!-- コンテキストメニュー（行クリックで表示）: mini_menu.js を使用 -->
+<div id="server-context-menu" class="sidebar-mini-menu server-mini" aria-hidden="true" style="position:absolute; display:none; visibility:hidden; z-index:1400;">
+  <div class="mini-menu-card"></div>
 </div>
 
-<!-- 確認モーダル（無効化の確認用） -->
-<div id="confirm-modal" class="modal" aria-hidden="true" style="display:none;">
-  <div class="modal-backdrop"></div>
-  <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+<!-- 確認モーダル（無効化の確認用）: バックドロップを兄弟要素に分離し hidden クラスで制御 -->
+<div id="confirm-backdrop" class="modal-backdrop hidden"></div>
+<div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+  <div class="modal-content" role="document">
     <header class="modal-header"><h3 id="confirm-modal-title">操作確認</h3></header>
     <main class="modal-body">
       <p id="confirm-modal-message">この操作を実行しますか？</p>
@@ -138,7 +135,8 @@
 <!-- 注意: 実際の検索・ページング・行クリック処理は既存の外部スクリプト（例: script.js）に実装してください。
      user_management と同様の API を叩くことで流用可能です。 -->
 
-<!-- server_list.js を読み込み、断片挿入後に初期化を行う -->
+<!-- mini_menu.js と server_list.js を読み込み、断片挿入後に初期化を行う -->
+<script src="/static/mini_menu.js"></script>
 <script src="/static/server_list.js"></script>
 <script>
   // フラグメントが DOM に挿入された後に呼ばれる想定なので、少し遅延して初期化を試みる

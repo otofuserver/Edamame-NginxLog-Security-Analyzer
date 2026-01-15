@@ -113,7 +113,7 @@
                         }
                         const hasServerList = !!mainEl.querySelector('#server-results-body, .server-list');
                         if (hasServerList) {
-                            await loadScriptsSequential(['/static/server_list.js']);
+                            await loadScriptsSequential(['/static/mini_menu.js','/static/server_list.js']);
                             if (window.ServerList && typeof window.ServerList.initServerManagement === 'function') {
                                 try { window.ServerList.initServerManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('ServerList.initServerManagement error', e); }
                             }
@@ -141,7 +141,7 @@
                             }
                             if (initialView === 'servers') {
                                 dbg('forcing server init because initialView=servers');
-                                await loadScriptsSequential(['/static/server_list.js']);
+                                await loadScriptsSequential(['/static/mini_menu.js','/static/server_list.js']);
                                 if (window.ServerList && typeof window.ServerList.initServerManagement === 'function') {
                                     try { window.ServerList.initServerManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('ServerList.initServerManagement error (force)', e); }
                                 }

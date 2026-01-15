@@ -11,8 +11,10 @@
     let sortColumn = 'serverName';
     let sortDir = 1;
     let selectedServer = null;
+    let serverMenu = null;
     // サーバー操作を行う現在ユーザーが管理者かどうか（サーバ側が出力する隠し要素から取得する）
     let currentUserIsAdmin = false;
+    let confirmHandlersBound = false;
 
     async function doSearch(page=1) {
         console.debug('[ServerList] doSearch', { page });
@@ -96,66 +98,93 @@
     }
 
     function hideContextMenu() {
+        if (serverMenu && typeof serverMenu.hide === 'function') {
+            serverMenu.hide();
+            return;
+        }
         const menu = document.getElementById('server-context-menu'); if (!menu) return; menu.style.display = 'none'; menu.setAttribute('aria-hidden','true');
     }
 
     function showContextMenu(ev) {
-        const menu = document.getElementById('server-context-menu'); if (!menu) return;
-        // 画面内に収まるよう位置調整
-        const x = ev.clientX; const y = ev.clientY;
-        // ボタン表示切替: 選択サーバーが無効なら "有効化" を表示、そうでなければ "無効化" を表示
-        const btnDisable = document.getElementById('ctx-disable');
-        const btnEnable = document.getElementById('ctx-enable');
-        if (btnDisable && btnEnable) {
-            if (selectedServer && selectedServer.isActive) {
-                btnDisable.style.display = 'block';
-                btnEnable.style.display = 'none';
-                // 管理者でなければ無効化ボタンを視覚的に無効化してクリックを無効化
-                if (!currentUserIsAdmin) {
-                    btnDisable.setAttribute('disabled', 'disabled');
-                    btnDisable.classList.add('btn-disabled');
-                    btnDisable.title = '管理者権限が必要です';
-                } else {
-                    btnDisable.removeAttribute('disabled');
-                    btnDisable.classList.remove('btn-disabled');
-                    btnDisable.title = '';
-                }
-            } else {
-                btnDisable.style.display = 'none';
-                btnEnable.style.display = 'block';
-                // 無効状態（有効化ボタン表示）のときも管理者でなければ無効化
-                if (!currentUserIsAdmin) {
-                    btnEnable.setAttribute('disabled', 'disabled');
-                    btnEnable.classList.add('btn-disabled');
-                    btnEnable.title = '管理者権限が必要です';
-                } else {
-                    btnEnable.removeAttribute('disabled');
-                    btnEnable.classList.remove('btn-disabled');
-                    btnEnable.title = '';
-                }
+        if (!serverMenu) {
+            const menuEl = document.getElementById('server-context-menu');
+            if (menuEl && window.MiniMenu && typeof window.MiniMenu.create === 'function') {
+                serverMenu = window.MiniMenu.create(menuEl);
             }
         }
-        menu.style.display = 'block'; menu.setAttribute('aria-hidden','false');
-        menu.style.left = (x + window.scrollX) + 'px';
-        menu.style.top = (y + window.scrollY) + 'px';
+        if (!serverMenu) return;
+        const isActive = selectedServer && selectedServer.isActive;
+        const serverName = selectedServer && selectedServer.serverName ? selectedServer.serverName : '';
+        serverMenu.show({
+            x: ev.clientX,
+            y: ev.clientY,
+            items: [
+                {
+                    label: '無効化',
+                    hidden: !isActive,
+                    disabled: !currentUserIsAdmin,
+                    onClick: () => {
+                        if (!currentUserIsAdmin) return;
+                        hideContextMenu();
+                        showConfirmModal('サーバー "' + serverName + '" を無効化しますか？', disableSelectedServer);
+                    }
+                },
+                {
+                    label: '有効化',
+                    hidden: !!isActive,
+                    disabled: !currentUserIsAdmin,
+                    onClick: () => {
+                        if (!currentUserIsAdmin) return;
+                        hideContextMenu();
+                        showConfirmModal('サーバー "' + serverName + '" を有効化しますか？', enableSelectedServer);
+                    }
+                }
+            ]
+        });
     }
 
-    // 確認モーダル表示/非表示とコールバック管理
+    // 確認モーダル表示/非表示とコールバック管理（URL脅威度同様に hidden クラスで制御）
     let __confirmOkHandler = null;
     function showConfirmModal(message, onOk) {
-        const modal = document.getElementById('confirm-modal');
-        const msgEl = document.getElementById('confirm-modal-message');
-        if (!modal || !msgEl) {
-            // フォールバックで即実行
-            if (typeof onOk === 'function') onOk();
-            return;
+         hideContextMenu();
+         const modal = document.getElementById('confirm-modal');
+         const backdrop = document.getElementById('confirm-backdrop');
+         const msgEl = document.getElementById('confirm-modal-message');
+         if (!modal || !backdrop || !msgEl) {
+             if (typeof onOk === 'function') onOk();
+             return;
+         }
+         bindConfirmHandlers();
+         msgEl.textContent = message || 'この操作を実行しますか？';
+         modal.classList.remove('hidden');
+         backdrop.classList.remove('hidden');
+         __confirmOkHandler = onOk;
+     }
+     function hideConfirmModal() {
+         const modal = document.getElementById('confirm-modal');
+         const backdrop = document.getElementById('confirm-backdrop');
+         if (modal) modal.classList.add('hidden');
+         if (backdrop) backdrop.classList.add('hidden');
+         __confirmOkHandler = null;
+     }
+
+    function bindConfirmHandlers() {
+        if (confirmHandlersBound) return;
+        const cCancel = document.getElementById('confirm-cancel');
+        const cOk = document.getElementById('confirm-ok');
+        if (cCancel) {
+            cCancel.addEventListener('click', () => { hideConfirmModal(); console.debug('[ServerList] confirm-cancel clicked'); });
         }
-        msgEl.textContent = message || 'この操作を実行しますか？';
-        modal.style.display = 'flex'; modal.setAttribute('aria-hidden','false');
-        __confirmOkHandler = onOk;
-    }
-    function hideConfirmModal() {
-        const modal = document.getElementById('confirm-modal'); if (!modal) return; modal.style.display = 'none'; modal.setAttribute('aria-hidden','true'); __confirmOkHandler = null;
+        if (cOk) {
+            cOk.addEventListener('click', () => {
+                console.debug('[ServerList] confirm-ok clicked handler start');
+                if (typeof __confirmOkHandler === 'function') {
+                    try { __confirmOkHandler(); } catch(e){ console.error('confirm ok handler error', e); }
+                }
+            });
+        }
+        confirmHandlersBound = !!(cCancel || cOk);
+        if (!confirmHandlersBound) console.warn('[ServerList] confirm handlers not bound (buttons missing)');
     }
 
     async function disableSelectedServer() {
@@ -222,40 +251,15 @@
             // attach header handlers
             attachHeaderSortHandlers();
 
-            // global click to hide context menu
-            document.addEventListener('click', function(){ hideContextMenu(); });
-
-            // setup context menu buttons
-            const btnDisable = document.getElementById('ctx-disable');
-            if (btnDisable) {
-                if (currentUserIsAdmin) {
-                    btnDisable.removeAttribute('disabled');
-                    btnDisable.classList.remove('btn-disabled');
-                    btnDisable.addEventListener('click', function(e){ e.stopPropagation(); hideContextMenu(); showConfirmModal('サーバー "' + (selectedServer && selectedServer.serverName ? selectedServer.serverName : '') + '" を無効化しますか？', disableSelectedServer); });
-                } else {
-                    // 非管理者はクリックできないようにする（視覚的にも無効化）
-                    btnDisable.setAttribute('disabled', 'disabled');
-                    btnDisable.classList.add('btn-disabled');
-                    btnDisable.title = '管理者権限が必要です';
+            // mini_menu.js 初期化（サーバー管理用）
+            try {
+                const menuEl = document.getElementById('server-context-menu');
+                if (menuEl && window.MiniMenu && typeof window.MiniMenu.create === 'function') {
+                    serverMenu = window.MiniMenu.create(menuEl);
                 }
+            } catch (e) {
+                console.error('[ServerList] mini menu init error', e);
             }
-            const btnEnable = document.getElementById('ctx-enable');
-            if (btnEnable) {
-                if (currentUserIsAdmin) {
-                    btnEnable.removeAttribute('disabled');
-                    btnEnable.classList.remove('btn-disabled');
-                    btnEnable.addEventListener('click', function(e){ e.stopPropagation(); hideContextMenu(); showConfirmModal('サーバー "' + (selectedServer && selectedServer.serverName ? selectedServer.serverName : '') + '" を有効化しますか？', enableSelectedServer); });
-                } else {
-                    btnEnable.setAttribute('disabled', 'disabled');
-                    btnEnable.classList.add('btn-disabled');
-                    btnEnable.title = '管理者権限が必要です';
-                }
-            }
-            // '後で追加' 機能は廃止したため関連バインドは削除
-
-            // confirm modal buttons
-            const cCancel = document.getElementById('confirm-cancel'); if (cCancel) cCancel.addEventListener('click', function(){ hideConfirmModal(); });
-            const cOk = document.getElementById('confirm-ok'); if (cOk) cOk.addEventListener('click', function(){ if (typeof __confirmOkHandler === 'function') { try { __confirmOkHandler(); } catch(e){ console.error('confirm ok handler error', e); } } });
 
             doSearch(1);
         }
