@@ -180,6 +180,7 @@ public class MainController implements HttpHandler {
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=test\">サンプル</a></li>");
         if (isAdmin) sb.append("<li><a class=\"nav-link\" href=\"/main?view=users\">ユーザー管理</a></li>");
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=servers\">サーバー管理</a></li>");
+        sb.append("<li><a class=\"nav-link\" href=\"/main?view=url_threat\">URL脅威度</a></li>");
         sb.append("</ul>");
         // ユーザー名は隠し要素として埋めてクライアント側で参照可能にする（XSS対策でエスケープ）
         sb.append("<div id=\"current-user-admin\" data-is-admin=\"")

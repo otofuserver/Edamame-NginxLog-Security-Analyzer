@@ -9,8 +9,10 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
+import org.json.JSONObject;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -88,6 +90,10 @@ public class ApiController implements HttpHandler {
                     handleServersPostApi(exchange);
                     return;
                 }
+                if ("/api/url-threats".equals(path)) {
+                    handleUrlThreatsPostApi(exchange);
+                    return;
+                }
                 sendJsonError(exchange, 405, "Method Not Allowed");
                 return;
             }
@@ -108,6 +114,7 @@ public class ApiController implements HttpHandler {
                 case "attack-types" -> handleAttackTypesApi(exchange);
                 case "health" -> handleHealthApi(exchange);
                 case "fragment" -> handleFragmentApi(exchange);
+                case "url-threats" -> handleUrlThreatsApi(exchange);
                 // エージェント関連APIを削除（TCP通信に変更のため不要）
                 default -> sendJsonError(exchange, 404, "API endpoint not found: " + WebSecurityUtils.sanitizeInput(endpoint));
             }
@@ -316,18 +323,33 @@ public class ApiController implements HttpHandler {
         try { if (params.containsKey("page")) page = Math.max(1, Integer.parseInt(params.get("page"))); } catch (Exception ignored) {}
         try { if (params.containsKey("size")) size = Math.max(1, Integer.parseInt(params.get("size"))); } catch (Exception ignored) {}
 
+        // セッションユーザーを特定
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        var sessionInfo = sessionId == null ? null : authService.validateSession(sessionId);
+        if (sessionInfo == null) {
+            sendJsonError(exchange, 401, "Unauthorized - authentication required");
+            return;
+        }
+        String username = sessionInfo.getUsername();
+
         var servers = dataService.getServerList();
-        // フィルタリング（サーバー名に q を部分一致）
+        com.edamame.web.service.UserService userService = new com.edamame.web.service.impl.UserServiceImpl();
+        boolean isAdmin = false;
+        try { isAdmin = userService.isAdmin(username); } catch (Exception ignored) {}
+
+        // viewer（上位ロール含む）を持つサーバーのみ + qフィルタ
         java.util.List<Map<String, Object>> filtered = new java.util.ArrayList<>();
-        if (q.isEmpty()) {
-            filtered.addAll(servers);
-        } else {
-            String lowerQ = q.toLowerCase();
-            for (Map<String, Object> s : servers) {
-                Object nameObj = s.get("serverName");
-                String name = nameObj != null ? nameObj.toString().toLowerCase() : "";
-                if (name.contains(lowerQ)) filtered.add(s);
-            }
+        String lowerQ = q.toLowerCase();
+        for (Map<String, Object> s : servers) {
+            Object nameObj = s.get("serverName");
+            String name = nameObj == null ? "" : nameObj.toString();
+            if (name.isEmpty()) continue;
+            String viewerRole = name + "_viewer";
+            boolean allowed = isAdmin || userService.hasRoleIncludingHigher(username, viewerRole);
+            if (!allowed) continue;
+            if (!q.isEmpty() && !name.toLowerCase().contains(lowerQ)) continue;
+            filtered.add(s);
         }
 
         int total = filtered.size();
@@ -482,27 +504,193 @@ public class ApiController implements HttpHandler {
     }
 
     /**
+     * URL脅威度APIを処理（サーバー別・脅威度フィルタ対応）
+     * @param exchange HTTPエクスチェンジ
+     * @throws IOException I/O例外
+     */
+    private void handleUrlThreatsApi(HttpExchange exchange) throws IOException {
+        String rawQuery = exchange.getRequestURI().getQuery();
+        java.util.Map<String, String> params = WebSecurityUtils.parseQueryParams(rawQuery);
+        String server = params.getOrDefault("server", "").trim();
+        String filter = params.getOrDefault("filter", "all").trim().toLowerCase();
+        String q = params.getOrDefault("q", "").trim();
+        if (!java.util.Set.of("all", "safe", "danger", "caution", "unknown").contains(filter)) {
+            filter = "all";
+        }
+        int page = 1;
+        int size = 20;
+        try { if (params.containsKey("page")) page = Math.max(1, Integer.parseInt(params.get("page"))); } catch (Exception ignored) {}
+        try { if (params.containsKey("size")) size = Math.max(1, Integer.parseInt(params.get("size"))); } catch (Exception ignored) {}
+        String sanitizedServer = server.isEmpty() ? null : WebSecurityUtils.sanitizeInput(server);
+        String sanitizedQuery = q.isEmpty() ? "" : WebSecurityUtils.sanitizeInput(q);
+
+        // セッションユーザーと権限を判定
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        var sessionInfo = sessionId == null ? null : authService.validateSession(sessionId);
+        if (sessionInfo == null) {
+            sendJsonError(exchange, 401, "Unauthorized - authentication required");
+            return;
+        }
+        String username = sessionInfo.getUsername();
+        var userService = new com.edamame.web.service.impl.UserServiceImpl();
+        boolean isAdmin = false;
+        try { isAdmin = userService.isAdmin(username); } catch (Exception ignored) {}
+        if (sanitizedServer == null || sanitizedServer.isEmpty()) {
+            sendJsonError(exchange, 400, "server parameter required");
+            return;
+        }
+        String viewerRole = sanitizedServer + "_viewer";
+        boolean canView = isAdmin || userService.hasRoleIncludingHigher(username, viewerRole);
+        if (!canView) {
+            sendJsonError(exchange, 403, "Forbidden - viewer role required");
+            return;
+        }
+        boolean canOperate = isAdmin || userService.hasRoleIncludingHigher(username, sanitizedServer + "_operator");
+
+        try {
+            var threats = dataService.getUrlThreats(sanitizedServer, filter, sanitizedQuery);
+            if (threats == null) threats = java.util.Collections.emptyList();
+            int total = threats.size();
+            int from = Math.min((page - 1) * size, total);
+            int to = Math.min(from + size, total);
+            var pageList = threats.subList(from, to);
+            var sanitized = sanitizeListData(pageList);
+            int totalPages = size == 0 ? 1 : Math.max(1, (int)Math.ceil((double) total / size));
+            Map<String, Object> response = Map.of(
+                "items", sanitized,
+                "count", sanitized.size(),
+                "total", total,
+                "page", page,
+                "size", size,
+                "totalPages", totalPages,
+                "canOperate", canOperate
+            );
+            sendJsonResponse(exchange, 200, response);
+            AppLogger.debug("URL脅威度API呼び出し完了 (count=" + sanitized.size() + ")");
+        } catch (Exception e) {
+            AppLogger.error("URL脅威度API処理中にエラー: " + stackTraceToString(e));
+            sendJsonError(exchange, 500, "URL脅威度の取得に失敗しました");
+        }
+    }
+
+    /**
+     * URL脅威度APIへの POST リクエストを処理
+     * @param exchange HTTPエクスチェンジ
+     * @throws IOException I/O例外
+     */
+    private void handleUrlThreatsPostApi(HttpExchange exchange) throws IOException {
+        // リクエストボディの読み込み
+        String requestBody;
+        try (InputStream is = exchange.getRequestBody()) {
+            requestBody = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            sendJsonError(exchange, 400, "Invalid request body");
+            return;
+        }
+
+        // JSON パース
+        JSONObject json;
+        try {
+            json = new JSONObject(requestBody);
+        } catch (Exception e) {
+            System.out.println("[ApiController] url-threats POST invalid JSON body: " + e.getMessage());
+            sendJsonError(exchange, 400, "Invalid JSON format");
+            return;
+        }
+
+        System.out.println("[ApiController] url-threats POST received path=" + exchange.getRequestURI().getPath() + " method=" + exchange.getRequestMethod());
+
+        String server = json.optString("serverName", null);
+        String method = json.optString("method", null);
+        String fullUrl = json.optString("fullUrl", null);
+        String action = json.optString("action", "");
+        String note = json.optString("note", "");
+        if (server == null || method == null || fullUrl == null || action.isBlank()) {
+            AppLogger.warn("URL脅威度POST: 必須パラメータ不足 server=" + server + " method=" + method + " url=" + fullUrl + " action=" + action);
+            sendJsonError(exchange, 400, "Missing required fields");
+            return;
+        }
+        server = server.trim();
+        method = method.trim();
+        fullUrl = fullUrl.trim();
+
+        // 認証・認可
+        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+        var sessionInfo = sessionId == null ? null : authService.validateSession(sessionId);
+        if (sessionInfo == null) {
+            AppLogger.warn("URL脅威度POST: 認証エラー (session null)");
+            System.out.println("[ApiController] url-threats POST auth failed (session null)");
+            sendJsonError(exchange, 401, "Unauthorized - authentication required");
+            return;
+        }
+        String username = sessionInfo.getUsername();
+        AppLogger.info("URL脅威度POST開始: user=" + username + " server=" + server + " method=" + method + " action=" + action);
+        System.out.println("[ApiController] url-threats POST start user=" + username + " server=" + server + " method=" + method + " action=" + action);
+        var userService = new com.edamame.web.service.impl.UserServiceImpl();
+        boolean isAdmin = false;
+        try { isAdmin = userService.isAdmin(username); } catch (Exception ignored) {}
+        boolean allowed = isAdmin || userService.hasRoleIncludingHigher(username, server + "_operator");
+        if (!allowed) {
+            AppLogger.warn("URL脅威度POST: 権限不足 user=" + username + " server=" + server);
+            System.out.println("[ApiController] url-threats POST forbidden user=" + username + " server=" + server);
+            sendJsonError(exchange, 403, "Forbidden - operator role required");
+            return;
+        }
+
+        String sanitizedNote = WebSecurityUtils.sanitizeInput(note == null ? "" : note);
+        String normalizedAction = action.toLowerCase();
+        if (!java.util.Set.of("danger", "safe", "clear", "note").contains(normalizedAction)) {
+            AppLogger.warn("URL脅威度POST: action不正 " + action);
+            System.out.println("[ApiController] url-threats POST invalid action " + action);
+            sendJsonError(exchange, 400, "Invalid action");
+            return;
+        }
+
+        boolean updated = dataService.updateUrlThreatCategory(server, method, fullUrl, normalizedAction, sanitizedNote);
+        if (!updated) {
+            AppLogger.warn("URL脅威度POST: 更新対象なし server=" + server + " method=" + method + " url=" + fullUrl + " action=" + normalizedAction);
+            System.out.println("[ApiController] url-threats POST update failed (not found) server=" + server + " method=" + method + " url=" + fullUrl + " action=" + normalizedAction);
+            sendJsonError(exchange, 404, "url threat not found");
+            return;
+        }
+
+        Map<String, Object> response = Map.of("success", true);
+        sendJsonResponse(exchange, 200, response);
+        AppLogger.info("URL脅威度POST完了: user=" + username + " server=" + server + " method=" + method + " action=" + normalizedAction);
+        System.out.println("[ApiController] url-threats POST success user=" + username + " server=" + server + " method=" + method + " action=" + normalizedAction);
+    }
+
+    /**
      * Mapデータをサニタイズ
      * @param data 元データ
      * @return サニタイズ済みデータ
      */
-    @SuppressWarnings("unchecked")
     private Map<String, Object> sanitizeMapData(Map<String, Object> data) {
-        return data.entrySet().stream()
-            .collect(java.util.stream.Collectors.toMap(
-                entry -> WebSecurityUtils.sanitizeInput(entry.getKey()),
-                entry -> {
-                    Object value = entry.getValue();
-                    if (value instanceof String str) {
-                        return WebSecurityUtils.sanitizeInput(str);
-                    } else if (value instanceof Map<?, ?> map) {
-                        return sanitizeMapData((Map<String, Object>) map);
-                    } else if (value instanceof java.util.List<?> list) {
-                        return sanitizeListData((java.util.List<Map<String, Object>>) list);
-                    }
-                    return value;
+        Map<String, Object> sanitized = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : data.entrySet()) {
+            String key = entry.getKey() == null ? "" : WebSecurityUtils.sanitizeInput(entry.getKey());
+            Object value = entry.getValue();
+            if (value instanceof String str) {
+                if ("fullUrl".equalsIgnoreCase(key)) {
+                    sanitized.put(key, str); // URLはフロントでtextContent描画するためエスケープ不要
+                } else {
+                    sanitized.put(key, WebSecurityUtils.sanitizeInput(str));
                 }
-            ));
+            } else if (value instanceof Map<?, ?> map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> sub = (Map<String, Object>) map;
+                sanitized.put(key, sanitizeMapData(sub));
+            } else if (value instanceof java.util.List<?> list) {
+                @SuppressWarnings("unchecked")
+                java.util.List<Map<String, Object>> l = (java.util.List<Map<String, Object>>) list;
+                sanitized.put(key, sanitizeListData(l));
+            } else {
+                sanitized.put(key, value); // null もそのまま許容
+            }
+        }
+        return sanitized;
     }
 
     /**
@@ -515,6 +703,14 @@ public class ApiController implements HttpHandler {
         return data.stream()
             .map(this::sanitizeMapData)
             .collect(java.util.stream.Collectors.toList());
+    }
+
+    private String stackTraceToString(Throwable t) {
+        if (t == null) return "";
+        java.io.StringWriter sw = new java.io.StringWriter();
+        java.io.PrintWriter pw = new java.io.PrintWriter(sw);
+        t.printStackTrace(pw);
+        return sw.toString();
     }
 
     /**

@@ -902,4 +902,87 @@ public class UserServiceImpl implements UserService {
             return null;
         }
     }
+
+    @Override
+    public boolean hasRoleIncludingHigher(String username, String roleName) {
+        if (username == null || roleName == null || roleName.isBlank()) {
+            return false;
+        }
+
+        Integer targetRoleId = null;
+        String getRoleIdSql = "SELECT id FROM roles WHERE role_name = ?";
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try (PreparedStatement ps = getConnection().prepareStatement(getRoleIdSql)) {
+                ps.setString(1, roleName);
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        targetRoleId = rs.getInt("id");
+                    }
+                }
+                break;
+            } catch (SQLException e) {
+                AppLogger.warn("hasRoleIncludingHigher: roleId取得エラー (試行:" + attempt + "): " + e.getMessage());
+                try { Thread.sleep(100 * attempt); } catch (InterruptedException ignored) {}
+            }
+        }
+        if (targetRoleId == null) {
+            return false;
+        }
+
+        // roles.inherited_roles をたどって上位ロールを収集
+        java.util.Set<Integer> roleIds = new java.util.LinkedHashSet<>();
+        java.util.Deque<Integer> queue = new java.util.ArrayDeque<>();
+        roleIds.add(targetRoleId);
+        queue.add(targetRoleId);
+        while (!queue.isEmpty()) {
+            int childId = queue.poll();
+            String parentSearchSql = "SELECT id FROM roles WHERE JSON_CONTAINS(inherited_roles, CAST(? AS JSON)) OR JSON_CONTAINS(inherited_roles, CONCAT('\"', ?, '\"'))";
+            try (PreparedStatement ps = getConnection().prepareStatement(parentSearchSql)) {
+                ps.setString(1, String.valueOf(childId));
+                ps.setString(2, String.valueOf(childId));
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int parentId = rs.getInt("id");
+                        if (roleIds.add(parentId)) {
+                            queue.add(parentId);
+                        }
+                    }
+                }
+            } catch (SQLException e) {
+                // JSON非対応などの場合はフォールバックで打ち切り
+                AppLogger.debug("hasRoleIncludingHigher: 役割継承探索に失敗、フォールバックします: " + e.getMessage());
+                roleIds.clear();
+                roleIds.add(targetRoleId);
+                break;
+            }
+        }
+
+        if (roleIds.isEmpty()) {
+            return false;
+        }
+
+        String inClause = String.join(",", java.util.Collections.nCopies(roleIds.size(), "?"));
+        String sql = "SELECT COUNT(*) FROM users u JOIN users_roles ur ON u.id = ur.user_id WHERE u.username = ? AND ur.role_id IN (" + inClause + ") AND u.is_active = 1";
+        for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+            try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
+                ps.setString(1, username);
+                int idx = 2;
+                for (Integer id : roleIds) {
+                    ps.setInt(idx++, id);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    if (rs.next()) {
+                        if (rs.getInt(1) > 0) return true;
+                    }
+                }
+                break;
+            } catch (SQLException e) {
+                AppLogger.warn("hasRoleIncludingHigher: users_roles検索エラー (試行:" + attempt + "): " + e.getMessage());
+                try { Thread.sleep(100 * attempt); } catch (InterruptedException ignored) {}
+            }
+        }
+
+        // フォールバック: users.role_id を使用 → users.role_id が存在しない環境があるためスキップ
+        return false;
+    }
 }

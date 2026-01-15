@@ -1,0 +1,129 @@
+<!-- URL脅威度断片: サーバーごとのURL脅威一覧を表示する -->
+<div class="card">
+  <h2>URL脅威度</h2>
+
+  <div class="form-row" style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;">
+    <label for="url-threat-server">サーバー</label>
+    <select id="url-threat-server" aria-label="サーバー選択"></select>
+  </div>
+
+  <div class="form-row" style="margin-top:0.75rem;">
+    <span style="margin-right:0.75rem;">表示する脅威度</span>
+    <label style="margin-right:0.75rem;"><input type="radio" name="url-threat-filter" value="all" checked /> すべて表示</label>
+    <label style="margin-right:0.75rem;"><input type="radio" name="url-threat-filter" value="danger" /> 危険</label>
+    <label style="margin-right:0.75rem;"><input type="radio" name="url-threat-filter" value="caution" /> 注意</label>
+    <label style="margin-right:0.75rem;"><input type="radio" name="url-threat-filter" value="unknown" /> 不明</label>
+    <label><input type="radio" name="url-threat-filter" value="safe" /> 安全</label>
+  </div>
+
+  <div id="url-threat-search-form" class="search-form" style="margin-top:0.5rem;">
+    <input type="text" id="url-threat-q" name="q" placeholder="URL・攻撃タイプ・メソッドで検索" aria-label="URL脅威度検索" style="width:100%; max-width:100%; display:block;" />
+  </div>
+
+  <div id="url-threat-message" style="margin-top:0.75rem;color:#555;"></div>
+
+  <div class="table-responsive" style="margin-top:0.75rem;">
+    <table class="table" id="url-threat-table">
+      <thead>
+        <tr>
+          <th scope="col" class="threat-col">脅威度</th>
+          <th scope="col" class="url-col">URL</th>
+          <th scope="col" class="method-col">メソッド</th>
+          <th scope="col" class="attack-col">攻撃タイプ</th>
+          <th scope="col" class="access-col">最終アクセス</th>
+          <th scope="col" class="status-col">HTTP</th>
+          <th scope="col" class="modsec-col">ModSec</th>
+        </tr>
+      </thead>
+      <tbody id="url-threat-body">
+        <tr><td colspan="7">読み込み中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="url-threat-pager" style="margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center;"></div>
+  <div id="url-threat-count" style="margin-top:0.25rem; font-size:0.9em; color:#444;"></div>
+
+  <div class="legend" style="margin-top:0.5rem;font-size:0.9em;color:#555;">
+    <span class="badge threat-danger">危険</span>
+    <span class="badge threat-caution">注意</span>
+    <span class="badge threat-unknown">不明</span>
+    <span class="badge threat-safe">安全</span>
+  </div>
+</div>
+
+<div id="url-threat-mini-menu" class="sidebar-mini-menu url-threat-mini" role="menu" aria-hidden="true" style="position:absolute;display:none;z-index:1700;">
+  <div class="mini-menu-card">
+    <button class="mini-menu-item" data-action="copy">URLをコピー</button>
+    <button class="mini-menu-item" data-action="danger">アクセスを危険にカテゴリーする</button>
+    <button class="mini-menu-item" data-action="safe">アクセスを安全にカテゴリーする</button>
+    <button class="mini-menu-item" data-action="clear">カテゴリーを解除する</button>
+    <button class="mini-menu-item" data-action="note">カテゴリーされた理由を確認する</button>
+  </div>
+</div>
+<div id="url-threat-modal-backdrop" class="modal-backdrop hidden"></div>
+<div id="url-threat-note-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="url-threat-note-title">
+  <div class="modal-content" style="width:480px;max-width:94vw;">
+    <div class="modal-header">
+      <h3 id="url-threat-note-title">理由を入力</h3>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>対象URL</label>
+        <div id="url-threat-modal-url" style="font-size:0.9em;word-break:break-all;"></div>
+      </div>
+      <div class="form-row">
+        <label for="url-threat-note-text">理由</label>
+        <textarea id="url-threat-note-text" rows="5" style="width:100%;"></textarea>
+      </div>
+      <div id="url-threat-note-hint" style="color:#666;font-size:0.9em;"></div>
+    </div>
+    <div class="modal-footer" style="justify-content:flex-end;gap:0.5rem;">
+      <button type="button" id="url-threat-note-cancel">閉じる</button>
+      <button type="button" id="url-threat-note-save" class="danger">保存</button>
+    </div>
+  </div>
+</div>
+
+<style>
+  .threat-safe { background:#e6f6e9; color:#1c7c3d; }
+  .threat-danger { background:#fde8e8; color:#b42318; }
+  .threat-caution { background:#fff4e5; color:#a15c00; }
+  .threat-unknown { background:#eef2f6; color:#3f4a5a; }
+  #url-threat-table tbody tr.threat-safe { border-left:4px solid #1c7c3d; }
+  #url-threat-table tbody tr.threat-danger { border-left:4px solid #b42318; }
+  #url-threat-table tbody tr.threat-caution { border-left:4px solid #a15c00; }
+  #url-threat-table tbody tr.threat-unknown { border-left:4px solid #5b6473; }
+  .threat-col { min-width: 96px; width: 100px; max-width: 120px; text-align:center; white-space: nowrap; }
+  .url-col { width: auto; }
+  .method-col { min-width: 90px; width: 100px; max-width: 140px; text-align:left; white-space: nowrap; }
+  .attack-col { min-width: 128px; width: 140px; max-width: 180px; white-space: nowrap; }
+  .access-col { width: 170px; max-width: 170px; white-space: nowrap; }
+  .status-col { width: 70px; max-width: 70px; text-align:center; }
+  .modsec-col { width: 80px; max-width: 80px; }
+  #url-threat-table { table-layout: auto; }
+  #url-threat-table td.url-cell { min-width: 240px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0)); }
+  #url-threat-table td.threat-cell { min-width: 96px; text-align:center; white-space: nowrap; }
+  #url-threat-table td.method-cell { min-width: 90px; max-width: 140px; text-align:left; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #url-threat-table td.attack-cell { min-width: 128px; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #url-threat-table td.access-cell { white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #url-threat-table td.status-cell { text-align:center; white-space: nowrap; }
+  #url-threat-table td.modsec-cell { text-align:left; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 検索ボックスを横幅いっぱいに広げる */
+  #url-threat-search-form input { width:100%; max-width:100%; }
+  #url-threat-body tr { cursor: pointer; }
+  #url-threat-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
+  #url-threat-mini-menu .mini-menu-item.hidden { display:none; }
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1600; }
+  .modal-backdrop.hidden, #url-threat-note-modal.hidden { display:none !important; }
+  /* モーダルをオーバーレイの上に出す */
+  #url-threat-note-modal { z-index:1701; }
+</style>
+
+<script src="/static/mini_menu.js"></script>
+<script>
+  // フラグメント挿入後に初期化
+  setTimeout(function(){
+    try { if (window.UrlThreat && typeof window.UrlThreat.init === 'function') { window.UrlThreat.init(); } }
+    catch(e){ console.error('UrlThreat init error', e); }
+  }, 0);
+</script>

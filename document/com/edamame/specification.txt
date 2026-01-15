@@ -1,9 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.52
-- **最終更新**: 2026-01-06
-- 注記: 2026-01-05 〜 2026-01-06 にユーザー管理機能の拡張を実施しました（自己メール変更時の所有者確認フロー追加、フロント側の確認コードモーダル実装、DBスキーマ email_change_requests の追加等）。詳細は以下の "ユーザー管理" セクションおよび `document/com/edamame/security/db/DbSchema.md`, `document/resources/static/profile_modal.md` を参照してください。
+- **specification.txt version**: v1.0.55
+- **最終更新**: 2026-01-15
+- 注記: URL再アクセス時も `url_registry.latest_*`（最終アクセス時刻/ステータス/ModSecフラグ）を即時更新するようAgentTcpServer・DbUpdate/DbRegistry/DbServiceを改修。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -25,7 +25,7 @@
 - **設計思想の明確化**：`whitelist_mode`は新規登録・安全性向上時のみ影響する制御フラグ
 - **データ整合性確保**：safe→unsafeへの変更を禁止、unsafe→safeへの変更のみ許可
 - **セキュリティ仕様強化**：
-  - One-way Safety: 一度安全判定されたURLは不安全に戻らない設計
+  - One-way Safety: 一度安全判定されたURLは不安全に戻らない設計（本仕様はユーザーによる明示操作で解除可能に更新）
   - Data Integrity: ログ出力とデータベース保存の完全一致
   - Access Control: 安全IPからのアクセスのみがホワイトリスト対象
 - **推奨運用方法確立**：
@@ -117,7 +117,7 @@
 ## v1.0.46での重要セキュリティ改善
 
 ### ホワイトリスト機能の安全設計（v1.0.46）
-- **is_whitelistedフラグの意味**: 一度安全なIPからアクセスされた信頼できるURLを示すフラグ
+- **is_whitelistedフラグの意味**: 一度安全なIPからアクセスされた信頼できるURLを示すフラグ（ユーザーが明示的に解除する場合はfalseへ戻すことを許容）
 - **whitelist_modeの役割**: 新規登録・安全性向上時の制御フラグ（既存の安全判定は変更しない）
 - **保護機能**: 既にtrue（安全）のURLは絶対にfalse（不安全）に変更されない
 - **更新条件**: 新規URL登録時・既存URLの安全性向上時のみ

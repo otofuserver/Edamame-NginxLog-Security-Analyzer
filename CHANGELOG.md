@@ -53,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **MySQL照合順序エラーを完全解決**: `Illegal mix of collations` エラーの修正
 - サーバー一覧取得エラーの解消
 - データベーススキーマの照合順序統一による安定性向上
+- URL脅威度APIでのNPEを防止し、取得失敗時に詳細ログを出力するように修正
 
 ## [1.0.0] - 2025-01-20
 
@@ -119,6 +120,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- URL脅威度ビューを追加し、サーバー選択と脅威度フィルタ（安全/危険/注意/不明/全件）付きで色分け表示を実装。
 - feat(web): 管理者向けユーザー管理断片を追加（断片: `/api/fragment/users`、検索API: `/api/users`）。
   - 管理者ロールのみ閲覧可能（AuthenticationService / users_roles を参照して判定）。
   - 検索はサーバーサイドで実行（ユーザー名・メールアドレスで部分一致検索、ページング対応）。
@@ -128,6 +130,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `email_change_requests` テーブルを追加し、6桁ワンタイムコードによるメール所有者確認を実装
   - API: `POST /api/me/email-change/request` (リクエスト作成) および `POST /api/me/email-change/verify` (確認コード検証)
   - フロントエンド: `profile_modal.js` に確認コードモーダルを実装し、メール変更時にコード入力を促すUIを追加
+- URL脅威度一覧にミニメニュー（コピー/危険/安全/解除/理由確認）と理由入力モーダルを追加し、サーバーoperator権限で分類変更できるようにした。
+- db: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）。
 
 ### Changed
 - fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）
@@ -136,6 +140,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `document/com/edamame/security/db/DbSchema.md` に `email_change_requests` テーブル仕様を追加
   - `document/com/edamame/web/controller/UserManagementController.md` にメール変更フローを追記
   - `document/com/edamame/web/service/UserService.md` に `requestEmailChange` / `verifyEmailChange` 契約を追加
+- `is_whitelisted` をユーザー操作で false に戻せるよう仕様を更新（危険/解除操作でホワイトリスト解除を許可）。
+- url_registry の既存URL再アクセス時に `latest_access_time`/`latest_status_code`/`latest_blocked_by_modsec` を即時同期するよう AgentTcpServer・DbUpdate/DbRegistry/DbService を更新
+
+### Fixed
+- UI: URL脅威度テーブルの「脅威度」「攻撃タイプ」「メソッド」ヘッダーが折り返されないように改行禁止と最小幅を設定
+- fix(web): URL脅威度ビューをサーバーレンダリングで直接開いた際（F5等）も初期化しサーバーリストが読み込まれるように修正
 
 ### Notes
 - DB スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により `email_change_requests` が自動生成される想定だが、本番適用前に必ず DB のフルバックアップを取得すること。
@@ -145,5 +155,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - docs(ui): profile_modal.js の仕様書を追加
 - feat(api): メール変更所有者確認フローを追加（/api/me/email-change/*）
 - docs(db): DbSchema に email_change_requests を追加
-
----

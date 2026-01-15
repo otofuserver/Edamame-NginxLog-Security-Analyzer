@@ -14,8 +14,8 @@ body {
 
 .dashboard-container { min-height: 100vh; display:flex; flex-direction:column; }
 .app-body { display:flex; gap:1rem; padding:1.5rem; }
-.sidebar { width:240px; background:#fff; border-radius:8px; padding:1rem; box-shadow:0 2px 8px rgba(0,0,0,0.06); height:calc(100vh - 120px); overflow:auto; }
-.sidebar .nav-link { display:block; padding:0.5rem 0.75rem; color:#333; text-decoration:none; border-radius:6px; }
+.sidebar { width:240px; min-width:240px; max-width:240px; flex:0 0 240px; background:#fff; border-radius:8px; padding:1rem; box-shadow:0 2px 8px rgba(0,0,0,0.06); height:calc(100vh - 120px); overflow:auto; }
+.sidebar .nav-link { display:block; padding:0.5rem 0.75rem; color:#333; text-decoration:none; border-radius:6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .nav-link:hover, .sidebar .nav-link.active { background:linear-gradient(90deg,#eef2ff,#f5f7ff); color:#222; }
 
 /* サイドバー内のユーザー表示調整 */
@@ -58,7 +58,7 @@ body {
 .card { background:white; border-radius:10px; padding:1.5rem; box-shadow:0 2px 10px rgba(0,0,0,0.1); }
 
 /* テーブル */
-table.table { width:100%; border-collapse:collapse; margin-top:.5rem; }
+table.table { width:100%; border-collapse:collapse; margin-top:.5rem; table-layout:fixed; }
 table.table th, table.table td { padding:.6rem .75rem; border-bottom:1px solid #e6e9ef; text-align:left; vertical-align:middle; }
 table.table thead th { background:#f8fafc; font-weight:600; cursor:pointer; user-select:none; }
 table.table thead th.sorted-asc::after { content:' ▲'; font-size:0.8em; color:#666; }
@@ -157,6 +157,9 @@ tr:hover { background: #fafcff; }
   .app-body { padding: .75rem; }
   .modal-content { width: 92%; }
 }
+
+/* サイドメニューは常にフルサイズ表示 */
+.sidebar { display:block !important; }
 
 /* 強制オーバーライド: row-inline の入力とボタンを横並びに固定する（最後に追加） */
 .modal-content .form-row.row-inline { display:flex !important; align-items:center !important; gap:.5rem !important; }

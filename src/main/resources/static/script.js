@@ -63,7 +63,7 @@
     document.addEventListener('DOMContentLoaded', async function(){
         dbg('DOM ready - starting bootstrap');
         // 依存モジュールを順に読み込む
-        await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js']);
+        await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js','/static/mini_menu.js','/static/url_threat.js']);
         dbg('loaded core modules, loadedScripts=', Array.from(_loadedScripts));
 
         // 初期化
@@ -87,10 +87,12 @@
             let initialView = params.get('view') || (params.has('q') ? 'users' : 'dashboard');
             const mainEl = document.getElementById('main-content');
             if (mainEl) {
-                try { const dv = mainEl.getAttribute('data-view'); if (dv) initialView = dv; } catch(e) {}
+                try {
+                    const dv = mainEl.getAttribute('data-view');
+                    if (dv) initialView = dv;
+                } catch(e) {}
                 dbg('initialView determined=', initialView, 'location.search=', location.search, 'main-content data-view=', mainEl.getAttribute('data-view'));
 
-                const content = mainEl.innerHTML || '';
                 const noClientNav = mainEl.getAttribute('data-no-client-nav') === 'true';
                 if (!noClientNav) {
                     dbg('forcing navigateTo for initialView=', initialView, 'noClientNav=', noClientNav);
@@ -117,6 +119,16 @@
                             }
                             dbg('initialized server list because hasServerList=true');
                         }
+                        const hasUrlThreat = initialView === 'url_threat' || !!mainEl.querySelector('#url-threat-table');
+                        if (hasUrlThreat) {
+                            await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
+                            if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
+                                try { window.UrlThreat.init(); } catch(e) { console.error('UrlThreat.init error (server-rendered)', e); }
+                            }
+                            dbg('initialized url threat because hasUrlThreat=true');
+                        }
+
+                        // 強制的なビュー別初期化
                         try {
                             if (initialView === 'users') {
                                 dbg('forcing user init because initialView=users');
@@ -134,12 +146,23 @@
                                     try { window.ServerList.initServerManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('ServerList.initServerManagement error (force)', e); }
                                 }
                             }
-                        } catch(e) { console.warn('forced user init error', e); }
-                    } catch(e) { console.warn('server-rendered main-content user init error', e); }
+                            if (initialView === 'url_threat') {
+                                dbg('forcing url_threat init because initialView=url_threat');
+                                await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
+                                if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
+                                    try { window.UrlThreat.init(); } catch(e) { console.error('UrlThreat.init error (force)', e); }
+                                }
+                            }
+                        } catch(e) {
+                            console.warn('server-rendered forced init error', e);
+                        }
+                    } catch(e) {
+                        console.warn('server-rendered init error', e);
+                    }
                 }
-
-                try { if (window.setupFragmentAutoRefresh) setupFragmentAutoRefresh(mainEl); } catch(e) { /* ignore */ }
             }
-        } catch(e) { /* ignore */ }
+        } catch(e) {
+            console.error('initial navigation error', e);
+        }
     });
 })();

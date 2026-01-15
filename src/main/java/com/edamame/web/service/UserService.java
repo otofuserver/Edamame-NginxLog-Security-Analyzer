@@ -159,4 +159,12 @@ public interface UserService {
      * @return 検証成功かつ更新成功なら true
      */
     boolean verifyEmailChange(String username, long requestId, String code);
+
+    /**
+     * 指定ユーザーがロールを保持しているか（対象ロールとそれを継承する上位ロールを含めて判定）
+     * @param username ユーザー名
+     * @param roleName 判定対象のロール名
+     * @return 保持していればtrue
+     */
+    boolean hasRoleIncludingHigher(String username, String roleName);
 }

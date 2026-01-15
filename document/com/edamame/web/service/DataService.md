@@ -12,6 +12,7 @@
 - サーバー単位集計 (`getServerStats`)：サーバごとのアクセス数や攻撃検知数、ModSec ブロック数を集計（ダッシュボード用は有効サーバのみを対象）。
 - 最近のアラート取得 (`getRecentAlerts`)：modsec_alerts と access_log を組み合わせてアラート情報を返却。
 - 攻撃タイプ別統計取得 (`getAttackTypeStats`)：today の access_log を基に集計するロジックを備える（ダッシュボードでは除外可能）。
+- URL脅威度一覧取得（`getUrlThreats`）: サーバーフィルタ・脅威度フィルタ・キーワード検索に対応。`url_registry` の `latest_*` カラムのみを参照して最新状態を返却（access_log への依存を排除）。
 
 ## 挙動
 - 各メソッドは内部で SQL を組み立てて PreparedStatement を使い実行する。例外時はログ出力 (`AppLogger.error`) して可能な限り安全なデフォルト値（空リストや0）を返す。
@@ -31,6 +32,7 @@
 - `public List<Map<String, Object>> getServerList()` - サーバー一覧取得（管理画面向け: 全サーバー）。
 - `public List<Map<String, Object>> getServerStats()` - サーバ別統計取得（ダッシュボード用: 有効サーバのみ）。
 - `public List<Map<String, Object>> getAttackTypeStats()` - 攻撃タイプ別統計（access_log ベースの集計。ダッシュボードでは表示しない）。
+- `public List<Map<String, Object>> getUrlThreats(String serverName, String threatFilter, String query)` - URL脅威度一覧取得。`url_registry.latest_*` を利用し、フィルタ・検索・優先度ソートに対応。
 - `public Map<String, Object> getApiStats()` - API 用の簡易統計。
 - `public boolean isConnectionValid()` - DB 接続有効チェック。
 - `public boolean disableServerById(int id)` / `public boolean enableServerById(int id)` - サーバーの有効/無効切替。
@@ -40,6 +42,7 @@
 - 2026-01-06: `getServerStats` と `getServerList` の照合順序対応と today 集計追加。
 - 2026-01-10: `getServerStats` の SQL 構文エラーを修正（LEFT JOIN と WHERE の順序を正す）。
 - 2026-01-11: ダッシュボード向けに `getServerStats` を有効サーバーのみに限定、`getServerList` は管理画面向けに全サーバーを返すように調整。`getAttackTypeStats` を only_full_group_by 対応のサブクエリ方式で実装し、一時的にダッシュボード表示を除外。
+- 2026-01-15: URL脅威度一覧取得メソッド `getUrlThreats` を追加。サーバーフィルタ・脅威度フィルタ・キーワード検索に対応。`url_registry` の `latest_*` カラムのみを参照して最新状態を返却（access_log への依存を排除）。
 
 ## コミットメッセージ例
-- docs(service): DataService の仕様を更新（today 集計・有効サーバー除外・attackType 集計修正）
+- docs(service): DataService の仕様を更新（URL脅威度一覧を url_registry 最新メタで返却）

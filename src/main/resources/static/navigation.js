@@ -5,7 +5,7 @@
         if (window.dbg) window.dbg('navigateTo called, view=', view, 'push=', push);
         try {
             const main = document.getElementById('main-content'); if (!main) return;
-            const routeMap = { 'dashboard': '/api/fragment/dashboard', 'template': '/api/fragment/test', 'users': '/api/fragment/users', 'servers': '/api/fragment/servers' };
+            const routeMap = { 'dashboard': '/api/fragment/dashboard', 'template': '/api/fragment/test', 'users': '/api/fragment/users', 'servers': '/api/fragment/servers', 'url_threat': '/api/fragment/url_threat' };
             const apiPath = routeMap[view] || ('/api/fragment/' + encodeURIComponent(view));
             main.innerHTML = '<div class="card"><p>読み込み中...</p></div>';
             const resp = await fetch(apiPath, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'text/html, application/json' } });
@@ -35,6 +35,12 @@
                         if (window.ServerList && typeof window.ServerList.initServerManagement === 'function') {
                             try { window.ServerList.initServerManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('ServerList.initServerManagement error', e); }
                         }
+                    }
+                }
+                if (view === 'url_threat') {
+                    await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
+                    if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
+                        try { window.UrlThreat.init(); } catch(e) { console.error('UrlThreat.init error', e); }
                     }
                 }
             } else {
