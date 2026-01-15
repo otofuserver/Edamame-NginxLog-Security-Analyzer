@@ -18,6 +18,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import com.edamame.security.tools.UrlCodec;
+import java.sql.Timestamp;
 
 /**
  * エージェントTCP通信サーバー
@@ -825,7 +826,9 @@ public class AgentTcpServer {
                     List<ModSecurityQueue.ModSecurityAlert> matchingAlerts =
                         modSecurityQueue.findMatchingAlerts(actualServerName, fullUrl, accessTime);
 
-                    if (!matchingAlerts.isEmpty()) {
+                    boolean blockedByModSec = !matchingAlerts.isEmpty();
+
+                    if (blockedByModSec) {
                         AppLogger.info("ModSecurityアラート一致検出: " + matchingAlerts.size() + "件, access_log ID=" + accessLogId);
 
                         // access_logのblocked_by_modsecをtrueに更新
@@ -841,11 +844,13 @@ public class AgentTcpServer {
                         AppLogger.debug("ModSecurityアラート一致なし: " + fullUrl);
                     }
 
+                    // ModSecurity判定結果を最新アクセス情報にも反映
+                    parsedLog.put("blocked_by_modsec", blockedByModSec);
+
                     // 攻撃パターン識別とURL登録
                     processUrlAndAttackPattern(parsedLog);
 
                     // アクション実行エンジンでの脅威対応（ModSecurityブロック状態を確認）
-                    boolean blockedByModSec = !matchingAlerts.isEmpty();
                     executeSecurityActions(parsedLog, blockedByModSec);
                 } else {
                     AppLogger.error("access_log保存失敗: " + parsedLog);
@@ -1039,6 +1044,9 @@ public class AgentTcpServer {
             String method = (String) parsedLog.get("method");
             String fullUrl = (String) parsedLog.get("full_url");
             String clientIp = (String) parsedLog.get("ip_address"); // IPアドレス情報を取得
+            Integer latestStatusCode = parsedLog.get("status_code") instanceof Number n ? n.intValue() : null;
+            boolean latestBlocked = Boolean.TRUE.equals(parsedLog.get("blocked_by_modsec"));
+            Timestamp latestAccessTs = toTimestamp(parsedLog.get("access_time"));
 
             if (serverName == null || method == null || fullUrl == null) {
                 return;
@@ -1057,6 +1065,11 @@ public class AgentTcpServer {
                         serverName, method, fullUrl, clientIp
                     );
                 }
+                try {
+                    updateUrlRegistryLatest(serverName, method, fullUrl, latestAccessTs, latestStatusCode, latestBlocked);
+                } catch (Exception e) {
+                    AppLogger.warn("url_registry最新更新失敗: " + e.getMessage());
+                }
                 return;
             }
 
@@ -1068,7 +1081,7 @@ public class AgentTcpServer {
             boolean isWhitelisted = whitelistManager.determineWhitelistStatus(clientIp);
 
             // DbServiceを使用して新規URL登録
-            boolean registered = registerUrlRegistryEntry(serverName, method, fullUrl, isWhitelisted, attackType);
+            boolean registered = registerUrlRegistryEntry(serverName, method, fullUrl, isWhitelisted, attackType, latestAccessTs, latestStatusCode, latestBlocked);
             if (registered) {
                 if (isWhitelisted) {
                     AppLogger.info("ホワイトリストURL登録: " + serverName + " - " + method + " " + fullUrl + " from " + clientIp);
@@ -1121,5 +1134,17 @@ public class AgentTcpServer {
                url.endsWith(".gif") ||
                url.equals("/favicon.ico") ||
                url.equals("/robots.txt");
+    }
+
+    /**
+     * access_time/LocalDateTime/Timestamp/ISO文字列をTimestampに変換
+     */
+    private Timestamp toTimestamp(Object value) {
+        if (value instanceof Timestamp ts) return ts;
+        if (value instanceof LocalDateTime ldt) return Timestamp.valueOf(ldt);
+        if (value instanceof String str) {
+            try { return Timestamp.valueOf(LocalDateTime.parse(str)); } catch (Exception ignored) {}
+        }
+        return new Timestamp(System.currentTimeMillis());
     }
 }

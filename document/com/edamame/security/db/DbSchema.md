@@ -44,6 +44,14 @@
   - `code_hash` は SHA-256 等の安全なハッシュで保存し、ソルトや HMAC の利用を検討する（単純なハッシュだけだと辞書攻撃のリスクがある）。
   - メール送信には送信ログ・監査を実装し、不正アクセスの痕跡を追えるようにする。
 
+## url_registry テーブル仕様（最終アクセス情報）
+- 目的: URL脅威度一覧の表示最適化のため、最終アクセス情報を url_registry に保持する。
+- 追加カラム:
+  - `latest_access_time` DATETIME  — 最終アクセス日時
+  - `latest_status_code` INT — 最終アクセス時のHTTPステータスコード
+  - `latest_blocked_by_modsec` BOOLEAN DEFAULT FALSE — 最終アクセスがModSecurityでブロックされたか
+- 備考: `DbSchema.syncAllTablesSchema` により自動で追加・同期される。
+
 ## その他
 - スキーマ同期は環境やDBのバージョン差により動作が変わる可能性がある。大きなスキーマ変更はマイグレーション手順書を別途用意すること。
 - 生成される SQL は MySQL 向けを想定しており、他のDBでは互換性がない可能性がある。
@@ -65,6 +73,8 @@
 ## 変更履歴
 - 2.0.0 - 2025-12-31: ドキュメント作成
 - 2026-01-05: `email_change_requests` テーブルを追加（メール変更の所有者確認フロー用）
+- 2026-01-15: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）
 
 ## コミットメッセージ例
 - docs(db): DbSchema に email_change_requests の仕様を追加
+- docs(db): url_registry に最終アクセス情報カラムを追加

@@ -57,6 +57,9 @@ public class DbSchema {
         urlRegistryDefs.put("attack_type", "VARCHAR(50) DEFAULT 'none'");
         urlRegistryDefs.put("user_final_threat", "BOOLEAN DEFAULT NULL");
         urlRegistryDefs.put("user_threat_note", "TEXT");
+        urlRegistryDefs.put("latest_access_time", "DATETIME");
+        urlRegistryDefs.put("latest_status_code", "INT");
+        urlRegistryDefs.put("latest_blocked_by_modsec", "BOOLEAN DEFAULT FALSE");
         autoSyncTableColumns(dbSession, "url_registry", urlRegistryDefs, null);
 
         // modsec_alerts

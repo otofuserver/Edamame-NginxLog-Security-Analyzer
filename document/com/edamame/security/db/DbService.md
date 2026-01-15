@@ -2,6 +2,7 @@
 - docs(db): DbService の仕様書を追加
 ## コミットメッセージ例
 
+- 2.1.1 - 2026-01-15: `updateUrlRegistryLatest` ラッパーを追加した委譲APIを明記
 - 2.1.0 - 2025-12-31: ドキュメント作成
 ## 変更履歴
 
@@ -26,6 +27,7 @@
 - 直接 Connection を取り出す互換 API（`getConnection`）および接続状態確認 (`isConnected`) を提供
 - トランザクション実行ユーティリティ（`executeInTransaction`）
 - 各種 SELECT/UPDATE/INSERT 操作の委譲（`DbSelect`, `DbUpdate`, `DbRegistry`, `DbSchema`, `DbInitialData` など）
+- URL レジストリの最新メタデータ更新を `updateUrlRegistryLatest` で委譲（既存URLの最終アクセスを同期）
 - `DbSession` の初期化・シャットダウン管理（`initialize`, `shutdown`）
 ## 主な機能
 
@@ -33,5 +35,3 @@
 ## 概要
 
 対象: `src/main/java/com/edamame/security/db/DbService.java`
-
-

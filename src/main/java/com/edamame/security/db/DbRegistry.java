@@ -343,7 +343,6 @@ public class DbRegistry {
                     // ステータスコードの処理
                     Integer statusCode = (Integer) parsedLog.get("status_code");
                     if (statusCode == null) {
-                        // フォールバック: statusCodeフィールドも確認
                         statusCode = (Integer) parsedLog.getOrDefault("statusCode", 0);
                     }
                     pstmt.setInt(5, statusCode);
@@ -369,7 +368,7 @@ public class DbRegistry {
                     }
 
                     pstmt.setBoolean(7, (Boolean) parsedLog.getOrDefault("blockedByModSec", false));
-                    
+
                     // source_pathの処理（snake_caseとcamelCaseの両方に対応）
                     String sourcePath = (String) parsedLog.get("source_path");
                     if (sourcePath == null || sourcePath.trim().isEmpty()) {
@@ -432,12 +431,13 @@ public class DbRegistry {
      * @return 登録成功時はtrue
      * @throws SQLException SQL例外
      */
-    public static boolean registerUrlRegistryEntry(DbSession dbSession, String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType) throws SQLException {
+    public static boolean registerUrlRegistryEntry(DbSession dbSession, String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType, Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
         return dbSession.executeWithResult(conn -> {
             try {
                 String sql = """
-                    INSERT INTO url_registry (server_name, method, full_url, is_whitelisted, attack_type, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, NOW(), NOW())
+                    INSERT INTO url_registry (server_name, method, full_url, is_whitelisted, attack_type, created_at, updated_at,
+                                              latest_access_time, latest_status_code, latest_blocked_by_modsec)
+                    VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?)
                     """;
 
                 try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
@@ -446,6 +446,13 @@ public class DbRegistry {
                     pstmt.setString(3, fullUrl);
                     pstmt.setBoolean(4, isWhitelisted);
                     pstmt.setString(5, attackType);
+                    pstmt.setTimestamp(6, latestAccessTime != null ? latestAccessTime : new Timestamp(System.currentTimeMillis()));
+                    if (latestStatusCode == null) {
+                        pstmt.setNull(7, Types.INTEGER);
+                    } else {
+                        pstmt.setInt(7, latestStatusCode);
+                    }
+                    pstmt.setBoolean(8, latestBlockedByModsec != null && latestBlockedByModsec);
 
                     int affected = pstmt.executeUpdate();
                     if (affected > 0) {
@@ -456,6 +463,46 @@ public class DbRegistry {
                 return false;
             } catch (SQLException e) {
                 AppLogger.error("URL登録エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /**
+     * url_registry の最終アクセス情報を更新（既存行のみ対象）
+     * @param dbSession データベースセッション
+     * @param serverName サーバー名
+     * @param method HTTPメソッド
+     * @param fullUrl フルURL
+     * @param latestAccessTime 最終アクセス時刻
+     * @param latestStatusCode 最終HTTPステータス
+     * @param latestBlockedByModsec 最終ModSecブロック有無
+     * @throws SQLException SQL例外
+     */
+    public static void updateUrlRegistryLatest(DbSession dbSession, String serverName, String method, String fullUrl,
+                                               Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
+        dbSession.execute(conn -> {
+            String sql = """
+                UPDATE url_registry
+                SET latest_access_time = ?, latest_status_code = ?, latest_blocked_by_modsec = ?, updated_at = NOW()
+                WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """;
+            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
+                pstmt.setTimestamp(1, latestAccessTime != null ? latestAccessTime : new Timestamp(System.currentTimeMillis()));
+                if (latestStatusCode == null) {
+                    pstmt.setNull(2, Types.INTEGER);
+                } else {
+                    pstmt.setInt(2, latestStatusCode);
+                }
+                pstmt.setBoolean(3, latestBlockedByModsec != null && latestBlockedByModsec);
+                pstmt.setString(4, serverName);
+                pstmt.setString(5, method);
+                pstmt.setString(6, fullUrl);
+                pstmt.executeUpdate();
+            } catch (SQLException e) {
+                AppLogger.error("url_registry最新アクセス更新エラー: " + e.getMessage());
                 throw new RuntimeException(e);
             }
         });
@@ -497,7 +544,7 @@ public class DbRegistry {
                     } else {
                         pstmt.setInt(5, 0);
                     }
-                    
+
                     pstmt.setString(6, (String) modSecInfo.get("server_name"));
 
                     // detected_atの処理（文字列またはTimestamp/LocalDateTimeに対応）

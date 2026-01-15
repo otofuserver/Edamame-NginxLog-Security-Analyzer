@@ -2,6 +2,7 @@ package com.edamame.security.db;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -238,6 +239,21 @@ public final class DbService {
         return DbUpdate.updateUrlWhitelistStatus(globalSession, serverName, method, fullUrl);
     }
 
+    /**
+     * url_registryの最終アクセス情報を更新
+     * @param serverName サーバー名
+     * @param method HTTPメソッド
+     * @param fullUrl フルURL
+     * @param latestAccessTime 最終アクセス時刻
+     * @param latestStatusCode 最終HTTPステータス
+     * @param latestBlockedByModsec 最終ModSecブロック有無
+     * @throws SQLException SQL例外
+     */
+    public static void updateUrlRegistryLatest(String serverName, String method, String fullUrl, Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
+        checkInitialized();
+        DbUpdate.updateUrlRegistryLatest(globalSession, serverName, method, fullUrl, latestAccessTime, latestStatusCode, latestBlockedByModsec);
+    }
+
     // ============= INSERT/REGISTRY操作（DbRegistry���委譲） =============
 
     /**
@@ -275,18 +291,21 @@ public final class DbService {
     }
 
     /**
-     * url_registryテーブルに新規URLを登録
+     * url_registryテーブルに新規URLを登録（最終アクセス情報付き）
      * @param serverName サーバー名
      * @param method HTTPメソッド
      * @param fullUrl フルURL
      * @param isWhitelisted ホワイトリスト判定
      * @param attackType 攻撃タイプ
+     * @param latestAccessTime 最終アクセス時刻
+     * @param latestStatusCode 最終HTTPステータス
+     * @param latestBlockedByModsec 最終ModSecブロック有無
      * @return 登録成功時はtrue
      * @throws SQLException SQL例外
      */
-    public static boolean registerUrlRegistryEntry(String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType) throws SQLException {
+    public static boolean registerUrlRegistryEntry(String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType, java.sql.Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
         checkInitialized();
-        return DbRegistry.registerUrlRegistryEntry(globalSession, serverName, method, fullUrl, isWhitelisted, attackType);
+        return DbRegistry.registerUrlRegistryEntry(globalSession, serverName, method, fullUrl, isWhitelisted, attackType, latestAccessTime, latestStatusCode, latestBlockedByModsec);
     }
 
     /**

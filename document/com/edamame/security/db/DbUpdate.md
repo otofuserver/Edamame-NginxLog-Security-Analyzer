@@ -11,10 +11,11 @@
 - サーバー最終ログ受信時刻更新（`updateServerLastLogReceived`）
 - エージェントハートビート更新（`updateAgentHeartbeat`）
 - エージェントログ統計更新（`updateAgentLogStats`）
-- access_log の ModSecurity フラグ更新（`updateAccessLogModSecStatus`）
+- access_log の ModSecurity フラグ更新（`updateAccessLogModSecStatus`：更新時に該当URLの`latest_*`も同期）
 - エージェントの inactive 化（`deactivateAgent`, `deactivateAllAgents`）
 - URL をホワイトリスト化する更新（`updateUrlWhitelistStatus`）
 - サーバーごとのデフォルトロール階層追加（`addDefaultRoleHierarchy`）
+- URL レジストリの最新アクセス情報更新（`updateUrlRegistryLatest`）
 
 ## 挙動
 - 各メソッドは `DbSession.execute` または `DbSession.executeWithResult` を用いてデータベース操作を行う。SQL 実行中に発生した `SQLException` は内部で `RuntimeException` にラップして上位に伝播する。
@@ -96,17 +97,25 @@
 
 ---
 
-### `public static int updateAccessLogModSecStatus(DbSession dbSession, Long accessLogId, boolean blockedByModSec)`
-- 機能概要: `access_log` のレコードに対して `blocked_by_modsec` を設定する。
-- 引数:
-  - `dbSession`, `accessLogId`, `blockedByModSec`
-- 戻り値: 更新件数（int）
-- 実行 SQL:
+### `public static void updateUrlRegistryLatest(DbSession dbSession, String serverName, String method, String fullUrl, Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec)`
+- 機能概要: 指定URLの最終アクセスメタデータ（時刻・HTTPステータス・ModSecブロック有無）を更新する。既存行のみ対象。
+- 引数: `dbSession`, `serverName`, `method`, `fullUrl`, `latestAccessTime`（nullなら現在時刻）、`latestStatusCode`（nullならNULL保存）、`latestBlockedByModsec`（nullならfalse扱い）
+- 実行 SQL（例）:
   ```sql
-  UPDATE access_log SET blocked_by_modsec = ? WHERE id = ?
+  UPDATE url_registry
+  SET latest_access_time = ?, latest_status_code = ?, latest_blocked_by_modsec = ?, updated_at = NOW()
+  WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?
+  ORDER BY updated_at DESC
+  LIMIT 1
   ```
-- エラー処理: SQLException をログ記録し RuntimeException をスロー。
-- ログ: 成功時は DEBUG/INFO。
+- エラー処理: SQLException を捕捉して AppLogger.error を出力し RuntimeException でラップ。
+
+---
+
+### `public static int updateAccessLogModSecStatus(DbSession dbSession, Long accessLogId, boolean blockedByModSec)`
+- 機能概要: `access_log.blocked_by_modsec` を更新し、同時に対応する URL の最新メタデータも `updateUrlRegistryLatest` で同期する。
+- 引数/戻り値/SQL: 上記「主な機能」・SQL例を参照（更新件数を返す）。
+- 注意: access_log から `server_name/method/full_url/status_code/access_time` を読み出して最新値として反映する。
 
 ---
 
@@ -171,6 +180,8 @@
   - 完全に失敗した場合でも他のロールに対して影響を与えないように個別に try/catch を行う。
 - ログ: 追加成功時は INFO、既に存在する場合は DEBUG。
 
+---
+
 ## その他
 - トランザクション境界が必要な複数更新がある場合は、呼び出し側が `DbSession` のトランザクション API を利用してまとめて実行すること（このクラスは個別の更新ユーティリティを提供する責務に限定）。
 - データ型の取り扱いは null 安全を考慮し、必要なら呼び出し側で事前バリデーションを行うこと。
@@ -178,6 +189,7 @@
 
 ## 変更履歴
 - 2.1.0 - 2025-12-31: フォーマット統一（仕様書を統一フォーマットへ変換）
+- 2.1.2 - 2026-01-15: `updateUrlRegistryLatest` 追加と `updateAccessLogModSecStatus` での最新メタデータ同期を明記
 - 2.1.1 - 2026-01-02: 各メソッドの詳細（引数・戻り値・SQL例・エラー処理）を追記
 
 ## コミットメッセージ例

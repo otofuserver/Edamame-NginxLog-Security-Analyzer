@@ -1,6 +1,7 @@
 package com.edamame.security.db;
 import com.edamame.security.tools.AppLogger;
 import java.sql.SQLException;
+import java.sql.Timestamp;
 
 /**
  * データベースのアップデート処理用クラス
@@ -142,13 +143,37 @@ public class DbUpdate {
     public static int updateAccessLogModSecStatus(DbSession dbSession, Long accessLogId, boolean blockedByModSec) throws SQLException {
         return dbSession.executeWithResult(conn -> {
             try {
+                String selectSql = "SELECT server_name, method, full_url, status_code, access_time FROM access_log WHERE id = ?";
                 String sql = "UPDATE access_log SET blocked_by_modsec = ? WHERE id = ?";
+                String serverName = null; String method = null; String fullUrl = null; Integer statusCode = null; Timestamp accessTime = null;
+                try (var sel = conn.prepareStatement(selectSql)) {
+                    sel.setLong(1, accessLogId);
+                    try (var rs = sel.executeQuery()) {
+                        if (rs.next()) {
+                            serverName = rs.getString("server_name");
+                            method = rs.getString("method");
+                            fullUrl = rs.getString("full_url");
+                            Object statusObj = rs.getObject("status_code");
+                            statusCode = statusObj instanceof Number n ? n.intValue() : null;
+                            accessTime = rs.getTimestamp("access_time");
+                        }
+                    }
+                }
+
                 try (var pstmt = conn.prepareStatement(sql)) {
                     pstmt.setBoolean(1, blockedByModSec);
                     pstmt.setLong(2, accessLogId);
                     int updated = pstmt.executeUpdate();
                     if (updated > 0) {
                         AppLogger.debug("ModSecurityブロック状態更新: ID=" + accessLogId + ", blocked=" + blockedByModSec);
+                        // url_registryの最新アクセス情報も同期
+                        if (serverName != null && method != null && fullUrl != null) {
+                            try {
+                                updateUrlRegistryLatest(dbSession, serverName, method, fullUrl, accessTime, statusCode, blockedByModSec);
+                            } catch (Exception e) {
+                                AppLogger.warn("url_registry最新情報同期失敗: " + e.getMessage());
+                            }
+                        }
                     }
                     return updated;
                 }
@@ -398,4 +423,21 @@ public class DbUpdate {
             }
         });
     }
+
+    /**
+     * url_registryの最新アクセス情報を更新（汎用呼び出し用）
+     * @param dbSession データベースセッション
+     * @param serverName サーバー名
+     * @param method HTTPメソッド
+     * @param fullUrl フルURL
+     * @param latestAccessTime 最終アクセス時刻
+     * @param latestStatusCode 最終HTTPステータス
+     * @param latestBlockedByModsec 最終ModSecブロック有無
+     * @throws SQLException SQL例外
+     */
+    public static void updateUrlRegistryLatest(DbSession dbSession, String serverName, String method, String fullUrl,
+                                               Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
+        DbRegistry.updateUrlRegistryLatest(dbSession, serverName, method, fullUrl, latestAccessTime, latestStatusCode, latestBlockedByModsec);
+    }
 }
+
