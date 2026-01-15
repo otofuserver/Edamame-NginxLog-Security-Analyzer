@@ -158,12 +158,13 @@ tr:hover { background: #fafcff; }
 
 /* Sidebar mini menu */
 .sidebar-mini-menu {
-  min-width: 180px;
+  min-width: 140px; /* 既存180pxから縮小 */
+  max-width: 250px;
 }
 .sidebar-mini-menu .mini-menu-card {
-  background: white; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12); padding:.5rem; display:flex; flex-direction:column; gap:.25rem;
+  background: white; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12); padding:.35rem; display:flex; flex-direction:column; gap:.25rem;
 }
-.sidebar-mini-menu .mini-menu-item { background:transparent; border:none; text-align:left; padding:.5rem; cursor:pointer; border-radius:6px; }
+.sidebar-mini-menu .mini-menu-item { background:transparent; border:none; text-align:left; padding:.4rem 0.5rem; cursor:pointer; border-radius:6px; font-size: 0.95rem; }
 .sidebar-mini-menu .mini-menu-item:hover { background: #f0f4ff; }
 
 /* ミニメニューの表示位置: ユーザー表示のすぐ近くに出す */
