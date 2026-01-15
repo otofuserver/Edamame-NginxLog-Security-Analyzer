@@ -175,3 +175,7 @@ tr:hover { background: #fafcff; }
   flex: 0 0 auto !important;
   white-space: nowrap !important;
 }
+
+/* 検索フォームをフル幅に伸ばす */
+.search-form { display:flex; width:100%; margin-bottom:.75rem; }
+.search-form input[type='text'] { flex:1 1 auto; width:100%; max-width:100%; }
