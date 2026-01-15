@@ -159,7 +159,7 @@ tr:hover { background: #fafcff; }
 /* Sidebar mini menu */
 .sidebar-mini-menu {
   min-width: 140px; /* 既存180pxから縮小 */
-  max-width: 250px;
+  max-width: 270px;
 }
 .sidebar-mini-menu .mini-menu-card {
   background: white; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12); padding:.35rem; display:flex; flex-direction:column; gap:.25rem;

@@ -47,8 +47,6 @@
 
     function showMiniMenu(ev) {
         if (!miniMenu || !STATE.currentItem) return;
-        // 既存メニューを閉じるが currentItem は保持
-        closeMiniMenu(false);
         const { userFinalThreat, isWhitelisted } = STATE.currentItem;
         const canOperate = STATE.canOperate;
         const items = [
@@ -58,7 +56,7 @@
             { label: 'カテゴリーを解除する', hidden: (!userFinalThreat && !isWhitelisted), disabled: !canOperate, onClick: () => openNoteModal('clear', STATE.currentItem) },
             { label: canOperate ? 'カテゴリーされた理由を確認する' : 'カテゴリーされた理由を確認する（閲覧のみ）', onClick: () => openNoteModal('note', STATE.currentItem), disabled: false }
         ];
-        miniMenu.show({ x: ev.clientX, y: ev.clientY, items });
+        miniMenu.show({ x: ev.pageX ?? ev.clientX, y: ev.pageY ?? ev.clientY, items });
     }
 
     function setupMiniMenu() {
@@ -218,7 +216,6 @@
             tr.append(tdThreat, tdUrl, tdMethod, tdAtk, tdLast, tdStatus, tdModsec);
             tr.addEventListener('click', ev => {
                 ev.stopPropagation();
-                closeMiniMenu();
                 STATE.currentItem = {
                     serverName: tr.dataset.serverName,
                     method: tr.dataset.method,
