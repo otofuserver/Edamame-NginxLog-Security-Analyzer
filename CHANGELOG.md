@@ -143,6 +143,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `document/com/edamame/web/service/UserService.md` に `requestEmailChange` / `verifyEmailChange` 契約を追加
 - `is_whitelisted` をユーザー操作で false に戻せるよう仕様を更新（危険/解除操作でホワイトリスト解除を許可）。
 - url_registry の既存URL再アクセス時に `latest_access_time`/`latest_status_code`/`latest_blocked_by_modsec` を即時同期するよう AgentTcpServer・DbUpdate/DbRegistry/DbService を更新
+- UI: サーバー管理・ユーザー管理のテーブルヘッダーにソート方向（▲/▼）を表示
 
 ### Fixed
 - UI: URL脅威度テーブルの「脅威度」「攻撃タイプ」「メソッド」ヘッダーが折り返されないように改行禁止と最小幅を設定

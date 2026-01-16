@@ -4,7 +4,7 @@
 管理者向けのユーザー管理 UI に関する実装・挙動仕様をまとめます。主に `src/main/resources/fragments/user_management.html` と `src/main/resources/static/user_list.js`, `src/main/resources/static/user_modal.js` に実装されています。今回の改修では以下を実装・改善しました：
 
 - ユーザー検索がインラインでフィルタされる（Search 入力で即時フィルタ、ページングあり）
-- ユーザー一覧はテーブル表示（username, email, lastLogin, enabled）
+- ユーザー一覧はテーブル表示（username, email, lastLogin, enabled、ソート中カラムに▲/▼表示）
 - 行をクリックで編集モーダルを開く（ただし自分自身の行は編集不可にする UX 保護）
 - モーダルは表示前に /api/users/{username} で詳細を取得し、成功時にのみ表示（403 時に一瞬表示される問題を解消）
 - ユーザー作成時の重複 username は 409 を受けて username 欄直下にインラインエラーを表示

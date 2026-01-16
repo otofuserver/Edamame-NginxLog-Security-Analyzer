@@ -15,6 +15,7 @@
 
 ## 動作
 - クライアントはこの断片を取得して DOM に挿入後、`UserList.initUserManagement()` を呼んで検索・一覧の初期化を行う。
+- テーブルヘッダのクリックでソート方向を切り替え、選択中の列には ▲/▼ を表示する。
 
 ## テスト/チェックポイント
 - テンプレートに ID 属性が存在するか（`#user-results-body`, `#pagination`, `#user-search-form`, `#user-modal`）
@@ -23,4 +24,3 @@
 ## 関連
 - `UserManagementController.handleFragment()`（断片提供）
 - `src/main/resources/static/user_list.js`, `src/main/resources/static/user_modal.js`
-

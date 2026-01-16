@@ -9,7 +9,7 @@
     let currentPage = 1;
     let currentSize = 20;
     let sortColumn = 'username';
-    let sortDir = 1;
+    let sortDir = 1; // 1: asc, -1: desc
 
     async function doSearch(page=1) {
         console.debug('[UserList] doSearch called', { page });
@@ -56,6 +56,7 @@
             resultsBody.appendChild(tr);
         }
         renderPagination(currentTotal, currentPage, currentSize);
+        updateSortIndicators();
     }
 
     function renderPagination(total, page, size) {
@@ -78,6 +79,18 @@
             th.__edamame_click__ && th.removeEventListener('click', th.__edamame_click__);
             th.__edamame_click__ = function() { const col = th.getAttribute('data-column'); if (sortColumn === col) sortDir = -sortDir; else { sortColumn = col; sortDir = 1; } render(currentUsers, currentTotal, currentPage, currentSize); };
             th.addEventListener('click', th.__edamame_click__);
+        });
+    }
+
+    function updateSortIndicators() {
+        document.querySelectorAll('th[data-column]').forEach(th => {
+            const col = th.getAttribute('data-column') || '';
+            const active = col === sortColumn;
+            if (!th.dataset.labelOriginal) th.dataset.labelOriginal = th.textContent.trim();
+            const base = th.dataset.labelOriginal;
+            const arrow = active ? (sortDir === -1 ? ' ▼' : ' ▲') : '';
+            th.textContent = base + arrow;
+            th.classList.toggle('active-sort', active);
         });
     }
 
@@ -133,4 +146,4 @@
     }
 
     window.UserList = { initUserManagement, doSearch, render, renderError };
-})();
+ })();

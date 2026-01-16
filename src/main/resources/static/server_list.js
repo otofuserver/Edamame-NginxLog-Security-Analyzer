@@ -9,7 +9,7 @@
     let currentPage = 1;
     let currentSize = 20;
     let sortColumn = 'serverName';
-    let sortDir = 1;
+    let sortDir = 1; // 1: asc, -1: desc
     let selectedServer = null;
     let serverMenu = null;
     // サーバー操作を行う現在ユーザーが管理者かどうか（サーバ側が出力する隠し要素から取得する）
@@ -72,6 +72,7 @@
             body.appendChild(tr);
         }
         renderPagination(currentTotal, currentPage, currentSize);
+        updateSortIndicators();
     }
 
     function renderPagination(total, page, size) {
@@ -94,6 +95,18 @@
             th.__edamame_click__ && th.removeEventListener('click', th.__edamame_click__);
             th.__edamame_click__ = function() { const col = th.getAttribute('data-column'); if (sortColumn === col) sortDir = -sortDir; else { sortColumn = col; sortDir = 1; } render(currentServers, currentTotal, currentPage, currentSize); };
             th.addEventListener('click', th.__edamame_click__);
+        });
+    }
+
+    function updateSortIndicators() {
+        document.querySelectorAll('th[data-column]').forEach(th => {
+            const col = th.getAttribute('data-column') || '';
+            const active = col === sortColumn;
+            if (!th.dataset.labelOriginal) th.dataset.labelOriginal = th.textContent.trim();
+            const base = th.dataset.labelOriginal;
+            const arrow = active ? (sortDir === -1 ? ' ▼' : ' ▲') : '';
+            th.textContent = base + arrow;
+            th.classList.toggle('active-sort', active);
         });
     }
 
@@ -266,5 +279,5 @@
         tryInit();
     }
 
-    window.ServerList = { initServerManagement, doSearch, render, renderError };
-})();
+    window.ServerList = { doSearch, render, renderError, attachHeaderSortHandlers, initServerManagement };
+ })();
