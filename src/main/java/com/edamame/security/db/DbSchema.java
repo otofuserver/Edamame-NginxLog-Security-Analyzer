@@ -60,6 +60,9 @@ public class DbSchema {
         urlRegistryDefs.put("latest_access_time", "DATETIME");
         urlRegistryDefs.put("latest_status_code", "INT");
         urlRegistryDefs.put("latest_blocked_by_modsec", "BOOLEAN DEFAULT FALSE");
+        urlRegistryDefs.put("threat_key", "VARCHAR(20) DEFAULT 'unknown'");
+        urlRegistryDefs.put("threat_label", "VARCHAR(50) DEFAULT '不明'");
+        urlRegistryDefs.put("threat_priority", "INT DEFAULT 0");
         autoSyncTableColumns(dbSession, "url_registry", urlRegistryDefs, null);
 
         // modsec_alerts

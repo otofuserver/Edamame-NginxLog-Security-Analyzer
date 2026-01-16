@@ -434,11 +434,13 @@ public class DbRegistry {
     public static boolean registerUrlRegistryEntry(DbSession dbSession, String serverName, String method, String fullUrl, boolean isWhitelisted, String attackType, Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
         return dbSession.executeWithResult(conn -> {
             try {
+                ThreatEvaluation eval = evaluateThreat(isWhitelisted, null, attackType, latestBlockedByModsec);
                 String sql = """
                     INSERT INTO url_registry (server_name, method, full_url, is_whitelisted, attack_type, created_at, updated_at,
-                                              latest_access_time, latest_status_code, latest_blocked_by_modsec)
-                    VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?)
-                    """;
+                                              latest_access_time, latest_status_code, latest_blocked_by_modsec,
+                                              threat_key, threat_label, threat_priority)
+                    VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?)
+                     """;
 
                 try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                     pstmt.setString(1, serverName);
@@ -453,6 +455,9 @@ public class DbRegistry {
                         pstmt.setInt(7, latestStatusCode);
                     }
                     pstmt.setBoolean(8, latestBlockedByModsec != null && latestBlockedByModsec);
+                    pstmt.setString(9, eval.key());
+                    pstmt.setString(10, eval.label());
+                    pstmt.setInt(11, eval.priority());
 
                     int affected = pstmt.executeUpdate();
                     if (affected > 0) {
@@ -482,25 +487,47 @@ public class DbRegistry {
     public static void updateUrlRegistryLatest(DbSession dbSession, String serverName, String method, String fullUrl,
                                                Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
         dbSession.execute(conn -> {
-            String sql = """
+            String selectSql = "SELECT is_whitelisted, user_final_threat, attack_type FROM url_registry WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ? ORDER BY updated_at DESC LIMIT 1";
+            String updateSql = """
                 UPDATE url_registry
-                SET latest_access_time = ?, latest_status_code = ?, latest_blocked_by_modsec = ?, updated_at = NOW()
+                SET latest_access_time = ?, latest_status_code = ?, latest_blocked_by_modsec = ?,
+                    threat_key = ?, threat_label = ?, threat_priority = ?, updated_at = NOW()
                 WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?
                 ORDER BY updated_at DESC
                 LIMIT 1
                 """;
-            try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                pstmt.setTimestamp(1, latestAccessTime != null ? latestAccessTime : new Timestamp(System.currentTimeMillis()));
-                if (latestStatusCode == null) {
-                    pstmt.setNull(2, Types.INTEGER);
-                } else {
-                    pstmt.setInt(2, latestStatusCode);
+            try (PreparedStatement sel = conn.prepareStatement(selectSql)) {
+                sel.setString(1, serverName);
+                sel.setString(2, method);
+                sel.setString(3, fullUrl);
+                boolean isWhitelisted = false;
+                Boolean userFinalThreat = null;
+                String attackType = null;
+                try (ResultSet rs = sel.executeQuery()) {
+                    if (rs.next()) {
+                        isWhitelisted = rs.getBoolean("is_whitelisted");
+                        Object uft = rs.getObject("user_final_threat");
+                        userFinalThreat = uft == null ? null : rs.getBoolean("user_final_threat");
+                        attackType = rs.getString("attack_type");
+                    }
                 }
-                pstmt.setBoolean(3, latestBlockedByModsec != null && latestBlockedByModsec);
-                pstmt.setString(4, serverName);
-                pstmt.setString(5, method);
-                pstmt.setString(6, fullUrl);
-                pstmt.executeUpdate();
+                ThreatEvaluation eval = evaluateThreat(isWhitelisted, userFinalThreat, attackType, latestBlockedByModsec);
+                try (PreparedStatement pstmt = conn.prepareStatement(updateSql)) {
+                    pstmt.setTimestamp(1, latestAccessTime != null ? latestAccessTime : new Timestamp(System.currentTimeMillis()));
+                    if (latestStatusCode == null) {
+                        pstmt.setNull(2, Types.INTEGER);
+                    } else {
+                        pstmt.setInt(2, latestStatusCode);
+                    }
+                    pstmt.setBoolean(3, latestBlockedByModsec != null && latestBlockedByModsec);
+                    pstmt.setString(4, eval.key());
+                    pstmt.setString(5, eval.label());
+                    pstmt.setInt(6, eval.priority());
+                    pstmt.setString(7, serverName);
+                    pstmt.setString(8, method);
+                    pstmt.setString(9, fullUrl);
+                    pstmt.executeUpdate();
+                }
             } catch (SQLException e) {
                 AppLogger.error("url_registry最新アクセス更新エラー: " + e.getMessage());
                 throw new RuntimeException(e);
@@ -624,4 +651,27 @@ public class DbRegistry {
     private static String generateAgentRegistrationId() {
         return "agent-" + UUID.randomUUID().toString().substring(0, 8);
     }
+
+    /** 脅威度判定（url_registry用） */
+    public static ThreatEvaluation evaluateThreat(boolean isWhitelisted, Boolean userFinalThreat, String attackType, Boolean latestBlocked) {
+        if (Boolean.TRUE.equals(userFinalThreat)) {
+            return new ThreatEvaluation("danger", "危険", 1);
+        }
+        if (isWhitelisted) {
+            return new ThreatEvaluation("safe", "安全", 4);
+        }
+        if (Boolean.TRUE.equals(latestBlocked)) {
+            return new ThreatEvaluation("caution", "注意", 2);
+        }
+        String atk = attackType == null ? "" : attackType.trim();
+        if (!atk.isEmpty() && !"normal".equalsIgnoreCase(atk)) {
+            return new ThreatEvaluation("caution", "注意", 2);
+        }
+        if ("normal".equalsIgnoreCase(atk)) {
+            return new ThreatEvaluation("unknown", "不明", 3);
+        }
+        return new ThreatEvaluation("unknown", "不明", 3);
+    }
+
+    public record ThreatEvaluation(String key, String label, int priority) {}
 }

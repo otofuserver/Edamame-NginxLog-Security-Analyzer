@@ -1,9 +1,12 @@
 # Edamame NginxLog Security Analyzer
 
-## specification.txt バージョン情報
-- **specification.txt version**: v1.0.55
-- **最終更新**: 2026-01-15
-- 注記: URL再アクセス時も `url_registry.latest_*`（最終アクセス時刻/ステータス/ModSecフラグ）を即時更新するようAgentTcpServer・DbUpdate/DbRegistry/DbServiceを改修。
+ ## specification.txt バージョン情報
+-**specification.txt version**: v1.0.55
+-- **最終更新**: 2026-01-15
+-- 注記: URL再アクセス時も `url_registry.latest_*`（最終アクセス時刻/ステータス/ModSecフラグ）を即時更新するようAgentTcpServer・DbUpdate/DbRegistry/DbServiceを改修。
++**specification.txt version**: v1.0.56
++- **最終更新**: 2026-01-16
++- 注記: `url_registry` に手動/自動分類用の脅威ラベル列（`threat_key`/`threat_label`/`threat_priority`）を追加し、ダッシュボードの脅威度ソート・フィルタと連動させた。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
@@ -99,10 +102,15 @@
 - 初回アクセス時に `url_registry` へ追加
 - `/run/secrets/attack_patterns.json` を使って `attack_type`（例: SQLi, XSS, LFI等）を識別
 - **v1.0.46ホワイトリスト機能強化**：
-  - ホワイトリストモード有効かつ指定IPからのアクセスなら `is_whitelisted = TRUE` に
-  - **安全性保持**: 一度安全と判定されたURLは永続的に安全を維持
-  - **safe→unsafe変更禁止**: 安全なURLが不安全に戻ることを防止
-  - **One-way Safety**: 安全性向上のみ許可する設計
+    - ホワイトリストモード有効かつ指定IPからのアクセスなら `is_whitelisted = TRUE` に
+    - **安全性保持**: 一度安全と判定されたURLは永続的に安全を維持
+    - **safe→unsafe変更禁止**: 安全なURLが不安全に戻ることを防止
+    - **One-way Safety**: 安全性向上のみ許可する設計
++- **脅威分類フィールド（2026-01-16追加）**：
++  - `threat_key` … 脅威カテゴリキー（例: danger/safe/caution/unknown）。未分類時は `unknown`。
++  - `threat_label` … UI表示用ラベル（例: 危険/安全/注意/不明）。未設定時は `不明`。
++  - `threat_priority` … 並び替え用優先度（整数、小さいほど高優先）。未設定時は `0`。
++  - `DataService.getUrlThreats` や `DbRegistry.updateUrlThreatCategory` で手動分類・フィルタリングに使用。
 
 ### 🧠 4. `attack_patterns.yaml` に基づく攻撃タイプ識別・自動更新
 - 起動時に `url_registry` を再スキャンし、`attack_type` を最新に更新

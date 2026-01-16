@@ -147,6 +147,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - UI: URL脅威度テーブルの「脅威度」「攻撃タイプ」「メソッド」ヘッダーが折り返されないように改行禁止と最小幅を設定
 - fix(web): URL脅威度ビューをサーバーレンダリングで直接開いた際（F5等）も初期化しサーバーリストが読み込まれるように修正
 
+### Docs
+- url_registryの脅威分類フィールド（threat_key/threat_label/threat_priority）追加をドキュメントに反映
+- Web認証仕様書にremember-me時のCookie Max-Ageとsessionsテーブル構成を追記
+- DB仕様を`document/db_schema_spec.md`に集約し初版を作成
+
 ### Notes
 - DB スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により `email_change_requests` が自動生成される想定だが、本番適用前に必ず DB のフルバックアップを取得すること。
 - メール送信の監査ログと検証試行回数制限（attempts に基づくロック）を運用ルールとして推奨する。

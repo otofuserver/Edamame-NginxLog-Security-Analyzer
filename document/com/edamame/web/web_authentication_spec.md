@@ -1,7 +1,7 @@
 # Web認証仕様書 (Edamame Security Dashboard)
 
-**バージョン**: 1.3.1  
-**最終更新**: 2025-07-23  
+**バージョン**: 1.3.2  
+**最終更新**: 2026-01-16  
 **対象システム**: Edamame NginxLog Security Analyzer Web Dashboard
 
 ## 概要
@@ -20,7 +20,7 @@ Edamame Security DashboardのWeb認証システムは、セッションベース
 
 ### セッション管理（DB永続化）
 
-- セッション情報はMySQLの`sessions`テーブルで一元管理
+- セッション情報はMySQLの`sessions`テーブルで一元管理（`session_id`,`username`,`expires_at`,`created_at`）
 - セッション生成・検証・削除・クリーンアップはすべてDBで実施
 - サーバープロセス間・複数サーバー間でセッションが共有可能
 - メモリ上のactiveSessionsは廃止
@@ -41,7 +41,8 @@ Edamame Security DashboardのWeb認証システムは、セッションベース
 - **Cookie名**: `EDAMAME_SESSION`
 - **パス**: `/` (全サイト有効)
 - **属性**: `HttpOnly`
-- **セキュリティ**: SameSite制約なし
+- **保持期間**: 24時間（rememberMe時は`Max-Age=30日`）
+- **セキュリティ**: SameSite制約なし（`Secure`未付与）
 
 ---
 
@@ -149,7 +150,7 @@ public String getTemplate(String templateName) {
 
 ## データベース仕様の参照について
 
-- 認証・セッション管理に関するDBテーブル構造は、すべて`db_schema_spec.md`に集約されています。
+- 認証・セッション管理に関するDBテーブル構造は、すべて`document/db_schema_spec.md`に集約されています。
 - usersテーブル・sessionsテーブルの詳細は`document/db_schema_spec.md`を参照してください。
 #### 認証クエリ例
 
@@ -303,7 +304,7 @@ DELETE FROM sessions WHERE session_id = ?;
 | 1.2.0 | 2025-07-23 | リファクタリング完了、セキュリティ強化、Java 21機能活用 |
 | 1.3.0 | 2025-07-23 | セッション管理仕様をDB永続化方式に全面更新 |
 | 1.3.1 | 2025-07-23 | 認証成功時にAuthenticationFilterがexchangeへusername属性を必ずセットする仕様を明記し、302リダイレクトループ防止策を仕様書に追記 |
-| 1.3.2 | 2025-12-17 | 認証処理の耐障害性改善（DB接続切断時のリトライ処理、SQLException詳細ログ化、insertLoginHistoryの堅牢化） |
+| 1.3.2 | 2026-01-16 | remember-me時のCookie Max-Age=30日・Secure未付与を明記。sessionsテーブルのカラム構成とDB仕様参照先を追記しました。 |
 
 ---
 

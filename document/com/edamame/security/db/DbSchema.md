@@ -3,7 +3,7 @@
 対象: `src/main/java/com/edamame/security/db/DbSchema.java`
 
 ## 概要
-- データベースのテーブル定義をコード上で保持し、自動的に既存スキーマと比較して必要なカラム追加・削除・型変更を行うユーティリティクラス。`autoSyncTableColumns` によりスキーマの自動整合を実現する。
+- データベースのテーブル定義をコード上で保持し、自動的に既存スキーマと比較して必要なカラム追加・削除・型変更を行うユーティリティクラス。`autoSyncTableColumns` によりスキーマの自動整合を実現する。詳細なテーブル仕様は`document/db_schema_spec.md`に集約する。
 
 ## 主な機能
 - テーブル存在チェック、新規作成
@@ -44,13 +44,16 @@
   - `code_hash` は SHA-256 等の安全なハッシュで保存し、ソルトや HMAC の利用を検討する（単純なハッシュだけだと辞書攻撃のリスクがある）。
   - メール送信には送信ログ・監査を実装し、不正アクセスの痕跡を追えるようにする。
 
-## url_registry テーブル仕様（最終アクセス情報）
-- 目的: URL脅威度一覧の表示最適化のため、最終アクセス情報を url_registry に保持する。
+## url_registry テーブル仕様（最終アクセス情報・脅威分類）
+- 目的: URL脅威度一覧の表示最適化のため、最終アクセス情報と脅威分類情報を url_registry に保持する。
 - 追加カラム:
   - `latest_access_time` DATETIME  — 最終アクセス日時
   - `latest_status_code` INT — 最終アクセス時のHTTPステータスコード
   - `latest_blocked_by_modsec` BOOLEAN DEFAULT FALSE — 最終アクセスがModSecurityでブロックされたか
-- 備考: `DbSchema.syncAllTablesSchema` により自動で追加・同期される。
+  - `threat_key` VARCHAR(20) DEFAULT 'unknown' — 脅威カテゴリキー（danger/safe/caution/unknown）
+  - `threat_label` VARCHAR(50) DEFAULT '不明' — UI表示用ラベル
+  - `threat_priority` INT DEFAULT 0 — 並び替え用優先度（小さいほど高優先）
+- 備考: `DbSchema.syncAllTablesSchema` により自動で追加・同期される。詳細なスキーマ仕様は`document/db_schema_spec.md`を参照。
 
 ## その他
 - スキーマ同期は環境やDBのバージョン差により動作が変わる可能性がある。大きなスキーマ変更はマイグレーション手順書を別途用意すること。
@@ -74,6 +77,7 @@
 - 2.0.0 - 2025-12-31: ドキュメント作成
 - 2026-01-05: `email_change_requests` テーブルを追加（メール変更の所有者確認フロー用）
 - 2026-01-15: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）
+- 2026-01-16: url_registry に脅威分類カラム（threat_key/threat_label/threat_priority）を追加し、詳細仕様を`document/db_schema_spec.md`へ集約開始
 
 ## コミットメッセージ例
 - docs(db): DbSchema に email_change_requests の仕様を追加

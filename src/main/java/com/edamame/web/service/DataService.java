@@ -1,16 +1,17 @@
 package com.edamame.web.service;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.sql.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
+import static com.edamame.security.db.DbRegistry.evaluateThreat;
 import static com.edamame.security.db.DbService.*;
+
+import com.edamame.security.db.DbRegistry;
 import com.edamame.security.tools.AppLogger;
 /**
  * データサービスクラス
@@ -512,8 +513,9 @@ public class DataService {
         sql.append("\n            SELECT ur.server_name, ur.method, ur.full_url, ur.is_whitelisted, ur.attack_type, ur.user_final_threat, ur.user_threat_note,\n")
            .append("                   ur.latest_blocked_by_modsec AS latest_blocked_by_modsec,\n")
            .append("                   ur.latest_status_code AS latest_status_code,\n")
-           .append("                   ur.latest_access_time AS latest_access_time\n")
-           .append("            FROM url_registry ur\n");
+           .append("                   ur.latest_access_time AS latest_access_time,\n")
+           .append("                   ur.threat_key AS threat_key, ur.threat_label AS threat_label, ur.threat_priority AS threat_priority\n")
+            .append("            FROM url_registry ur\n");
         if (hasServerFilter) {
             sql.append("            WHERE ur.server_name COLLATE utf8mb4_unicode_ci = ?\n");
         }
@@ -544,7 +546,13 @@ public class DataService {
                         java.sql.Timestamp ts = rs.getTimestamp("latest_access_time");
                         String threatNote = rs.getString("user_threat_note");
 
-                        ThreatEvaluation eval = evaluateThreat(isWhitelisted, userFinalThreat, attackType, latestBlocked);
+                        String threatKey = rs.getString("threat_key");
+                        String threatLabel = rs.getString("threat_label");
+                        Integer threatPriority = (Integer) rs.getObject("threat_priority");
+                        String key = (threatKey == null || threatKey.isBlank()) ? "unknown" : threatKey;
+                        String label = (threatLabel == null || threatLabel.isBlank()) ? "不明" : threatLabel;
+                        int priority = threatPriority != null ? threatPriority : 0;
+                        ThreatEvaluation eval = new ThreatEvaluation(key, label, priority);
 
                         row.put("serverName", sName);
                         row.put("method", method);
@@ -611,48 +619,77 @@ public class DataService {
             return false;
         }
         String normalizedAction = action.trim().toLowerCase();
-        String sql;
-        switch (normalizedAction) {
-            case "danger" -> sql = "UPDATE url_registry SET user_final_threat = TRUE, is_whitelisted = FALSE, user_threat_note = ?, updated_at = NOW() WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?";
-            case "safe" -> sql = "UPDATE url_registry SET is_whitelisted = TRUE, user_final_threat = FALSE, user_threat_note = ?, updated_at = NOW() WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?";
-            case "clear" -> sql = "UPDATE url_registry SET is_whitelisted = FALSE, user_final_threat = FALSE, user_threat_note = ?, updated_at = NOW() WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?";
-            case "note" -> sql = "UPDATE url_registry SET user_threat_note = ?, updated_at = NOW() WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?";
-            default -> {
-                AppLogger.warn("未対応のURL脅威度更新アクション: " + normalizedAction);
+        String selectSql = "SELECT is_whitelisted, user_final_threat, attack_type, latest_blocked_by_modsec FROM url_registry WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ? ORDER BY updated_at DESC LIMIT 1";
+        String updateSql = "UPDATE url_registry SET user_final_threat = ?, is_whitelisted = ?, user_threat_note = ?, threat_key = ?, threat_label = ?, threat_priority = ?, updated_at = NOW() WHERE server_name COLLATE utf8mb4_unicode_ci = ? AND method = ? AND full_url = ?";
+        String fallbackSelectSql = "SELECT is_whitelisted, user_final_threat, attack_type, latest_blocked_by_modsec FROM url_registry WHERE method = ? AND full_url = ? ORDER BY updated_at DESC LIMIT 1";
+        String fallbackUpdateSql = "UPDATE url_registry SET user_final_threat = ?, is_whitelisted = ?, user_threat_note = ?, threat_key = ?, threat_label = ?, threat_priority = ?, updated_at = NOW() WHERE method = ? AND full_url = ? LIMIT 1";
+
+        try (Connection conn = getConnection()) {
+            ThreatState state = fetchCurrentThreatState(conn, selectSql, serverName, method, fullUrl);
+            boolean useFallback = false;
+            if (state == null) {
+                state = fetchCurrentThreatState(conn, fallbackSelectSql, null, method, fullUrl);
+                useFallback = state != null;
+            }
+            if (state == null) {
+                AppLogger.warn("URL脅威度更新対象が見つかりません: " + method + " " + fullUrl + " (server=" + serverName + ")");
                 return false;
             }
-        }
 
-        try (Connection conn = getConnection(); PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, note == null ? "" : note);
-            stmt.setString(2, serverName);
-            stmt.setString(3, method);
-            stmt.setString(4, fullUrl);
-            int updated = stmt.executeUpdate();
-            if (updated == 0) {
-                // サーバー名不一致で更新できない場合にフォールバック（method + full_urlで最新を1件更新）
-                String fallbackSql;
-                switch (normalizedAction) {
-                    case "danger" -> fallbackSql = "UPDATE url_registry SET user_final_threat = TRUE, is_whitelisted = FALSE, user_threat_note = ?, updated_at = NOW() WHERE method = ? AND full_url = ? LIMIT 1";
-                    case "safe" -> fallbackSql = "UPDATE url_registry SET is_whitelisted = TRUE, user_final_threat = FALSE, user_threat_note = ?, updated_at = NOW() WHERE method = ? AND full_url = ? LIMIT 1";
-                    case "clear" -> fallbackSql = "UPDATE url_registry SET is_whitelisted = FALSE, user_final_threat = FALSE, user_threat_note = ?, updated_at = NOW() WHERE method = ? AND full_url = ? LIMIT 1";
-                    default -> fallbackSql = "UPDATE url_registry SET user_threat_note = ?, updated_at = NOW() WHERE method = ? AND full_url = ? LIMIT 1";
+            // アクションに応じてフラグを更新
+            boolean newWhitelist = state.isWhitelisted;
+            Boolean newUserFinal = state.userFinalThreat;
+            switch (normalizedAction) {
+                case "danger" -> { newWhitelist = false; newUserFinal = true; }
+                case "safe" -> { newWhitelist = true; newUserFinal = false; }
+                case "clear" -> { newWhitelist = false; newUserFinal = false; }
+                case "note" -> { /* フラグは変更しない */ }
+                default -> {
+                    AppLogger.warn("未対応のURL脅威度更新アクション: " + normalizedAction);
+                    return false;
                 }
-                try (PreparedStatement fb = conn.prepareStatement(fallbackSql)) {
-                    fb.setString(1, note == null ? "" : note);
-                    fb.setString(2, method);
-                    fb.setString(3, fullUrl);
-                    int fbUpdated = fb.executeUpdate();
-                    if (fbUpdated > 0) {
-                        AppLogger.info("URL脅威度を更新しました(フォールバック): action=" + normalizedAction + " method=" + method + " url=" + fullUrl);
+            }
+
+            DbRegistry.ThreatEvaluation eval = evaluateThreat(newWhitelist, newUserFinal, state.attackType, state.latestBlocked);
+            String finalNote = note == null ? "" : note;
+
+            if (!useFallback) {
+                try (PreparedStatement upd = conn.prepareStatement(updateSql)) {
+                    upd.setObject(1, newUserFinal, Types.BOOLEAN);
+                    upd.setBoolean(2, newWhitelist);
+                    upd.setString(3, finalNote);
+                    upd.setString(4, eval.key());
+                    upd.setString(5, eval.label());
+                    upd.setInt(6, eval.priority());
+                    upd.setString(7, serverName);
+                    upd.setString(8, method);
+                    upd.setString(9, fullUrl);
+                    int updated = upd.executeUpdate();
+                    if (updated > 0) {
+                        AppLogger.info("URL脅威度を更新しました: action=" + normalizedAction + " server=" + serverName + " method=" + method + " url=" + fullUrl);
                         return true;
                     }
                 }
-            } else {
-                AppLogger.info("URL脅威度を更新しました: action=" + normalizedAction + " server=" + serverName + " method=" + method + " url=" + fullUrl);
-                return true;
             }
-            AppLogger.warn("URL脅威度更新対象が見つかりません: " + method + " " + fullUrl + " (server=" + serverName + ")");
+
+            // フォールバック: serverName不一致時
+            try (PreparedStatement upd = conn.prepareStatement(fallbackUpdateSql)) {
+                upd.setObject(1, newUserFinal, Types.BOOLEAN);
+                upd.setBoolean(2, newWhitelist);
+                upd.setString(3, finalNote);
+                upd.setString(4, eval.key());
+                upd.setString(5, eval.label());
+                upd.setInt(6, eval.priority());
+                upd.setString(7, method);
+                upd.setString(8, fullUrl);
+                int updated = upd.executeUpdate();
+                if (updated > 0) {
+                    AppLogger.info("URL脅威度を更新しました(フォールバック): action=" + normalizedAction + " method=" + method + " url=" + fullUrl);
+                    return true;
+                }
+            }
+
+            AppLogger.warn("URL脅威度更新対象が見つかりません(フォールバック含む): " + method + " " + fullUrl);
         } catch (SQLException e) {
             AppLogger.error("URL脅威度更新エラー: " + e.getMessage());
         }
@@ -661,41 +698,33 @@ public class DataService {
 
     private record ThreatEvaluation(String key, String label, int priority) {}
 
-    /**
-     * 脅威度を判定する
-     * @param isWhitelisted ホワイトリスト判定
-     * @param userFinalThreat ユーザー最終判定
-     * @param attackType 攻撃タイプ
-     * @param latestBlocked 最新アクセスのModSecブロック有無
-     * @return 判定結果
-     */
-    private ThreatEvaluation evaluateThreat(boolean isWhitelisted, Boolean userFinalThreat, String attackType, Boolean latestBlocked) {
-        if (Boolean.TRUE.equals(userFinalThreat)) {
-            return new ThreatEvaluation("danger", "危険", 1);
+    private record ThreatState(boolean isWhitelisted, Boolean userFinalThreat, String attackType, Boolean latestBlocked) {}
+
+    private ThreatState fetchCurrentThreatState(Connection conn, String sql, String serverName, String method, String fullUrl) throws SQLException {
+        try (PreparedStatement sel = conn.prepareStatement(sql)) {
+            int idx = 1;
+            if (serverName != null) {
+                sel.setString(idx++, serverName);
+            }
+            sel.setString(idx++, method);
+            sel.setString(idx, fullUrl);
+            try (ResultSet rs = sel.executeQuery()) {
+                if (rs.next()) {
+                    boolean isWhitelisted = rs.getBoolean("is_whitelisted");
+                    Object uft = rs.getObject("user_final_threat");
+                    Boolean userFinalThreat = uft == null ? null : rs.getBoolean("user_final_threat");
+                    String attackType = rs.getString("attack_type");
+                    Boolean latestBlocked = (Boolean) rs.getObject("latest_blocked_by_modsec");
+                    return new ThreatState(isWhitelisted, userFinalThreat, attackType, latestBlocked);
+                }
+            }
         }
-        if (isWhitelisted) {
-            return new ThreatEvaluation("safe", "安全", 4);
-        }
-        // ModSecブロックが直近にある場合は注意
-        if (Boolean.TRUE.equals(latestBlocked)) {
-            return new ThreatEvaluation("caution", "注意", 2);
-        }
-        // attackType が normal 以外なら注意、それ以外は不明
-        String atk = attackType == null ? "" : attackType.trim();
-        if (!atk.isEmpty() && !"normal".equalsIgnoreCase(atk)) {
-            return new ThreatEvaluation("caution", "注意", 2);
-        }
-        if ("normal".equalsIgnoreCase(atk)) {
-            return new ThreatEvaluation("unknown", "不明", 3);
-        }
-        return new ThreatEvaluation("unknown", "不明", 3);
+        return null;
     }
 
-    private int toInt(Object o) {
-        if (o == null) return 0;
-        if (o instanceof Number n) return n.intValue();
-        try { return Integer.parseInt(String.valueOf(o)); } catch (Exception e) { return 0; }
-    }
-}
-
-
+     private int toInt(Object o) {
+         if (o == null) return 0;
+         if (o instanceof Number n) return n.intValue();
+         try { return Integer.parseInt(String.valueOf(o)); } catch (Exception e) { return 0; }
+     }
+ }
