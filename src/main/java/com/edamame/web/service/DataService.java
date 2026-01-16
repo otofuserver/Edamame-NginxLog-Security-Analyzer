@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Comparator;
 
 import static com.edamame.security.db.DbRegistry.evaluateThreat;
 import static com.edamame.security.db.DbService.*;
@@ -506,104 +507,134 @@ public class DataService {
      * @param threatFilter 脅威度フィルタ（all/safe/danger/caution/unknown）
      * @return 脅威度情報リスト
      */
-    public List<Map<String, Object>> getUrlThreats(String serverName, String threatFilter, String query) {
-        List<Map<String, Object>> results = new ArrayList<>();
-        boolean hasServerFilter = serverName != null && !serverName.isBlank();
-        StringBuilder sql = new StringBuilder();
-        sql.append("\n            SELECT ur.server_name, ur.method, ur.full_url, ur.is_whitelisted, ur.attack_type, ur.user_final_threat, ur.user_threat_note,\n")
-           .append("                   ur.latest_blocked_by_modsec AS latest_blocked_by_modsec,\n")
-           .append("                   ur.latest_status_code AS latest_status_code,\n")
-           .append("                   ur.latest_access_time AS latest_access_time,\n")
-           .append("                   ur.threat_key AS threat_key, ur.threat_label AS threat_label, ur.threat_priority AS threat_priority\n")
-            .append("            FROM url_registry ur\n");
-        if (hasServerFilter) {
-            sql.append("            WHERE ur.server_name COLLATE utf8mb4_unicode_ci = ?\n");
-        }
-        sql.append("            ORDER BY ur.server_name COLLATE utf8mb4_unicode_ci, ur.latest_access_time DESC\n");
+    public List<Map<String, Object>> getUrlThreats(String serverName, String threatFilter, String query, String sortKey, String order) {
+         List<Map<String, Object>> results = new ArrayList<>();
+         String normalizedSort = normalizeSortKey(sortKey);
+         boolean asc = "asc".equalsIgnoreCase(order);
+         boolean hasServerFilter = serverName != null && !serverName.isBlank();
+         StringBuilder sql = new StringBuilder();
+         sql.append("\n            SELECT ur.server_name, ur.method, ur.full_url, ur.is_whitelisted, ur.attack_type, ur.user_final_threat, ur.user_threat_note,\n")
+            .append("                   ur.latest_blocked_by_modsec AS latest_blocked_by_modsec,\n")
+            .append("                   ur.latest_status_code AS latest_status_code,\n")
+            .append("                   ur.latest_access_time AS latest_access_time,\n")
+            .append("                   ur.threat_key AS threat_key, ur.threat_label AS threat_label, ur.threat_priority AS threat_priority\n")
+             .append("            FROM url_registry ur\n");
+         if (hasServerFilter) {
+             sql.append("            WHERE ur.server_name COLLATE utf8mb4_unicode_ci = ?\n");
+         }
+         sql.append("            ORDER BY ur.server_name COLLATE utf8mb4_unicode_ci, ur.latest_access_time DESC\n");
 
-        try (Connection conn = getConnection()) {
-            if (conn == null) {
-                AppLogger.error("URL脅威度取得エラー: DB接続が初期化されていません");
-                return results;
-            }
-            try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
-                if (hasServerFilter) {
-                    stmt.setString(1, serverName);
-                }
-                try (ResultSet rs = stmt.executeQuery()) {
-                    while (rs.next()) {
-                        Map<String, Object> row = new HashMap<>();
-                        String sName = rs.getString("server_name");
-                        String method = rs.getString("method");
-                        String fullUrl = rs.getString("full_url");
-                        boolean isWhitelisted = rs.getBoolean("is_whitelisted");
-                        String attackType = rs.getString("attack_type");
-                        String attackTypeDisplay = "normal".equalsIgnoreCase(attackType) ? "" : attackType;
-                        Object userFinalThreatObj = rs.getObject("user_final_threat");
-                        Boolean userFinalThreat = userFinalThreatObj == null ? null : rs.getBoolean("user_final_threat");
-                        Boolean latestBlocked = (Boolean) rs.getObject("latest_blocked_by_modsec");
-                        Integer latestStatus = (Integer) rs.getObject("latest_status_code");
-                        java.sql.Timestamp ts = rs.getTimestamp("latest_access_time");
-                        String threatNote = rs.getString("user_threat_note");
+         try (Connection conn = getConnection()) {
+             if (conn == null) {
+                 AppLogger.error("URL脅威度取得エラー: DB接続が初期化されていません");
+                 return results;
+             }
+             try (PreparedStatement stmt = conn.prepareStatement(sql.toString())) {
+                 if (hasServerFilter) {
+                     stmt.setString(1, serverName);
+                 }
+                 try (ResultSet rs = stmt.executeQuery()) {
+                     while (rs.next()) {
+                         Map<String, Object> row = new HashMap<>();
+                         String sName = rs.getString("server_name");
+                         String method = rs.getString("method");
+                         String fullUrl = rs.getString("full_url");
+                         boolean isWhitelisted = rs.getBoolean("is_whitelisted");
+                         String attackType = rs.getString("attack_type");
+                         String attackTypeDisplay = "normal".equalsIgnoreCase(attackType) ? "" : attackType;
+                         Object userFinalThreatObj = rs.getObject("user_final_threat");
+                         Boolean userFinalThreat = userFinalThreatObj == null ? null : rs.getBoolean("user_final_threat");
+                         Boolean latestBlocked = (Boolean) rs.getObject("latest_blocked_by_modsec");
+                         Integer latestStatus = (Integer) rs.getObject("latest_status_code");
+                         java.sql.Timestamp ts = rs.getTimestamp("latest_access_time");
+                         String threatNote = rs.getString("user_threat_note");
 
-                        String threatKey = rs.getString("threat_key");
-                        String threatLabel = rs.getString("threat_label");
-                        Integer threatPriority = (Integer) rs.getObject("threat_priority");
-                        String key = (threatKey == null || threatKey.isBlank()) ? "unknown" : threatKey;
-                        String label = (threatLabel == null || threatLabel.isBlank()) ? "不明" : threatLabel;
-                        int priority = threatPriority != null ? threatPriority : 0;
-                        ThreatEvaluation eval = new ThreatEvaluation(key, label, priority);
+                         String threatKey = rs.getString("threat_key");
+                         String threatLabel = rs.getString("threat_label");
+                         Integer threatPriority = (Integer) rs.getObject("threat_priority");
+                         String key = (threatKey == null || threatKey.isBlank()) ? "unknown" : threatKey;
+                         String label = (threatLabel == null || threatLabel.isBlank()) ? "不明" : threatLabel;
+                         int priority = threatPriority != null ? threatPriority : 0;
+                         ThreatEvaluation eval = new ThreatEvaluation(key, label, priority);
 
-                        row.put("serverName", sName);
-                        row.put("method", method);
-                        row.put("fullUrl", fullUrl);
-                        row.put("attackType", attackTypeDisplay);
-                        row.put("isWhitelisted", isWhitelisted);
-                        row.put("userFinalThreat", userFinalThreat);
-                        row.put("userThreatNote", threatNote);
-                        row.put("latestBlockedByModsec", latestBlocked);
-                        row.put("latestStatusCode", latestStatus);
-                        row.put("latestAccessTime", formatDateTime(ts));
-                        row.put("latestAccessEpoch", ts == null ? 0L : ts.getTime());
-                        row.put("threatKey", eval.key());
-                        row.put("threatLabel", eval.label());
-                        row.put("threatPriority", eval.priority());
+                         row.put("serverName", sName);
+                         row.put("method", method);
+                         row.put("fullUrl", fullUrl);
+                         row.put("attackType", attackTypeDisplay);
+                         row.put("isWhitelisted", isWhitelisted);
+                         row.put("userFinalThreat", userFinalThreat);
+                         row.put("userThreatNote", threatNote);
+                         row.put("latestBlockedByModsec", latestBlocked);
+                         row.put("latestStatusCode", latestStatus);
+                         row.put("latestAccessTime", formatDateTime(ts));
+                         row.put("latestAccessEpoch", ts == null ? 0L : ts.getTime());
+                         row.put("threatKey", eval.key());
+                         row.put("threatLabel", eval.label());
+                         row.put("threatPriority", eval.priority());
 
-                        results.add(row);
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            AppLogger.error("URL脅威度取得エラー: " + e.getMessage());
-        }
+                         results.add(row);
+                     }
+                 }
+             }
+         } catch (SQLException e) {
+             AppLogger.error("URL脅威度取得エラー: " + e.getMessage());
+         }
 
-        String filter = threatFilter == null ? "all" : threatFilter.toLowerCase();
-        results.removeIf(m -> {
-            String key = String.valueOf(m.getOrDefault("threatKey", "unknown"));
-            return !"all".equals(filter) && !filter.equals(key);
-        });
+         String filter = threatFilter == null ? "all" : threatFilter.toLowerCase();
+         results.removeIf(m -> {
+             String key = String.valueOf(m.getOrDefault("threatKey", "unknown"));
+             return !"all".equals(filter) && !filter.equals(key);
+         });
 
-        String q = query == null ? "" : query.toLowerCase().trim();
-        if (!q.isEmpty()) {
-            results.removeIf(m -> {
-                String url = String.valueOf(m.getOrDefault("fullUrl", ""));
-                String atk = String.valueOf(m.getOrDefault("attackType", ""));
-                String method = String.valueOf(m.getOrDefault("method", ""));
-                return !(url.toLowerCase().contains(q) || atk.toLowerCase().contains(q) || method.toLowerCase().contains(q));
-            });
-        }
+         String q = query == null ? "" : query.toLowerCase().trim();
+         if (!q.isEmpty()) {
+             results.removeIf(m -> {
+                 String url = String.valueOf(m.getOrDefault("fullUrl", ""));
+                 String atk = String.valueOf(m.getOrDefault("attackType", ""));
+                 String method = String.valueOf(m.getOrDefault("method", ""));
+                 return !(url.toLowerCase().contains(q) || atk.toLowerCase().contains(q) || method.toLowerCase().contains(q));
+             });
+         }
 
-        results.sort((a, b) -> {
-            int pa = toInt(a.get("threatPriority"));
-            int pb = toInt(b.get("threatPriority"));
-            if (pa != pb) return Integer.compare(pa, pb);
-            long ta = (a.get("latestAccessEpoch") instanceof Number n1) ? n1.longValue() : 0L;
-            long tb = (b.get("latestAccessEpoch") instanceof Number n2) ? n2.longValue() : 0L;
-            return Long.compare(tb, ta);
-        });
-        return results;
+         results.sort(buildThreatComparator(normalizedSort, asc));
+         return results;
+     }
+
+    private String normalizeSortKey(String sortKey) {
+        return switch (sortKey == null ? "" : sortKey.trim().toLowerCase()) {
+            case "priority", "threat_priority" -> "priority";
+            case "latest", "latestaccess", "latest_access", "time" -> "latest_access";
+            case "status", "latest_status", "status_code" -> "status";
+            case "blocked", "latest_blocked", "modsec" -> "blocked";
+            case "attack", "attacktype", "attack_type" -> "attack";
+            case "whitelist", "is_whitelisted" -> "whitelist";
+            case "threatkey", "threat_key" -> "threat_key";
+            case "threatlabel", "threat_label" -> "threat_label";
+            case "method" -> "method";
+            case "url", "full_url" -> "url";
+            default -> "priority";
+        };
     }
 
+    private Comparator<Map<String, Object>> buildThreatComparator(String sortKey, boolean asc) {
+        Comparator<Map<String, Object>> cmp = switch (sortKey) {
+            case "latest_access" -> Comparator.comparingLong(m -> toLong(m.get("latestAccessEpoch")));
+            case "status" -> Comparator.comparingInt(m -> toInt(m.get("latestStatusCode")));
+            case "blocked" -> Comparator.comparingInt(m -> Boolean.TRUE.equals(m.get("latestBlockedByModsec")) ? 1 : 0);
+            case "attack" -> Comparator.comparing(m -> String.valueOf(m.getOrDefault("attackType", "")), String.CASE_INSENSITIVE_ORDER);
+            case "whitelist" -> Comparator.comparingInt(m -> Boolean.TRUE.equals(m.get("isWhitelisted")) ? 1 : 0);
+            case "threat_key" -> Comparator.comparing(m -> String.valueOf(m.getOrDefault("threatKey", "")), String.CASE_INSENSITIVE_ORDER);
+            case "threat_label" -> Comparator.comparing(m -> String.valueOf(m.getOrDefault("threatLabel", "")), String.CASE_INSENSITIVE_ORDER);
+            case "method" -> Comparator.comparing(m -> String.valueOf(m.getOrDefault("method", "")), String.CASE_INSENSITIVE_ORDER);
+            case "url" -> Comparator.comparing(m -> String.valueOf(m.getOrDefault("fullUrl", "")), String.CASE_INSENSITIVE_ORDER);
+            default -> Comparator.comparingInt(m -> toInt(m.get("threatPriority")));
+        };
+        if (!asc) {
+            cmp = cmp.reversed();
+        }
+        return cmp.thenComparingInt(m -> toInt(m.get("threatPriority")))
+                  .thenComparing((a, b) -> Long.compare(toLong(b.get("latestAccessEpoch")), toLong(a.get("latestAccessEpoch"))));
+    }
     /**
      * URL脅威度のユーザー分類を更新
      * @param serverName サーバー名
@@ -723,8 +754,14 @@ public class DataService {
     }
 
      private int toInt(Object o) {
-         if (o == null) return 0;
-         if (o instanceof Number n) return n.intValue();
-         try { return Integer.parseInt(String.valueOf(o)); } catch (Exception e) { return 0; }
-     }
- }
+        if (o == null) return 0;
+        if (o instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(String.valueOf(o)); } catch (Exception e) { return 0; }
+    }
+
+    private long toLong(Object o) {
+        if (o == null) return 0L;
+        if (o instanceof Number n) return n.longValue();
+        try { return Long.parseLong(String.valueOf(o)); } catch (Exception e) { return 0L; }
+    }
+}

@@ -514,42 +514,48 @@ public class ApiController implements HttpHandler {
         String server = params.getOrDefault("server", "").trim();
         String filter = params.getOrDefault("filter", "all").trim().toLowerCase();
         String q = params.getOrDefault("q", "").trim();
-        if (!java.util.Set.of("all", "safe", "danger", "caution", "unknown").contains(filter)) {
-            filter = "all";
+        String sort = params.getOrDefault("sort", "priority").trim();
+        String order = params.getOrDefault("order", "asc").trim().toLowerCase();
+         if (!java.util.Set.of("all", "safe", "danger", "caution", "unknown").contains(filter)) {
+             filter = "all";
+         }
+        if (!java.util.Set.of("asc", "desc").contains(order)) {
+            order = "asc";
         }
-        int page = 1;
-        int size = 20;
-        try { if (params.containsKey("page")) page = Math.max(1, Integer.parseInt(params.get("page"))); } catch (Exception ignored) {}
-        try { if (params.containsKey("size")) size = Math.max(1, Integer.parseInt(params.get("size"))); } catch (Exception ignored) {}
-        String sanitizedServer = server.isEmpty() ? null : WebSecurityUtils.sanitizeInput(server);
-        String sanitizedQuery = q.isEmpty() ? "" : WebSecurityUtils.sanitizeInput(q);
+         int page = 1;
+         int size = 20;
+         try { if (params.containsKey("page")) page = Math.max(1, Integer.parseInt(params.get("page"))); } catch (Exception ignored) {}
+         try { if (params.containsKey("size")) size = Math.max(1, Integer.parseInt(params.get("size"))); } catch (Exception ignored) {}
+         String sanitizedServer = server.isEmpty() ? null : WebSecurityUtils.sanitizeInput(server);
+         String sanitizedQuery = q.isEmpty() ? "" : WebSecurityUtils.sanitizeInput(q);
+         String sanitizedSort = sort.isEmpty() ? "priority" : WebSecurityUtils.sanitizeInput(sort);
 
-        // セッションユーザーと権限を判定
-        String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
-        String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
-        var sessionInfo = sessionId == null ? null : authService.validateSession(sessionId);
-        if (sessionInfo == null) {
+         // セッションユーザーと権限を判定
+         String cookieHeader = exchange.getRequestHeaders().getFirst("Cookie");
+         String sessionId = com.edamame.web.config.WebConstants.extractSessionId(cookieHeader);
+         var sessionInfo = sessionId == null ? null : authService.validateSession(sessionId);
+         if (sessionInfo == null) {
             sendJsonError(exchange, 401, "Unauthorized - authentication required");
             return;
-        }
-        String username = sessionInfo.getUsername();
-        var userService = new com.edamame.web.service.impl.UserServiceImpl();
-        boolean isAdmin = false;
-        try { isAdmin = userService.isAdmin(username); } catch (Exception ignored) {}
-        if (sanitizedServer == null || sanitizedServer.isEmpty()) {
-            sendJsonError(exchange, 400, "server parameter required");
-            return;
-        }
-        String viewerRole = sanitizedServer + "_viewer";
-        boolean canView = isAdmin || userService.hasRoleIncludingHigher(username, viewerRole);
-        if (!canView) {
-            sendJsonError(exchange, 403, "Forbidden - viewer role required");
-            return;
-        }
-        boolean canOperate = isAdmin || userService.hasRoleIncludingHigher(username, sanitizedServer + "_operator");
+         }
+         String username = sessionInfo.getUsername();
+         var userService = new com.edamame.web.service.impl.UserServiceImpl();
+         boolean isAdmin = false;
+         try { isAdmin = userService.isAdmin(username); } catch (Exception ignored) {}
+         if (sanitizedServer == null || sanitizedServer.isEmpty()) {
+             sendJsonError(exchange, 400, "server parameter required");
+             return;
+         }
+         String viewerRole = sanitizedServer + "_viewer";
+         boolean canView = isAdmin || userService.hasRoleIncludingHigher(username, viewerRole);
+         if (!canView) {
+             sendJsonError(exchange, 403, "Forbidden - viewer role required");
+             return;
+         }
+         boolean canOperate = isAdmin || userService.hasRoleIncludingHigher(username, sanitizedServer + "_operator");
 
         try {
-            var threats = dataService.getUrlThreats(sanitizedServer, filter, sanitizedQuery);
+            var threats = dataService.getUrlThreats(sanitizedServer, filter, sanitizedQuery, sanitizedSort, order);
             if (threats == null) threats = java.util.Collections.emptyList();
             int total = threats.size();
             int from = Math.min((page - 1) * size, total);

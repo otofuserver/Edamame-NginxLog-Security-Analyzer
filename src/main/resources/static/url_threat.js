@@ -13,7 +13,7 @@
             .replace(/'/g,'&#39;');
     }
 
-    const STATE = { server: '', filter: 'all', page: 1, size: 20, total: 0, totalPages: 1, q: '', canOperate: false, currentItem: null, currentAction: null };
+    const STATE = { server: '', filter: 'all', page: 1, size: 20, total: 0, totalPages: 1, q: '', sort: 'priority', order: 'asc', canOperate: false, currentItem: null, currentAction: null };
     let toastTimer = null;
     let miniMenu = null;
 
@@ -138,6 +138,8 @@
         params.append('page', page);
         params.append('size', size);
         if (q) params.append('q', q);
+        params.append('sort', STATE.sort || 'priority');
+        params.append('order', STATE.order || 'asc');
         try {
             const resp = await fetch('/api/url-threats?' + params.toString(), { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
             if (resp.status === 401) { window.location.href = '/login'; return; }
@@ -229,6 +231,7 @@
             });
             tbody.appendChild(tr);
         });
+        updateSortIndicators();
     }
 
     function renderPager() {
@@ -357,6 +360,19 @@
         if (sel) {
             sel.addEventListener('change', () => { STATE.server = sel.value || ''; STATE.page = 1; fetchThreats(); });
         }
+        document.querySelectorAll('#url-threat-table th.sortable').forEach(th => {
+            th.addEventListener('click', () => {
+                const key = th.dataset.sort || 'priority';
+                if (STATE.sort === key) {
+                    STATE.order = STATE.order === 'asc' ? 'desc' : 'asc';
+                } else {
+                    STATE.sort = key;
+                    STATE.order = 'asc';
+                }
+                STATE.page = 1;
+                fetchThreats();
+            });
+        });
         document.querySelectorAll('input[name="url-threat-filter"]').forEach(r => {
             r.addEventListener('change', () => {
                 if (r.checked) {
@@ -383,6 +399,18 @@
         const backdrop = document.getElementById('url-threat-modal-backdrop');
         if (backdrop) backdrop.addEventListener('click', () => closeNoteModal());
         setupMiniMenu();
+    }
+
+    function updateSortIndicators() {
+        document.querySelectorAll('#url-threat-table th.sortable').forEach(th => {
+            const key = th.dataset.sort || '';
+            const isActive = key === (STATE.sort || '');
+            th.classList.toggle('active-sort', isActive);
+            const label = th.dataset.labelOriginal || th.textContent.trim();
+            if (!th.dataset.labelOriginal) th.dataset.labelOriginal = label;
+            const arrow = isActive ? (STATE.order === 'desc' ? ' ▼' : ' ▲') : '';
+            th.textContent = label + arrow;
+        });
     }
 
     async function init() {

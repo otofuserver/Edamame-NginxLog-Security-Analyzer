@@ -6,10 +6,11 @@
 - URL脅威度ビュー専用のフロントエンドロジック。`url_registry` の最新メタデータを取得し、テーブル描画・ミニメニュー操作・分類更新モーダルを制御する。
 
 ## 主な機能
-- URL一覧取得と描画（サーバー選択・脅威度フィルタ・検索に対応）。
+- URL一覧取得と描画（サーバー選択・脅威度フィルタ・検索・ソートに対応）。
 - 行クリック時に `mini_menu.js` を使ってミニメニューを表示（コピー/危険/安全/解除/理由確認）。
 - 危険/安全/解除/理由確認モーダルの表示・送信（`user_final_threat` / `is_whitelisted` / `user_threat_note` を更新）。
 - 最新アクセスメタ（`latest_access_time`/`latest_status_code`/`latest_blocked_by_modsec`）の表示とソート。
+- sortパラメータ: `priority`/`latest_access`/`status`/`blocked`/`attack`/`whitelist`/`threat_key`/`threat_label`/`method`/`url`、order: `asc`/`desc`。
 - 外側クリックや別行クリックでミニメニューを閉じる再入可能なリスナー処理。
 
 ## 挙動
@@ -30,3 +31,4 @@
 
 ## 変更履歴
 - 2026-01-15: URL脅威度ビュー用スクリプトを追加。`url_registry` 最新メタのみで一覧を構成し、共通ミニメニューを採用。
+- 2026-01-16: テーブルヘッダークリックでソート切替（sort/orderパラメータ連動）を追加。

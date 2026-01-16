@@ -132,6 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - フロントエンド: `profile_modal.js` に確認コードモーダルを実装し、メール変更時にコード入力を促すUIを追加
 - URL脅威度一覧にミニメニュー（コピー/危険/安全/解除/理由確認）と理由入力モーダルを追加し、サーバーoperator権限で分類変更できるようにした。
 - db: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）。
+- url-threats APIにsort/orderパラメータを追加し、脅威度要素ごとのソート（優先度/最終アクセス/ステータス/ModSecブロック/攻撃タイプ/ホワイトリスト/脅威キー・ラベル/メソッド/URL）をサポート。
 
 ### Changed
 - fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）
@@ -151,6 +152,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - url_registryの脅威分類フィールド（threat_key/threat_label/threat_priority）追加をドキュメントに反映
 - Web認証仕様書にremember-me時のCookie Max-Ageとsessionsテーブル構成を追記
 - DB仕様を`document/db_schema_spec.md`に集約し初版を作成
+- url_threat.mdにソート可能なパラメータ一覧を追記し、仕様を更新
 
 ### Notes
 - DB スキーマ自動同期 (`DbSchema.syncAllTablesSchema`) により `email_change_requests` が自動生成される想定だが、本番適用前に必ず DB のフルバックアップを取得すること。
