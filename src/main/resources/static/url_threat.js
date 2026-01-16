@@ -13,6 +13,7 @@
             .replace(/'/g,'&#39;');
     }
 
+    const STORAGE_KEY = 'edamame:urlThreatPrefs';
     const STATE = { server: '', filter: 'all', page: 1, size: 20, total: 0, totalPages: 1, q: '', sort: 'priority', order: 'asc', canOperate: false, currentItem: null, currentAction: null };
     let toastTimer = null;
     let miniMenu = null;
@@ -87,7 +88,7 @@
         }
     }
 
-    async function fetchServers() {
+    async function fetchServers(preferredServer) {
         try {
             const resp = await fetch('/api/servers?size=200', { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
             if (resp.status === 401) { window.location.href = '/login'; return []; }
@@ -101,7 +102,7 @@
         }
     }
 
-    function populateServers(servers) {
+    function populateServers(servers, preferredServer) {
         const sel = document.getElementById('url-threat-server');
         if (!sel) return;
         sel.innerHTML = '';
@@ -121,6 +122,9 @@
             if (idx === 0) opt.selected = true;
             sel.appendChild(opt);
         });
+        if (preferredServer && activeServers.some(s => s.serverName === preferredServer)) {
+            sel.value = preferredServer;
+        }
         STATE.server = sel.value;
     }
 
@@ -243,7 +247,7 @@
             const btn = document.createElement('button');
             btn.textContent = label;
             btn.disabled = disabled;
-            btn.addEventListener('click', () => { if (btn.disabled) return; STATE.page = page; fetchThreats(); });
+            btn.addEventListener('click', () => { if (btn.disabled) return; STATE.page = page; persistState(); fetchThreats(); });
             return btn;
         };
         pager.appendChild(mk('«', 1, STATE.page === 1));
@@ -358,7 +362,7 @@
     function bindEvents() {
         const sel = document.getElementById('url-threat-server');
         if (sel) {
-            sel.addEventListener('change', () => { STATE.server = sel.value || ''; STATE.page = 1; fetchThreats(); });
+            sel.addEventListener('change', () => { STATE.server = sel.value || ''; STATE.page = 1; persistState(); fetchThreats(); });
         }
         document.querySelectorAll('#url-threat-table th.sortable').forEach(th => {
             th.addEventListener('click', () => {
@@ -370,6 +374,7 @@
                     STATE.order = 'asc';
                 }
                 STATE.page = 1;
+                persistState();
                 fetchThreats();
             });
         });
@@ -378,6 +383,7 @@
                 if (r.checked) {
                     STATE.filter = r.value || 'all';
                     STATE.page = 1;
+                    persistState();
                     fetchThreats();
                 }
             });
@@ -387,7 +393,7 @@
             let timer = null; const DEBOUNCE = 250;
             const schedule = () => {
                 if (timer) clearTimeout(timer);
-                timer = setTimeout(() => { STATE.q = qInput.value || ''; STATE.page = 1; fetchThreats(); }, DEBOUNCE);
+                timer = setTimeout(() => { STATE.q = qInput.value || ''; STATE.page = 1; persistState(); fetchThreats(); }, DEBOUNCE);
             };
             qInput.addEventListener('input', schedule);
             qInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); schedule(); } });
@@ -414,10 +420,60 @@
     }
 
     async function init() {
-        const servers = await fetchServers();
-        populateServers(servers);
+        loadStateFromStorage();
+        const servers = await fetchServers(STATE.server);
+        populateServers(servers, STATE.server);
+        applyUiState();
         bindEvents();
+        persistState();
         await fetchThreats();
+    }
+
+    function persistState() {
+        try {
+            const data = {
+                server: STATE.server,
+                filter: STATE.filter,
+                q: STATE.q,
+                page: STATE.page,
+                sort: STATE.sort,
+                order: STATE.order
+             };
+             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+         } catch (e) {
+             console.warn('[UrlThreat] persistState failed', e);
+         }
+     }
+
+     function loadStateFromStorage() {
+         try {
+             const raw = localStorage.getItem(STORAGE_KEY);
+             if (!raw) return;
+             const data = JSON.parse(raw);
+             if (data.server) STATE.server = data.server;
+             if (data.filter) STATE.filter = data.filter;
+             if (typeof data.page === 'number' && data.page > 0) STATE.page = data.page;
+             if (typeof data.q === 'string') STATE.q = data.q;
+             if (data.sort) STATE.sort = data.sort;
+             if (data.order && (data.order === 'asc' || data.order === 'desc')) STATE.order = data.order;
+         } catch (e) {
+             console.warn('[UrlThreat] loadStateFromStorage failed', e);
+         }
+     }
+
+    function applyUiState() {
+        const sel = document.getElementById('url-threat-server');
+        if (sel && STATE.server) {
+            sel.value = STATE.server;
+            if (sel.value !== STATE.server && sel.options.length > 0) {
+                STATE.server = sel.value; // フォールバック
+            }
+        }
+        document.querySelectorAll('input[name="url-threat-filter"]').forEach(r => {
+            if (r.value === STATE.filter) r.checked = true;
+        });
+        const qInput = document.getElementById('url-threat-q');
+        if (qInput && typeof STATE.q === 'string') qInput.value = STATE.q;
     }
 
     window.UrlThreat = { init };
