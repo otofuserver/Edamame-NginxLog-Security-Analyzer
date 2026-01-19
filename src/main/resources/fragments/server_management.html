@@ -27,7 +27,7 @@
 </div>
 
 <!-- コンテキストメニュー（行クリックで表示）: mini_menu.js を使用 -->
-<div id="server-context-menu" class="sidebar-mini-menu server-mini" aria-hidden="true" style="position:absolute; display:none; visibility:hidden; z-index:1400;">
+<div id="server-context-menu" class="mini-menu server-mini" aria-hidden="true">
   <div class="mini-menu-card"></div>
 </div>
 
@@ -45,95 +45,6 @@
     </footer>
   </div>
 </div>
-
-<!-- 行が is_active=false のときに暗めに見せるための簡易スタイル注記
-     実際のスタイルは共通CSSに追加するのが望ましい -->
-<style>
-  /* ...existing styles... */
-  .table tbody tr.inactive {
-    opacity: 0.6; /* 無効な行を暗めに表示 */
-    background-color: #f5f5f5;
-  }
-  .context-menu {
-    position: absolute;
-    background: #fff;
-    border: 1px solid #ddd;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
-    z-index: 1000;
-    min-width: 160px;
-    border-radius: 6px;
-    padding: 4px 0;
-    font-size: 0.95rem;
-    color: #222;
-  }
-
-  /* コンテキストメニュー内のリストをメニュー風にする */
-  .context-menu ul { margin: 0; padding: 0; list-style: none; }
-  .context-menu ul li { margin: 0; padding: 0; }
-  .context-menu ul li button {
-    display: block;
-    width: 100%;
-    padding: 8px 12px;
-    text-align: left;
-    background: transparent;
-    border: none;
-    outline: none;
-    cursor: pointer;
-    color: inherit;
-  }
-  .context-menu ul li button:hover {
-    background: #f5f7fa;
-  }
-  .context-menu ul li button:active {
-    background: #eef2f6;
-  }
-
-  /* 無効化状態のボタン見た目 */
-  .context-menu ul li button.btn-disabled {
-    opacity: 0.5;
-    color: #888;
-    pointer-events: none; /* 追加の安全策 */
-    cursor: default;
-  }
-
-  /* 影付きの小さな矢印（メニューの起点） */
-  .context-menu::before {
-    content: '';
-    position: absolute;
-    top: -6px;
-    left: 12px;
-    width: 10px;
-    height: 10px;
-    background: #fff;
-    transform: rotate(45deg);
-    border-left: 1px solid #ddd;
-    border-top: 1px solid #ddd;
-    box-shadow: -2px -2px 4px rgba(0,0,0,0.02);
-  }
-
-  /* レスポンシブに小さい画面では幅を自動調整 */
-  @media (max-width: 480px) {
-    .context-menu { min-width: 140px; }
-    .context-menu ul li button { padding: 10px; }
-  }
-
-  /* 簡易モーダルスタイル */
-  .modal { position: fixed; left: 0; top: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; z-index: 1500; }
-  .modal-backdrop { position: absolute; left:0; top:0; width:100%; height:100%; background: rgba(0,0,0,0.4); }
-  .modal-content { position: relative; background: #fff; padding: 1rem; border-radius: 6px; width: 90%; max-width: 420px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); }
-  .modal-header h3 { margin: 0 0 .5rem 0; }
-  .modal-body { margin-bottom: .5rem; }
-
-  /* 非管理者向けビジュアル（クリック不可） */
-  .btn-disabled {
-    opacity: 0.5;
-    color: #888;
-    pointer-events: none; /* 追加の安全策 */
-  }
-</style>
-
-<!-- 注意: 実際の検索・ページング・行クリック処理は既存の外部スクリプト（例: script.js）に実装してください。
-     user_management と同様の API を叩くことで流用可能です。 -->
 
 <!-- mini_menu.js と server_list.js を読み込み、断片挿入後に初期化を行う -->
 <script src="/static/mini_menu.js"></script>

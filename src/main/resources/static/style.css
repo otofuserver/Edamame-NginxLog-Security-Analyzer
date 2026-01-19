@@ -1,6 +1,7 @@
 /* Edamame Security Analyzer - Dashboard Styles (static/style.css)
    ユーザー管理のテーブルとモーダルを含む基本スタイル
 */
+@import url('./mini_menu.css');
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -156,26 +157,6 @@ tr:hover { background: #fafcff; }
 /* small helpers */
 .hidden { display:none !important; }
 
-/* Sidebar mini menu */
-.sidebar-mini-menu {
-  min-width: 140px; /* 既存180pxから縮小 */
-  max-width: 270px;
-}
-.sidebar-mini-menu .mini-menu-card {
-  background: white; border-radius:8px; box-shadow:0 6px 18px rgba(0,0,0,0.12); padding:.35rem; display:flex; flex-direction:column; gap:.25rem;
-}
-.sidebar-mini-menu .mini-menu-item { background:transparent; border:none; text-align:left; padding:.4rem 0.5rem; cursor:pointer; border-radius:6px; font-size: 0.95rem; }
-.sidebar-mini-menu .mini-menu-item:hover { background: #f0f4ff; }
-
-/* ミニメニューの表示位置: ユーザー表示のすぐ近くに出す */
-.sidebar .sidebar-user-footer { position: relative; }
-.sidebar-mini-menu { position: absolute; right: 8px; bottom: 48px; z-index: 1500; display: none; }
-.sidebar-mini-menu.show { display: block; }
-
-/* 非表示ミニメニューはポインター無効化（モーダル操作阻害防止） */
-.sidebar-mini-menu[aria-hidden='true'] { pointer-events: none; }
-.sidebar-mini-menu.show { pointer-events: auto; }
-
 /* profile modal tweaks */
 .modal .form-row input[type='text'], .modal .form-row input[type='email'], .modal .form-row input[type='password'] { width:100%; }
 .modal .modal-footer { justify-content:flex-end; }
@@ -227,13 +208,6 @@ tr:hover { background: #fafcff; }
 #url-threat-table td.modsec-cell { text-align:left; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
 #url-threat-search-form input { width:100%; max-width:100%; }
 #url-threat-body tr { cursor: pointer; }
-#url-threat-mini-menu { position:absolute; display:none; z-index:1700; }
-#url-suppression-mini-menu { position:absolute; display:none; z-index:1700; }
-#url-threat-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
-#url-suppression-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
-#url-threat-mini-menu .mini-menu-item.hidden { display:none; }
-#url-suppression-mini-menu .mini-menu-item.hidden { display:none; }
-#url-suppression-results tbody tr { cursor:pointer; }
 #url-threat-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1600; }
 #url-threat-note-modal { z-index:1701; }
 .url-threat-note-content { width:480px; max-width:94vw; }
@@ -291,31 +265,6 @@ tr:hover { background: #fafcff; }
   background: #f6f7fb;
   color: #666;
 }
-
-/* URL抑止ミニメニューのスタイル調整 */
-#url-suppression-mini-menu { position:absolute; display:none; z-index:1700; }
-#url-suppression-mini-menu .mini-menu-card {
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
-  padding: .35rem;
-  display: flex;
-  flex-direction: column;
-  gap: .25rem;
-}
-#url-suppression-mini-menu .mini-menu-item {
-  background: transparent;
-  border: none;
-  text-align: left;
-  padding: .4rem 0.5rem;
-  cursor: pointer;
-  border-radius: 6px;
-  font-size: 0.95rem;
-  width: 100%;
-}
-#url-suppression-mini-menu .mini-menu-item:hover { background: #f0f4ff; }
-#url-suppression-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
-#url-suppression-mini-menu .mini-menu-item.hidden { display:none; }
 
 /* URL抑止結果テーブルのセルに対するスタイル追加 */
 #url-suppression-results table.table th,

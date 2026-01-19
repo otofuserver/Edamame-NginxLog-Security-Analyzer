@@ -13,17 +13,19 @@
 - aria-hidden/inert を用いたフォーカス管理の配慮（フォーカス中要素は hidden にしない）。
 
 ## 挙動
-- `openMenu(menuElement, x, y)` で座標を指定して表示し、`closeMenu(menuElement)` で非表示にする。
+- `show({x,y,items})` で座標を指定して表示し、`hide()` で非表示にする（再表示前に毎回リセット）。
 - メニュー内クリックは閉じないが、他行クリック時は一度閉じてから新規に開く。
-- `document` レベルのクリッ���/keydown リスナーで一度しか動かない問題を解消し、毎回イベントを再登録する。
+- `document` レベルのクリック/keydown リスナーで再入可能にし、外側クリックは suppress カウンタで意図しない即時クローズを防ぐ。
 
 ## 細かい指定された仕様
 - aria 警告対策として、フォーカスが当たる要素やその祖先に `aria-hidden="true"` を付与しない。必要に応じて `inert` で操作抑止のみを行う。
-- z-index を 1700 で統一し、重複表示時も同階層で制御。
+- z-index 1700 をデフォルトとし、サーバー管理用は 1400 に下げてモーダルと干渉しない（クラス `server-mini`）。
 - 位置計算はメニュー幅/高さを考慮し、画面外に出ないよう補正する。
+- 外観は `mini_menu.css` の `.mini-menu` / `.mini-menu-card` / `.mini-menu-item` を利用し、JS は見た目を直接持たない。
 
 ## その他
-- スタイルは `style.css` 側の `.sidebar-mini-menu` / `.mini-menu-item` クラスを利用。
+- スタイルは `src/main/resources/static/mini_menu.css` に集約し、HTML 側で `mini-menu` クラスを付与して再利用する。
 
 ## 変更履歴
+- 2026-01-20: スタイルを `mini_menu.css` に分離し、共通クラス名を `mini-menu` に統一する運用に更新。
 - 2026-01-15: 共通ミニメニューを独立ファイル化し、外側クリックが一度しか動かない問題と aria-hidden 警告を解消。

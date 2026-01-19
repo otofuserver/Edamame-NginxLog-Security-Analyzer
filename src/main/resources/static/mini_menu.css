@@ -1,0 +1,79 @@
+/* ミニメニュー共通スタイル */
+.mini-menu,
+.sidebar-mini-menu {
+  position: absolute;
+  display: none;
+  visibility: hidden;
+  min-width: 140px;
+  max-width: 270px;
+  pointer-events: none;
+}
+
+.mini-menu {
+  z-index: 1700;
+}
+
+.sidebar-mini-menu {
+  right: 8px;
+  bottom: 48px;
+  z-index: 1500;
+}
+
+.sidebar-mini-menu.server-mini {
+  z-index: 1400;
+}
+
+.mini-menu.server-mini {
+  z-index: 1400;
+}
+
+.mini-menu.show,
+.sidebar-mini-menu.show {
+  display: block;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.mini-menu .mini-menu-card,
+.sidebar-mini-menu .mini-menu-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  padding: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.mini-menu .mini-menu-item,
+.sidebar-mini-menu .mini-menu-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: 0.4rem 0.5rem;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 100%;
+}
+
+.mini-menu .mini-menu-item:hover,
+.sidebar-mini-menu .mini-menu-item:hover {
+  background: #f0f4ff;
+}
+
+.mini-menu .mini-menu-item[disabled],
+.sidebar-mini-menu .mini-menu-item[disabled] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.mini-menu .mini-menu-item.hidden,
+.sidebar-mini-menu .mini-menu-item.hidden {
+  display: none;
+}
+
+/* サイドバーのフッターにミニメニューを紐付けるための相対位置付け */
+.sidebar .sidebar-user-footer {
+  position: relative;
+}
