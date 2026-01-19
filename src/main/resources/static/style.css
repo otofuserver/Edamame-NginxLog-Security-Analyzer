@@ -228,8 +228,12 @@ tr:hover { background: #fafcff; }
 #url-threat-search-form input { width:100%; max-width:100%; }
 #url-threat-body tr { cursor: pointer; }
 #url-threat-mini-menu { position:absolute; display:none; z-index:1700; }
+#url-suppression-mini-menu { position:absolute; display:none; z-index:1700; }
 #url-threat-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
+#url-suppression-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
 #url-threat-mini-menu .mini-menu-item.hidden { display:none; }
+#url-suppression-mini-menu .mini-menu-item.hidden { display:none; }
+#url-suppression-results tbody tr { cursor:pointer; }
 #url-threat-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1600; }
 #url-threat-note-modal { z-index:1701; }
 .url-threat-note-content { width:480px; max-width:94vw; }
@@ -281,3 +285,46 @@ tr:hover { background: #fafcff; }
 #server-results table.table {
   min-width: 900px;
 }
+
+#server-results-body tr.inactive,
+#url-suppression-body tr.inactive {
+  background: #f6f7fb;
+  color: #666;
+}
+
+/* URL抑止ミニメニューのスタイル調整 */
+#url-suppression-mini-menu { position:absolute; display:none; z-index:1700; }
+#url-suppression-mini-menu .mini-menu-card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+  padding: .35rem;
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+#url-suppression-mini-menu .mini-menu-item {
+  background: transparent;
+  border: none;
+  text-align: left;
+  padding: .4rem 0.5rem;
+  cursor: pointer;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  width: 100%;
+}
+#url-suppression-mini-menu .mini-menu-item:hover { background: #f0f4ff; }
+#url-suppression-mini-menu .mini-menu-item[disabled] { opacity:0.5; cursor:not-allowed; }
+#url-suppression-mini-menu .mini-menu-item.hidden { display:none; }
+
+/* URL抑止結果テーブルのセルに対するスタイル追加 */
+#url-suppression-results table.table th,
+#url-suppression-results table.table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#url-suppression-results table.table td.mono {
+  mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0));
+}
+

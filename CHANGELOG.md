@@ -133,6 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - URL脅威度一覧にミニメニュー（コピー/危険/安全/解除/理由確認）と理由入力モーダルを追加し、サーバーoperator権限で分類変更できるようにした。
 - db: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）。
 - url-threats APIにsort/orderパラメータを追加し、脅威度要素ごとのソート（優先度/最終アクセス/ステータス/ModSecブロック/攻撃タイプ/ホワイトリスト/脅威キー・ラベル/メソッド/URL）をサポート。
+- URL抑止管理（正規表現ベースの破棄条件、operator閲覧/admin操作、url_suppressionsテーブル、フロント断片とAPI、MiniMenu操作）。
+- url_suppressions テーブルの UNIQUE 制約を撤廃し、パターン重複を許容。
 
 ### Changed
 - fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）

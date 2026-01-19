@@ -73,11 +73,27 @@
   - `alterColumnTypeIfNeeded(...)` - 型修正が必要なカラムの ALTER 実行
   - `migrateColumnData(...)` - 旧カラムから新カラムへデータ移行を行う
 
+## url_suppressions テーブル仕様（URL抑止ルール）
+- 目的: 正規表現ベースでアクセスログを抑止する対象URLを管理する。
+- 主キー/カラム:
+  - `id` BIGINT AUTO_INCREMENT PRIMARY KEY
+  - `server_name` VARCHAR(100) NOT NULL DEFAULT 'all' — 対象サーバー名。`all` は全体適用。
+  - `url_pattern` VARCHAR(255) NOT NULL — 抑止するURLの正規表現。
+  - `description` TEXT — 管理用説明。
+  - `is_enabled` BOOLEAN DEFAULT TRUE — ルールの有効/無効。
+  - `last_access_at` DATETIME NULL — 抑止にヒットした最終アクセス日時。
+  - `drop_count` BIGINT DEFAULT 0 — 抑止した累計回数。
+  - `created_by` VARCHAR(128) NULL, `updated_by` VARCHAR(128) NULL — 操作者記録。
+  - `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+  - `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+- 備考: `UrlSuppressionManager` で is_enabled かつ `server_name` が対象/`all` のレコードをロードし、マッチ時に `last_access_at` と `drop_count` を更新。
+
 ## 変更履歴
 - 2.0.0 - 2025-12-31: ドキュメント作成
 - 2026-01-05: `email_change_requests` テーブルを追加（メール変更の所有者確認フロー用）
 - 2026-01-15: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）
 - 2026-01-16: url_registry に脅威分類カラム（threat_key/threat_label/threat_priority）を追加し、詳細仕様を`document/db_schema_spec.md`へ集約開始
+- 2026-01-20: url_suppressions テーブルを追加（URL抑止ルール管理）。
 
 ## コミットメッセージ例
 - docs(db): DbSchema に email_change_requests の仕様を追加

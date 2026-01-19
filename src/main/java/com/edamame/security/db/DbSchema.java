@@ -277,6 +277,21 @@ public class DbSchema {
          actionRulesDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
          autoSyncTableColumns(dbSession, "action_rules", actionRulesDefs, null);
 
+        // url_suppressions
+        var urlSuppressionsDefs = new java.util.LinkedHashMap<String, String>();
+        urlSuppressionsDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
+        urlSuppressionsDefs.put("server_name", "VARCHAR(100) NOT NULL DEFAULT 'all' COLLATE utf8mb4_unicode_ci");
+        urlSuppressionsDefs.put("url_pattern", "VARCHAR(500) NOT NULL");
+        urlSuppressionsDefs.put("description", "TEXT");
+        urlSuppressionsDefs.put("is_enabled", "BOOLEAN DEFAULT TRUE");
+        urlSuppressionsDefs.put("last_access_at", "DATETIME NULL");
+        urlSuppressionsDefs.put("drop_count", "BIGINT DEFAULT 0");
+        urlSuppressionsDefs.put("created_by", "VARCHAR(128)");
+        urlSuppressionsDefs.put("updated_by", "VARCHAR(128)");
+        urlSuppressionsDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        urlSuppressionsDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+        autoSyncTableColumns(dbSession, "url_suppressions", urlSuppressionsDefs, null);
+
         AppLogger.log("エージェント管理用テーブルのスキーマ同期が完了しました", "INFO");
     }
 

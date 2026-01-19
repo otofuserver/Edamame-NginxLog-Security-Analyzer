@@ -129,6 +129,12 @@ public class MainController implements HttpHandler {
                     fragmentHtml = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"users\">" + tpl + "</div>";
                 }
             }
+            case "url_suppression" -> {
+                String tpl = fragmentService.getFragmentTemplate("url_suppression");
+                if (tpl != null) {
+                    fragmentHtml = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"url_suppression\">" + tpl + "</div>";
+                }
+            }
             case "test" -> fragmentHtml = fragmentService.testFragment();
             default -> {
                 String tpl = fragmentService.getFragmentTemplate(currentView);
@@ -174,6 +180,12 @@ public class MainController implements HttpHandler {
      * @return メニューHTML
      */
     public static String generateMenuHtml(String username, boolean isAdmin) {
+        boolean isOperator = isAdmin;
+        try {
+            if (!isOperator) {
+                isOperator = new com.edamame.web.service.impl.UserServiceImpl().hasRoleIncludingHigher(username, "operator");
+            }
+        } catch (Exception ignored) {}
         StringBuilder sb = new StringBuilder();
         sb.append("<ul>");
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=dashboard\">ダッシュボード</a></li>");
@@ -181,10 +193,14 @@ public class MainController implements HttpHandler {
         if (isAdmin) sb.append("<li><a class=\"nav-link\" href=\"/main?view=users\">ユーザー管理</a></li>");
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=servers\">サーバー管理</a></li>");
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=url_threat\">URL脅威度</a></li>");
+        if (isOperator) sb.append("<li><a class=\"nav-link\" href=\"/main?view=url_suppression\">URL抑止</a></li>");
         sb.append("</ul>");
         // ユーザー名は隠し要素として埋めてクライアント側で参照可能にする（XSS対策でエスケープ）
         sb.append("<div id=\"current-user-admin\" data-is-admin=\"")
           .append(isAdmin ? "true" : "false")
+          .append("\" style=\"display:none;\"></div>");
+        sb.append("<div id=\"current-user-operator\" data-is-operator=\"")
+          .append(isOperator ? "true" : "false")
           .append("\" style=\"display:none;\"></div>");
         String escapedUsername = WebSecurityUtils.escapeHtml(username == null ? "" : username);
         sb.append("<div id=\"current-user-name\" data-username=\"")

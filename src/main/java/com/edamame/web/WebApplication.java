@@ -146,6 +146,12 @@ public class WebApplication {
 
         server.createContext("/api", new ApiController(dataService, authService));
 
+        // URL抑止管理（operator閲覧・admin操作）
+        server.createContext("/api/fragment/url_suppressions", new AuthenticationFilter(authService,
+            new UrlSuppressionController(authService)));
+        server.createContext("/api/url-suppressions", new AuthenticationFilter(authService,
+            new UrlSuppressionController(authService)));
+
         // ルートパス（ダッシュボードにリダイレクト）
         server.createContext("/", new AuthenticationFilter(authService,
             new MainController()));

@@ -1,9 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-**specification.txt version**: v1.0.57
-- **最終更新**: 2026-01-16
-- 注記: URL脅威度APIにsort/orderパラメータを追加し、脅威度要素（優先度/最終アクセス/ステータス/ModSecブロック/攻撃タイプ/ホワイトリスト/脅威キー・ラベル/メソッド/URL）でソート可能にした。
+**specification.txt version**: v1.0.58
+- **最終更新**: 2026-01-17
+- 注記: URL抑止管理を追加（正規表現での破棄条件、operator閲覧/admin操作、url_suppressionsテーブル）。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 

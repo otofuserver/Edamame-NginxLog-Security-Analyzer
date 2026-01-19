@@ -1,0 +1,82 @@
+<!-- URL抑止管理断片（operator閲覧、admin操作） -->
+<div class="card">
+  <h2>URL抑止</h2>
+  <div id="url-suppression-controls" class="search-form" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
+    <input type="text" id="url-suppression-q" name="q" placeholder="URL/説明で検索" aria-label="検索" />
+    <label for="url-suppression-server" style="white-space:nowrap;">サーバー</label>
+    <select id="url-suppression-server" aria-label="対象サーバー"></select>
+    <button id="url-suppression-create" type="button" class="btn btn-primary">新規作成</button>
+  </div>
+
+  <div id="url-suppression-results" style="overflow-x:auto;">
+    <table class="table" style="table-layout:fixed; min-width:780px;">
+      <colgroup>
+        <col style="width:140px;">
+        <col style="width:auto;">
+        <col style="width:90px;">
+        <col style="width:150px;">
+        <col style="width:110px;">
+        <col style="width:150px;">
+      </colgroup>
+      <thead>
+        <tr>
+          <th data-column="serverName" scope="col" style="white-space:nowrap;">サーバー</th>
+          <th data-column="urlPattern" scope="col" style="white-space:nowrap;">正規表現</th>
+          <th data-column="isEnabled" scope="col" style="white-space:nowrap;">有効</th>
+          <th data-column="lastAccessAt" scope="col" style="white-space:nowrap;">最終アクセス</th>
+          <th data-column="dropCount" scope="col" style="white-space:nowrap;">破棄回数</th>
+          <th data-column="updatedAt" scope="col" style="white-space:nowrap;">更新日時</th>
+        </tr>
+      </thead>
+      <tbody id="url-suppression-body"></tbody>
+    </table>
+  </div>
+  <div id="url-suppression-pager" class="pagination" style="margin-top:.5rem;"></div>
+</div>
+
+<div id="url-suppression-mini-menu" class="mini-menu" style="display:none;">
+  <div class="mini-menu-card"></div>
+</div>
+
+<!-- 作成/編集モーダル -->
+<div id="url-suppression-modal" class="modal" aria-hidden="true" role="dialog" aria-labelledby="url-suppression-modal-title" style="display:none;">
+  <div class="modal-backdrop"></div>
+  <div class="modal-content" role="document">
+    <header class="modal-header">
+      <h3 id="url-suppression-modal-title">URL抑止ルール</h3>
+    </header>
+    <main class="modal-body">
+      <form id="url-suppression-form">
+        <div class="form-row">
+          <label for="url-suppression-server-input">サーバー</label>
+          <select id="url-suppression-server-input" name="serverName">
+            <option value="all">all (全体)</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label for="url-suppression-pattern">正規表現</label>
+          <textarea id="url-suppression-pattern" name="urlPattern" rows="3" placeholder="例: ^/health$" required></textarea>
+        </div>
+        <div class="form-row">
+          <label for="url-suppression-desc">説明</label>
+          <textarea id="url-suppression-desc" name="description" rows="2"></textarea>
+        </div>
+        <div class="form-row checkbox">
+          <div style="display:flex;align-items:center;gap:.5rem;">
+            <input type="checkbox" id="url-suppression-enabled" name="isEnabled" checked />
+            <label for="url-suppression-enabled" style="margin:0;">有効</label>
+          </div>
+        </div>
+        <input type="hidden" id="url-suppression-id" value="" />
+        <div id="url-suppression-error" class="form-error" style="color:#b00020; margin-top:.5rem; display:none;"></div>
+      </form>
+    </main>
+    <footer class="modal-footer">
+      <button id="url-suppression-save" type="button">保存</button>
+      <button id="url-suppression-delete" type="button" class="danger">削除</button>
+      <button id="url-suppression-cancel" type="button">キャンセル</button>
+    </footer>
+  </div>
+</div>
+
+<div id="url-suppression-meta" data-can-edit="false" data-current-user="" style="display:none;"></div>

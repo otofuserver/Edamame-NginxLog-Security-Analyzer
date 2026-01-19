@@ -120,12 +120,20 @@
                             dbg('initialized server list because hasServerList=true');
                         }
                         const hasUrlThreat = initialView === 'url_threat' || !!mainEl.querySelector('#url-threat-table');
+                        const hasUrlSuppression = initialView === 'url_suppression' || !!mainEl.querySelector('#url-suppression-results');
                         if (hasUrlThreat) {
                             await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
                             if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
-                                try { window.UrlThreat.init(); } catch(e) { console.error('UrlThreat.init error (server-rendered)', e); }
+                                try { window.UrlThreat.init(); } catch (e) { console.error('UrlThreat.init error (server-rendered)', e); }
                             }
                             dbg('initialized url threat because hasUrlThreat=true');
+                        }
+                        if (hasUrlSuppression) {
+                            await loadScriptsSequential(['/static/mini_menu.js','/static/url_suppression.js']);
+                            if (window.UrlSuppression && typeof window.UrlSuppression.init === 'function') {
+                                try { window.UrlSuppression.init(); } catch (e) { console.error('UrlSuppression.init error (server-rendered)', e); }
+                            }
+                            dbg('initialized url suppression because hasUrlSuppression=true');
                         }
 
                         // 強制的なビュー別初期化
@@ -151,6 +159,13 @@
                                 await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
                                 if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
                                     try { window.UrlThreat.init(); } catch(e) { console.error('UrlThreat.init error (force)', e); }
+                                }
+                            }
+                            if (initialView === 'url_suppression') {
+                                dbg('forcing url_suppression init because initialView=url_suppression');
+                                await loadScriptsSequential(['/static/mini_menu.js','/static/url_suppression.js']);
+                                if (window.UrlSuppression && typeof window.UrlSuppression.init === 'function') {
+                                    try { window.UrlSuppression.init(); } catch(e) { console.error('UrlSuppression.init error (force)', e); }
                                 }
                             }
                         } catch(e) {

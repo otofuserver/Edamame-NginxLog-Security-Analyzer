@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import com.edamame.security.tools.UrlCodec;
 import java.sql.Timestamp;
+import com.edamame.security.suppression.UrlSuppressionManager;
 
 /**
  * エージェントTCP通信サーバー
@@ -782,6 +783,12 @@ public class AgentTcpServer {
                 String fullUrl = (String) parsedLog.get("full_url");
                 if (isIgnorableRequest(fullUrl)) {
                     AppLogger.debug("無視対象リクエストをスキップ: " + fullUrl);
+                    continue;
+                }
+
+                // URL抑止ルールに一致したら破棄（access_log/url_registry/modsecに計上しない）
+                if (UrlSuppressionManager.shouldSuppress(actualServerName, fullUrl)) {
+                    AppLogger.info("URL抑止により破棄: server=" + actualServerName + " url=" + fullUrl);
                     continue;
                 }
 
