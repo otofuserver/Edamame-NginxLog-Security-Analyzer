@@ -74,6 +74,7 @@ public class WebApplication {
      * デフォルトポートでWebアプリケーションを開始
      * @return 開始成功時true
      */
+    @SuppressWarnings("UnusedReturnValue")
     public boolean start() {
         return start(DEFAULT_PORT);
     }
