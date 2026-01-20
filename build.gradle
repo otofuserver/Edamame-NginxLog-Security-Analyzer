@@ -85,6 +85,12 @@ dependencies {
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
+tasks.named('processResources') {
+    filesMatching('version.properties') {
+        expand(projectVersion: project.version)
+    }
+}
+
 // テスト設定
 test {
     useJUnitPlatform()

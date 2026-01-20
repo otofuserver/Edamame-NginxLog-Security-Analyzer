@@ -1,6 +1,7 @@
 package com.edamame.security;
 
 import com.edamame.security.agent.AgentTcpServer;
+import com.edamame.security.config.VersionProvider;
 import com.edamame.security.db.DbService;
 import static com.edamame.security.db.DbService.*;
 import com.edamame.security.modsecurity.ModSecurityQueue;
@@ -34,7 +35,6 @@ public class NginxLogToMysql {
 
     // アプリケーション定数
     private static final String APP_NAME = "Edamame NginxLog Security Analyzer";
-    private static final String APP_VERSION = "v1.1.0";  // DbService導入により v1.1.0 に更新
     private static final String APP_AUTHOR = "Developed by Code Copilot";
 
     // パス設定（複数サーバー対応のためLOG_PATHは servers.conf から読み取り）
@@ -146,7 +146,7 @@ public class NginxLogToMysql {
      * @return 初期化成功可否
      */
     private static boolean initializeApplication() {
-        AppLogger.log(String.format("%s %s 起動中...", APP_NAME, APP_VERSION), "INFO");
+        AppLogger.log(String.format("%s %s 起動中...", APP_NAME, VersionProvider.getDisplayVersion()), "INFO");
         AppLogger.log(APP_AUTHOR, "INFO");
 
         // DbService初期化（static移行により直接初期化）
@@ -205,7 +205,7 @@ public class NginxLogToMysql {
 
         // 初期データ投入（static method使用）
         try {
-            initializeDefaultData(APP_VERSION);
+            initializeDefaultData(VersionProvider.getVersion());
         } catch (Exception e) {
             AppLogger.log("初期データ投入に失敗しました: " + e.getMessage(), "ERROR");
             return false;
@@ -396,10 +396,9 @@ public class NginxLogToMysql {
 
         try {
             AppLogger.log("====================================", "INFO");
-            AppLogger.log(APP_NAME + " " + APP_VERSION + " を開始します", "INFO");
+            AppLogger.log(APP_NAME + " " + VersionProvider.getDisplayVersion(), "INFO");
             AppLogger.log(APP_AUTHOR, "INFO");
             AppLogger.log("====================================", "INFO");
-            AppLogger.log("エージェント連携モード（v1.15.0）", "INFO");
 
             // 初期化処理
             if (!initializeApplication()) {

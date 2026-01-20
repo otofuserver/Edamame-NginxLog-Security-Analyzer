@@ -1,5 +1,6 @@
 package com.edamame.web.config;
 
+import com.edamame.security.config.VersionProvider;
 import java.io.InputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -70,7 +71,7 @@ public class WebConfig {
      * @return アプリケーションバージョン文字列
      */
     public String getAppVersion() {
-        return "v1.0.0";
+        return VersionProvider.getDisplayVersion();
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.edamame.web;
 
+import com.edamame.security.config.VersionProvider;
 import com.edamame.web.controller.*;
 import com.edamame.web.security.AuthenticationFilter;
 import com.edamame.web.security.AuthenticationService;
@@ -19,7 +20,6 @@ import com.edamame.security.tools.AppLogger;
 public class WebApplication {
 
     private static final String WEB_APP_NAME = "Edamame Web Dashboard";
-    private static final String WEB_APP_VERSION = "v1.1.0";
     private static final int DEFAULT_PORT = Integer.parseInt(getEnvOrDefault("WEB_PORT", "8080"));
     private static final String BIND_ADDRESS = getEnvOrDefault("WEB_BIND_ADDRESS", "0.0.0.0");
 
@@ -61,7 +61,7 @@ public class WebApplication {
             startServer();
 
             AppLogger.info(String.format("%s %s がポート %d で開始されました",
-                WEB_APP_NAME, WEB_APP_VERSION, port));
+                WEB_APP_NAME, VersionProvider.getDisplayVersion(), port));
             return true;
 
         } catch (Exception e) {
