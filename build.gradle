@@ -35,9 +35,9 @@ repositories {
 ext {
     mysqlVersion = '8.4.0' // 最新安定版（2025年8月時点）
     jacksonVersion = '2.15.4'  // より安定したバージョンに変更
-    logbackVersion = '1.5.3' // 最新安定版（2025年8月時点）
+    logbackVersion = '1.5.19' // CVE-2024-12798/CVE-2024-12801/CVE-2025-11226対応
     junitVersion = '5.10.1'
-    bouncyCastleVersion = '1.78' // 最新安定版（2025年8月時点）
+    bouncyCastleVersion = '1.79' // CVE-2025-8916対応
     springSecurityVersion = '6.2.1'
     // SetupSecureConfig専用バージョン（独立管理）
     setupConfigVersion = 'V1.0'
@@ -83,6 +83,11 @@ dependencies {
     // テスト用依存関係
     testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
     testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+
+    // 安全版へ強制（Mend.io報告のCVE-2024-7254対策）
+    constraints {
+        implementation "com.google.protobuf:protobuf-java:3.25.5"
+    }
 }
 
 tasks.named('processResources') {
