@@ -1,38 +1,31 @@
-# user_list.js (一覧描画・検索)
-
+# user_list.js (ユーザー一覧)
 対象: `src/main/resources/static/user_list.js`
 
 ## 概要
-- ユーザー一覧（検索・ページング・ソート）をクライアント側で扱うフロントエンドモジュール。外部に `window.UserList` API を公開する。
+- ユーザー管理画面の一覧・検索・ソート・ページングを担当するフロントエンドモジュール。`ListViewCore` を用いて状態をURLクエリに保持し、`window.UserList` API を提供する。
 
 ## 主な機能
-- ユーザー一覧取得（doSearch）
-- テーブル描画（render）とページネーション（renderPagination）
-- 初期化処理（initUserManagement）で DOM 要素検出とイベント登録
+- `/api/users` への検索・ソート・ページング付き取得（q, sort, order, page, size）。
+- テーブル描画と列ソートインジケータ更新（ヘッダ data-column を使用）。
+- 行クリックで `UserModal.openUserModal` を呼び出す詳細表示、作成ボタンから `openCreateUserModal` を起動。
+- 初期化時のDOM/スクリプト準備リトライ、`list_view_core.js` の遅延読み込みフォールバック。
 
 ## 挙動
-- 検索文字列が空なら `/api/users?page=&size=` を呼び出す。検索語がある場合は `/api/users?q=&page=&size=20` を使用する。取得結果は JSON（{users, total, page, size}）を想定する。
-- 行クリックで `UserModal.openUserModal(user)` を呼び出して詳細モーダルを表示する基本動作を備える。
-- ソートはクライアント側で実行され、列ヘッダ（th[data-column]）をクリックで昇降切替する。
+- 初期ソートは `username`、1ページ20件固定。検索は250msデバウンスしURLクエリへ反映、F5後も同条件で復元。
+- APIレスポンス `{users,total,page,size,totalPages}` を受け取り、フロント側で現行ソートキーに合わせて描画する（ソートキーが日付/booleanの場合は型変換して比較）。
+- 401は考慮外（呼び出し元でハンドリング）。fetch失敗時はテーブルにエラーメッセージ行を表示。
 
 ## 細かい指定された仕様
-- デフォルトの page size は 20 件。大量データ時はサーバサイドソート/ページングを優先する設計。
-- 検索入力はデバウンス（250ms）して API 呼び出しを制御する。
-- DOM 要素が未作成のタイミングに対応するために再試行ロジック（最大リトライ）を実装している。
+- 必須DOM: `#q`, `#pagination`, `#user-results-body`。ヘッダは `#user-results th[data-column]`。
+- ボタン: 検索フォーム直上に「ユーザー作成」ボタンを挿入（存在しない場合のみ）。
+- 依存: `list_view_core.js`（必須）、`user_modal.js`（モーダル呼び出し）、`script.js`（ブートストラップ）。
 
 ## その他
-- 依存モジュール: `user_modal.js`, `script.js`（bootstrap）
-- テスト: API のレスポンス形式が想定どおりであること（users 配列、total 整数）を確認する自動テストを推奨。
-
-## 主な関数一覧
-- doSearch(page)
-- render(users, total, page, size)
-- renderPagination(total, page, size)
-- initUserManagement(initialQ)
-- attachHeaderSortHandlers()
+- `ListViewCore` 未ロード時は `window.loadScript('/static/list_view_core.js')` を試行し、最大30回/3秒リトライで初期化。
 
 ## 変更履歴
-- 1.0.0 - 2025-12-29: ドキュメント整備
+- 2026-01-20: ListViewCore ベースに移行し、URLクエリ同期と自動リトライを記載。
+- 2025-12-29: 初版（ローカルソート/ページング中心）。
 
 ## コミットメッセージ例
 - docs(web): user_list.js の仕様書を統一フォーマットへ変換

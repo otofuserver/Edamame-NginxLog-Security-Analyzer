@@ -2,6 +2,7 @@
    ユーザー管理のテーブルとモーダルを含む基本スタイル
 */
 @import url('./mini_menu.css');
+@import url('./list_views.css');
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -66,34 +67,7 @@ table.table thead th.sorted-asc::after { content:' ▲'; font-size:0.8em; color:
 table.table thead th.sorted-desc::after { content:' ▼'; font-size:0.8em; color:#666; }
 tr:hover { background: #fafcff; }
 
-/* ユーザー管理・サーバー管理のリストは行・ヘッダーとも改行させず省略表示 */
-#user-results table.table th,
-#user-results table.table td,
-#server-results table.table th,
-#server-results table.table td {
-  white-space: nowrap;
-  word-break: normal;
-}
-
-/* ユーザー管理テーブルのカラム幅調整: 状態を縮小しメール幅を拡大 */
-#user-results table.table th#th-email, #user-results table.table td:nth-child(2) { min-width: 220px; width: 40%; }
-#user-results table.table th#th-enabled, #user-results table.table td:nth-child(4) { width: 80px; min-width: 72px; text-align:center; }
-
-/* カラム最小幅を指定して重なり防止（ユーザー管理） */
-#user-results table.table th:nth-child(1), #user-results table.table td:nth-child(1) { min-width: 100px; width: 30%; }
-#user-results table.table th:nth-child(2), #user-results table.table td:nth-child(2) { min-width: 150px; width: 40%; }
-#user-results table.table th:nth-child(3), #user-results table.table td:nth-child(3) { min-width: 170px; width: 20%; }
-#user-results table.table th:nth-child(4), #user-results table.table td:nth-child(4) { min-width: 80px; width: 10%; text-align:center; }
-
-/* カラム最小幅を指定して重なり防止（サーバー管理） */
-#server-results table.table th:nth-child(1), #server-results table.table td:nth-child(1) { min-width: 50px; width: 50%; }
-#server-results table.table th:nth-child(2), #server-results table.table td:nth-child(2) { min-width: 50px; width: 35%; }
-#server-results table.table th:nth-child(3), #server-results table.table td:nth-child(3) { min-width: 80px; width: 15%; text-align:center; }
-
-/* ページネーション */
-#pagination { margin-top: .75rem; display:flex; align-items:center; gap:.5rem; }
-#pagination button { padding: .35rem .6rem; border-radius:6px; border:1px solid #d7dbe2; background:white; cursor:pointer; }
-#pagination button:disabled { opacity: .5; cursor: not-allowed; }
+/* リスト系スタイルは list_views.css に移動済み */
 
 /* モーダル */
 .modal { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; z-index:1200; }
@@ -173,48 +147,7 @@ tr:hover { background: #fafcff; }
 /* 余計な高 z-index を削除し、1701/1600 帯で固定 */
 
 /* URL脅威度ビュー専用スタイル（元のHTML内styleをCSSへ移植） */
-.url-threat-row { display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; }
-.url-threat-filter-row { margin-top:0.75rem; display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; }
-.url-threat-filter-row label { margin-right:0.75rem; }
-.url-threat-filter-label { margin-right:0.75rem; }
-.url-threat-search { margin-top:0.5rem; }
-.url-threat-message { margin-top:0.75rem; color:#555; }
-.url-threat-table-wrap { margin-top:0.75rem; }
-.url-threat-pager { margin-top:0.5rem; display:flex; gap:0.5rem; align-items:center; }
-.url-threat-count { margin-top:0.25rem; font-size:0.9em; color:#444; }
-.url-threat-legend { margin-top:0.5rem; font-size:0.9em; color:#555; }
-.threat-safe { background:#e6f6e9; color:#1c7c3d; }
-.threat-danger { background:#fde8e8; color:#b42318; }
-.threat-caution { background:#fff4e5; color:#a15c00; }
-.threat-unknown { background:#eef2f6; color:#3f4a5a; }
-#url-threat-table tbody tr.threat-safe { border-left:4px solid #1c7c3d; }
-#url-threat-table tbody tr.threat-danger { border-left:4px solid #b42318; }
-#url-threat-table tbody tr.threat-caution { border-left:4px solid #a15c00; }
-#url-threat-table tbody tr.threat-unknown { border-left:4px solid #5b6473; }
-.threat-col { min-width: 96px; width: 100px; max-width: 120px; text-align:center; white-space: nowrap; }
-.url-col { width: auto; }
-.method-col { min-width: 90px; width: 100px; max-width: 140px; text-align:left; white-space: nowrap; }
-.attack-col { min-width: 128px; width: 140px; max-width: 180px; white-space: nowrap; }
-.access-col { width: 170px; max-width: 170px; white-space: nowrap; }
-.status-col { width: 70px; max-width: 70px; text-align:center; }
-.modsec-col { width: 80px; max-width: 80px; }
-#url-threat-table { table-layout: auto; }
-#url-threat-table td.url-cell { min-width: 240px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0)); }
-#url-threat-table td.threat-cell { min-width: 96px; text-align:center; white-space: nowrap; }
-#url-threat-table td.method-cell { min-width: 90px; max-width: 140px; text-align:left; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
-#url-threat-table td.attack-cell { min-width: 128px; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
-#url-threat-table td.access-cell { white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
-#url-threat-table td.status-cell { text-align:center; white-space: nowrap; }
-#url-threat-table td.modsec-cell { text-align:left; white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
-#url-threat-search-form input { width:100%; max-width:100%; }
-#url-threat-body tr { cursor: pointer; }
-#url-threat-modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.35); z-index:1600; }
-#url-threat-note-modal { z-index:1701; }
-.url-threat-note-content { width:480px; max-width:94vw; }
-.url-threat-modal-url { font-size:0.9em; word-break:break-all; }
-#url-threat-note-text { width:100%; }
-.url-threat-note-hint { color:#666; font-size:0.9em; }
-.url-threat-note-footer { justify-content:flex-end; gap:0.5rem; }
+/* URL脅威度ビューのスタイルは list_views.css に移動 */
 
 /* 画面レスポンシブ */
 @media (max-width:800px) {
@@ -276,4 +209,3 @@ tr:hover { background: #fafcff; }
 #url-suppression-results table.table td.mono {
   mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0));
 }
-

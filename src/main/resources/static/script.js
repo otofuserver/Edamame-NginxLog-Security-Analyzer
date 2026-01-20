@@ -63,7 +63,7 @@
     document.addEventListener('DOMContentLoaded', async function(){
         dbg('DOM ready - starting bootstrap');
         // 依存モジュールを順に読み込む
-        await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js','/static/mini_menu.js','/static/url_threat.js']);
+        await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js','/static/mini_menu.js','/static/list_view_core.js','/static/url_threat.js']);
         dbg('loaded core modules, loadedScripts=', Array.from(_loadedScripts));
 
         // 初期化
@@ -103,7 +103,7 @@
                     try {
                         const hasUserList = !!mainEl.querySelector('#user-list-root, .user-list');
                         if (hasUserList) {
-                            await loadScriptsSequential(['/static/user_list.js','/static/user_modal.js']);
+                            await loadScriptsSequential(['/static/list_view_core.js','/static/user_list.js','/static/user_modal.js']);
                             if (window.UserList && typeof window.UserList.initUserManagement === 'function') {
                                 try { window.UserList.initUserManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('UserList.initUserManagement error', e); }
                             } else if (typeof window.initUserManagement === 'function') {
@@ -113,7 +113,7 @@
                         }
                         const hasServerList = !!mainEl.querySelector('#server-results-body, .server-list');
                         if (hasServerList) {
-                            await loadScriptsSequential(['/static/mini_menu.js','/static/server_list.js']);
+                            await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/server_list.js']);
                             if (window.ServerList && typeof window.ServerList.initServerManagement === 'function') {
                                 try { window.ServerList.initServerManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('ServerList.initServerManagement error', e); }
                             }
@@ -122,14 +122,14 @@
                         const hasUrlThreat = initialView === 'url_threat' || !!mainEl.querySelector('#url-threat-table');
                         const hasUrlSuppression = initialView === 'url_suppression' || !!mainEl.querySelector('#url-suppression-results');
                         if (hasUrlThreat) {
-                            await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
+                            await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/url_threat.js']);
                             if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
                                 try { window.UrlThreat.init(); } catch (e) { console.error('UrlThreat.init error (server-rendered)', e); }
                             }
                             dbg('initialized url threat because hasUrlThreat=true');
                         }
                         if (hasUrlSuppression) {
-                            await loadScriptsSequential(['/static/mini_menu.js','/static/url_suppression.js']);
+                            await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/url_suppression.js']);
                             if (window.UrlSuppression && typeof window.UrlSuppression.init === 'function') {
                                 try { window.UrlSuppression.init(); } catch (e) { console.error('UrlSuppression.init error (server-rendered)', e); }
                             }
@@ -140,7 +140,7 @@
                         try {
                             if (initialView === 'users') {
                                 dbg('forcing user init because initialView=users');
-                                await loadScriptsSequential(['/static/user_list.js','/static/user_modal.js']);
+                                await loadScriptsSequential(['/static/list_view_core.js','/static/user_list.js','/static/user_modal.js']);
                                 if (window.UserList && typeof window.UserList.initUserManagement === 'function') {
                                     try { window.UserList.initUserManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('UserList.initUserManagement error (force)', e); }
                                 } else if (typeof window.initUserManagement === 'function') {
@@ -149,21 +149,21 @@
                             }
                             if (initialView === 'servers') {
                                 dbg('forcing server init because initialView=servers');
-                                await loadScriptsSequential(['/static/mini_menu.js','/static/server_list.js']);
+                                await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/server_list.js']);
                                 if (window.ServerList && typeof window.ServerList.initServerManagement === 'function') {
                                     try { window.ServerList.initServerManagement(new URLSearchParams(window.location.search).get('q')); } catch(e) { console.error('ServerList.initServerManagement error (force)', e); }
                                 }
                             }
                             if (initialView === 'url_threat') {
                                 dbg('forcing url_threat init because initialView=url_threat');
-                                await loadScriptsSequential(['/static/mini_menu.js','/static/url_threat.js']);
+                                await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/url_threat.js']);
                                 if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
                                     try { window.UrlThreat.init(); } catch(e) { console.error('UrlThreat.init error (force)', e); }
                                 }
                             }
                             if (initialView === 'url_suppression') {
                                 dbg('forcing url_suppression init because initialView=url_suppression');
-                                await loadScriptsSequential(['/static/mini_menu.js','/static/url_suppression.js']);
+                                await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/url_suppression.js']);
                                 if (window.UrlSuppression && typeof window.UrlSuppression.init === 'function') {
                                     try { window.UrlSuppression.init(); } catch(e) { console.error('UrlSuppression.init error (force)', e); }
                                 }
@@ -181,3 +181,5 @@
         }
     });
 })();
+
+

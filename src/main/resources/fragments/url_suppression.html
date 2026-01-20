@@ -2,9 +2,9 @@
 <div class="card">
   <h2>URL抑止</h2>
   <div id="url-suppression-controls" class="search-form" style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;">
-    <input type="text" id="url-suppression-q" name="q" placeholder="URL/説明で検索" aria-label="検索" />
     <label for="url-suppression-server" style="white-space:nowrap;">サーバー</label>
     <select id="url-suppression-server" aria-label="対象サーバー"></select>
+    <input type="text" id="url-suppression-q" name="q" placeholder="URL/説明で検索" aria-label="検索" />
     <button id="url-suppression-create" type="button" class="btn btn-primary">新規作成</button>
   </div>
 
@@ -80,3 +80,7 @@
 </div>
 
 <div id="url-suppression-meta" data-can-edit="false" data-current-user="" style="display:none;"></div>
+
+<script src="/static/list_view_core.js"></script>
+<script src="/static/mini_menu.js"></script>
+<script src="/static/url_suppression.js"></script>

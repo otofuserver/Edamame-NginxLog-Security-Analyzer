@@ -1,8 +1,10 @@
 (function(){
     'use strict';
 
-    const STATE = { items: [], sort: 'updatedAt', order: 'desc', server: '', q: '', canEdit: false, currentItem: null, page:1, size:20, total:0, totalPages:1 };
+    const STATE = { canEdit: false, currentItem: null };
     let miniMenu = null;
+    let listViewRef = null;
+    let initialServer = '';
 
     function $(id){ return document.getElementById(id); }
 
@@ -12,7 +14,7 @@
         if (!val) return '';
         try {
             const d = new Date(val);
-            if (Number.isNaN(d.getTime())) return escapeHtml(val);
+            if (isNaN(d.getTime())) return escapeHtml(val);
             return d.toLocaleString('ja-JP', { year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false });
         } catch(e){ return escapeHtml(val); }
     }
@@ -26,15 +28,17 @@
         } catch (e) { return []; }
     }
 
-    function fillServerSelect(selectEl, servers, opts = { includeEmpty: true, includeAll: false }) {
+    function fillServerSelect(selectEl, servers, opts) {
         if (!selectEl) return;
         const current = selectEl.value;
+        const options = opts || { includeEmpty: true, includeAll: false };
         selectEl.innerHTML = '';
-        const addOpt = (val,label) => { const o=document.createElement('option'); o.value=val; o.textContent=label; selectEl.appendChild(o); };
-        if (opts.includeEmpty) addOpt('', 'すべて');
-        if (opts.includeAll) addOpt('all','all (全体)');
-        (servers||[]).filter(s => s.isActive !== false).forEach(s => addOpt(s.serverName || '', s.serverName || ''));
+        const addOpt = function(val,label){ var o=document.createElement('option'); o.value=val; o.textContent=label; selectEl.appendChild(o); };
+        if (options.includeEmpty) addOpt('', 'すべて');
+        if (options.includeAll) addOpt('all','all (全体)');
+        (servers||[]).filter(function(s){ return s.isActive !== false; }).forEach(function(s){ addOpt(s.serverName || '', s.serverName || ''); });
         if (current) selectEl.value = current;
+        if (initialServer) selectEl.value = initialServer;
     }
 
     async function loadServersToControls(){
@@ -43,44 +47,19 @@
         fillServerSelect($('url-suppression-server-input'), servers, { includeEmpty: true, includeAll: false });
     }
 
-    async function search(page=1){
-        const q = ($('url-suppression-q')?.value || '').trim();
-        STATE.q = q; STATE.server = $('url-suppression-server')?.value || '';
-        STATE.page = page || 1;
-        const params = new URLSearchParams();
-        if (STATE.q) params.append('q', STATE.q);
-        if (STATE.server) params.append('server', STATE.server);
-        params.append('sort', STATE.sort);
-        params.append('order', STATE.order);
-        params.append('page', STATE.page);
-        params.append('size', STATE.size);
-        const url = '/api/url-suppressions?' + params.toString();
-        try {
-            const resp = await fetch(url, { method:'GET', credentials:'same-origin' });
-            if (!resp.ok) { renderError('取得に失敗しました'); return; }
-            const data = await resp.json();
-            STATE.items = data.items || [];
-            STATE.canEdit = data.canEdit === true;
-            STATE.total = data.total ?? STATE.items.length;
-            STATE.totalPages = data.totalPages ?? 1;
-            STATE.page = data.page ?? STATE.page;
-            STATE.size = data.size ?? STATE.size;
-            applyPermissions(STATE.canEdit);
-            render();
-        } catch (e) { renderError('通信エラー'); }
-    }
-
-    function render(){
+    function renderRows(items, state){
         const tbody = $('url-suppression-body'); if (!tbody) return;
-        if (!STATE.items.length){ tbody.innerHTML = '<tr><td colspan="6">データがありません</td></tr>'; return; }
-        const sorted = STATE.items.slice().sort((a,b)=>{
-            let va=a[STATE.sort], vb=b[STATE.sort];
+        if (!items || !items.length){ tbody.innerHTML = '<tr><td colspan="6">データがありません</td></tr>'; return; }
+        const sortKey = state.sort || 'updatedAt';
+        const dir = state.order === 'asc' ? 1 : -1;
+        const sorted = items.slice().sort(function(a,b){
+            var va = a[sortKey]; var vb = b[sortKey];
             if (va === null || va === undefined) va=''; if (vb === null || vb === undefined) vb='';
             if (typeof va === 'string') va = va.toLowerCase(); if (typeof vb === 'string') vb = vb.toLowerCase();
-            if (va<vb) return STATE.order==='asc'?-1:1; if (va>vb) return STATE.order==='asc'?1:-1; return 0;
+            if (va < vb) return -1 * dir; if (va > vb) return 1 * dir; return 0;
         });
         tbody.innerHTML='';
-        sorted.forEach(item=>{
+        sorted.forEach(function(item){
             const tr=document.createElement('tr');
             if (!item.isEnabled) tr.classList.add('inactive');
             tr.dataset.id=item.id;
@@ -88,28 +67,23 @@
             tr.dataset.enabled=item.isEnabled?'true':'false';
             tr.dataset.pattern=item.urlPattern||'';
             tr.dataset.description=item.description||'';
-            tr.innerHTML=`<td>${escapeHtml(item.serverName||'')}</td>
-                <td class="mono">${escapeHtml(item.urlPattern||'')}</td>
-                <td>${item.isEnabled?'有効':'無効'}</td>
-                <td>${formatDateTime(item.lastAccessAt)}</td>
-                 <td>${item.dropCount??0}</td>
-                <td>${formatDateTime(item.updatedAt)}</td>`;
-            tr.addEventListener('click', ev=>handleRowClick(ev, item));
+            tr.innerHTML='<td>'+escapeHtml(item.serverName||'')+'</td>'+
+                '<td class="mono">'+escapeHtml(item.urlPattern||'')+'</td>'+
+                '<td>'+(item.isEnabled?'有効':'無効')+'</td>'+
+                '<td>'+formatDateTime(item.lastAccessAt)+'</td>'+
+                '<td>'+(item.dropCount?item.dropCount:0)+'</td>'+
+                '<td>'+formatDateTime(item.updatedAt)+'</td>';
+            tr.addEventListener('click', function(ev){ handleRowClick(ev, item); });
             tbody.appendChild(tr);
         });
-        updateSortIndicators();
-        renderPager();
+        updateSortIndicators(state);
     }
 
     function renderError(msg){ const tbody=$('url-suppression-body'); if (tbody) tbody.innerHTML='<tr><td colspan="6">'+escapeHtml(msg)+'</td></tr>'; }
 
     function setupMiniMenu(){ const menu=$('url-suppression-mini-menu'); miniMenu = window.MiniMenu?window.MiniMenu.create(menu):null; }
 
-    function handleRowClick(ev, item){
-        ev.stopPropagation();
-        STATE.currentItem = item;
-        showMiniMenu(ev);
-    }
+    function handleRowClick(ev, item){ ev.stopPropagation(); STATE.currentItem = item; showMiniMenu(ev); }
 
     function showMiniMenu(ev){
         if (!miniMenu || !STATE.currentItem) return;
@@ -117,23 +91,21 @@
         const canEdit = STATE.canEdit;
         const enabled = item.isEnabled === true;
         const items = [
-            {label: enabled ? '無効化' : '有効化', hidden: !canEdit, onClick: ()=>toggle(item, !enabled)},
-            {label:'編集', hidden:!canEdit, onClick:()=>openModal(item)},
-            {label:'削除', hidden:!canEdit, onClick:()=>remove(item)}
+            {label: enabled ? '無効化' : '有効化', hidden: !canEdit, onClick: function(){ toggle(item, !enabled); }},
+            {label:'編集', hidden:!canEdit, onClick:function(){ openModal(item); }},
+            {label:'削除', hidden:!canEdit, onClick:function(){ removeItem(item); }}
          ];
-        miniMenu.show({x: ev.pageX??ev.clientX, y: ev.pageY??ev.clientY, items});
+        miniMenu.show({x: ev.pageX ? ev.pageX : ev.clientX, y: ev.pageY ? ev.pageY : ev.clientY, items: items});
     }
 
-    async function toggle(item, enabled){
-        await saveRule({ ...item, isEnabled: enabled });
-    }
+    async function toggle(item, enabled){ await saveRule(Object.assign({}, item, { isEnabled: enabled })); }
 
-    async function remove(item){
+    async function removeItem(item){
         if (!confirm('削除しますか？')) return;
         try {
             const resp = await fetch('/api/url-suppressions/'+encodeURIComponent(item.id), { method:'DELETE', credentials:'same-origin' });
             if (!resp.ok) { alert('削除に失敗しました'); return; }
-            search();
+            if (listViewRef && listViewRef.reload) listViewRef.reload(listViewRef.state.page);
         } catch (e){ alert('通信エラー'); }
     }
 
@@ -162,7 +134,7 @@
             isEnabled: $('url-suppression-enabled').checked
         };
         if (!payload.urlPattern){ showError('url-suppression-error','正規表現を入力してください'); return; }
-        await saveRule({ ...payload, id: id ? Number(id) : null });
+        await saveRule(Object.assign({}, payload, { id: id ? Number(id) : null }));
         closeModal();
     }
 
@@ -171,74 +143,29 @@
         const path = isUpdate ? '/api/url-suppressions/'+encodeURIComponent(rule.id) : '/api/url-suppressions';
         const method = isUpdate ? 'PUT' : 'POST';
         try {
-            const resp = await fetch(path, { method, credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rule) });
+            const resp = await fetch(path, { method: method, credentials:'same-origin', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rule) });
             if (!resp.ok){ const txt=await resp.text(); alert('保存に失敗しました: '+txt); return; }
-            search();
+            if (listViewRef && listViewRef.reload) listViewRef.reload(listViewRef.state.page);
         } catch (e){ alert('通信エラー'); }
     }
 
     function showError(id,msg){ const el=$(id); if (!el) return; el.textContent=msg||''; el.style.display='block'; }
 
-    function attachEvents(){
-         const debouncedSearch = (()=>{
-            let t; return ()=>{ clearTimeout(t); t=setTimeout(()=>search(1), 200); };
-         })();
-         $('url-suppression-q')?.addEventListener('input', debouncedSearch);
-         $('url-suppression-q')?.addEventListener('keydown', e=>{ if (e.key==='Enter'){ e.preventDefault(); } });
-         $('url-suppression-server')?.addEventListener('change', ()=>search(1));
-         $('url-suppression-create')?.addEventListener('click', ()=>openModal(null));
-         $('url-suppression-save')?.addEventListener('click', ()=>saveFromModal());
-         $('url-suppression-cancel')?.addEventListener('click', ()=>closeModal());
-         $('url-suppression-delete')?.addEventListener('click', ()=>{
-            const id=$('url-suppression-id').value; if (!id) { closeModal(); return; }
-            if (!confirm('削除しますか？')) return;
-            fetch('/api/url-suppressions/'+encodeURIComponent(id), { method:'DELETE', credentials:'same-origin' })
-                .then(r=>{ if(!r.ok) { r.text().then(t=>alert('削除に失敗: '+t)); return; } closeModal(); search(); })
-                .catch(()=>alert('通信エラー'));
-        });
-        document.addEventListener('click', ()=>{ if (miniMenu) miniMenu.hide(); });
-        document.querySelectorAll('#url-suppression-results th[data-column]').forEach(th=>{
-            th.addEventListener('click', ()=>{
-                const col = th.getAttribute('data-column');
-                if (STATE.sort === col) STATE.order = STATE.order === 'asc' ? 'desc' : 'asc'; else { STATE.sort = col; STATE.order = 'asc'; }
-                render();
-             });
-         });
-     }
-
-    function updateSortIndicators(){
-        document.querySelectorAll('#url-suppression-results th[data-column]').forEach(th=>{
+    function updateSortIndicators(state){
+        document.querySelectorAll('#url-suppression-results th[data-column]').forEach(function(th){
             const col=th.getAttribute('data-column');
-            const active=col===STATE.sort; const arrow=active ? (STATE.order==='asc'?' ▲':' ▼') : '';
+            const active=col===state.sort; const arrow=active ? (state.order==='asc'?' ▲':' ▼') : '';
             th.textContent=(th.dataset.labelOriginal||th.textContent.replace(/[ ▲▼]+$/,''))+(arrow);
             th.dataset.labelOriginal = th.dataset.labelOriginal || th.textContent.replace(/[ ▲▼]+$/,'');
             th.classList.toggle('active-sort', active);
         });
     }
 
-    function renderPager(){
-        const pager = document.getElementById('url-suppression-pager');
-        if (!pager) return;
-        pager.innerHTML='';
-        if (STATE.totalPages <= 1) return;
-        const mkBtn = (label, targetPage, disabled=false) => {
-            const b=document.createElement('button');
-            b.textContent=label; b.disabled=disabled; b.addEventListener('click', ()=>{ if (!b.disabled) search(targetPage); });
-            return b;
-        };
-        pager.appendChild(mkBtn('«', 1, STATE.page<=1));
-        pager.appendChild(mkBtn('‹', Math.max(1, STATE.page-1), STATE.page<=1));
-        const info=document.createElement('span'); info.textContent=` ${STATE.page} / ${STATE.totalPages} （全 ${STATE.total} 件） `;
-        pager.appendChild(info);
-        pager.appendChild(mkBtn('›', Math.min(STATE.totalPages, STATE.page+1), STATE.page>=STATE.totalPages));
-        pager.appendChild(mkBtn('»', STATE.totalPages, STATE.page>=STATE.totalPages));
-    }
-
-    function applyPermissions(override){
+    function applyPermissions(canEditOverride){
         const meta = $('url-suppression-meta');
-        const canEditMeta = meta && meta.dataset.canEdit === 'true';
-        const canEdit = override !== undefined ? override : canEditMeta;
-        if (override !== undefined) STATE.canEdit = canEdit;
+        const canEditMeta = meta && meta.dataset && meta.dataset.canEdit === 'true';
+        const canEdit = (canEditOverride !== undefined) ? canEditOverride : canEditMeta;
+        STATE.canEdit = !!canEdit;
         const createBtn = $('url-suppression-create');
         if (createBtn) createBtn.style.display = canEdit ? 'inline-block' : 'none';
     }
@@ -262,14 +189,94 @@
         }
     }
 
+    function attachEvents(){
+        document.addEventListener('click', function(){ if (miniMenu) miniMenu.hide(); });
+        const createBtn = $('url-suppression-create');
+        if (createBtn) createBtn.addEventListener('click', function(){ openModal(null); });
+        const saveBtn = $('url-suppression-save');
+        if (saveBtn) saveBtn.addEventListener('click', function(){ saveFromModal(); });
+        const cancelBtn = $('url-suppression-cancel');
+        if (cancelBtn) cancelBtn.addEventListener('click', function(){ closeModal(); });
+        const deleteBtn = $('url-suppression-delete');
+        if (deleteBtn) deleteBtn.addEventListener('click', function(){
+            const id=$('url-suppression-id').value; if (!id) { closeModal(); return; }
+            if (!confirm('削除しますか？')) return;
+            fetch('/api/url-suppressions/'+encodeURIComponent(id), { method:'DELETE', credentials:'same-origin' })
+                .then(function(r){ if(!r.ok) { r.text().then(function(t){ alert('削除に失敗: '+t); }); return; } closeModal(); if (listViewRef && listViewRef.reload) listViewRef.reload(listViewRef.state.page); })
+                .catch(function(){ alert('通信エラー'); });
+        });
+    }
+
+    function parseInitialServer(){
+        try {
+            const params = new URLSearchParams(window.location.search);
+            initialServer = params.get('server') || '';
+        } catch(e) { initialServer = ''; }
+    }
+
+    function createListView(){
+        const qInput = $('url-suppression-q');
+        const pagerEl = $('url-suppression-pager');
+        const headerSelector = '#url-suppression-results th[data-column]';
+        if (!window.ListViewCore || typeof window.ListViewCore.createListView !== 'function') {
+            if (typeof window.loadScript === 'function') { try { window.loadScript('/static/list_view_core.js').catch(function(){}); } catch(e){} }
+            return null;
+        }
+        const serverSelect = $('url-suppression-server');
+        const listView = window.ListViewCore.createListView({
+            headerSelector: headerSelector,
+            pagerEl: pagerEl,
+            searchInput: qInput,
+            applyStateToUi: function(state){
+                if (qInput) qInput.value = state.q || '';
+                if (serverSelect && initialServer) serverSelect.value = initialServer;
+            },
+            extractFilters: function(){ return { server: serverSelect ? serverSelect.value : '' }; },
+            fetcher: async function(params){
+                const sp = new URLSearchParams();
+                if (params.q) sp.append('q', params.q);
+                if (params.server) sp.append('server', params.server);
+                sp.append('sort', params.sort ? params.sort : 'updatedAt');
+                sp.append('order', params.order ? params.order : 'desc');
+                sp.append('page', params.page ? params.page : 1);
+                sp.append('size', params.size ? params.size : 20);
+                const url = '/api/url-suppressions?' + sp.toString();
+                const resp = await fetch(url, { method:'GET', credentials:'same-origin' });
+                if (!resp.ok) { renderError('取得に失敗しました'); throw new Error('fetch failed'); }
+                const data = await resp.json();
+                STATE.canEdit = data && data.canEdit === true;
+                applyPermissions(STATE.canEdit);
+                return {
+                    items: data && data.items ? data.items : [],
+                    total: data && data.total ? data.total : 0,
+                    page: data && data.page ? data.page : (params.page ? params.page : 1),
+                    size: data && data.size ? data.size : (params.size ? params.size : 20),
+                    totalPages: (data && data.totalPages) ? data.totalPages : Math.max(1, Math.ceil((data && data.total ? data.total : 0) / (data && data.size ? data.size : (params.size ? params.size : 20))))
+                };
+            },
+            renderRows: renderRows,
+            onStateChange: function(){ /* no-op */ }
+        });
+        if (listView) {
+            if (!listView.state.sort) listView.state.sort = 'updatedAt';
+            listView.init();
+        }
+        return listView;
+    }
+
     async function init(){
+        parseInitialServer();
         setupMiniMenu();
         setupCreateButton();
         attachEvents();
-        applyPermissions();
         await loadServersToControls();
-        search(1);
-     }
+        listViewRef = createListView();
+        const serverSelect = $('url-suppression-server');
+        if (serverSelect && listViewRef && listViewRef.reload) {
+            serverSelect.addEventListener('change', function(){ listViewRef.reload(1); });
+        }
+        applyPermissions();
+    }
 
     window.UrlSuppression = { init };
 })();

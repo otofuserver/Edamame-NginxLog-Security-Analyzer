@@ -1,30 +1,29 @@
 # url_suppression.js
-
 対象: `src/main/resources/static/url_suppression.js`
 
 ## 概要
-- URL抑止管理ビューのフロントエンドロジック。検索・フィルタ・ソート・ページング・ミニメニュー表示・モーダル編集を制御し、`/api/url-suppressions` と連携する。
+- URL抑止管理ビューのフロントエンドロジック。`ListViewCore` を用いて検索・ソート・ページングの状態をURLクエリに保持し、ミニメニュー/モーダルを介して `/api/url-suppressions` と連携する。
 
 ## 主な機能
 - サーバー一覧取得とセレクト初期化（`/api/servers?size=200`）。
-- 抑止ルール一覧の検索・ソート・ページング描画。
+- `/api/url-suppressions` への検索・フィルタ（server）・ソート・ページング取得。
 - 行クリックでのミニメニュー表示（有効/無効切替・編集・削除）。
-- 作成/編集モーダルの表示・保存・削除、チェックボックス/テキスト入力のバインド。
+- 作成/編集モーダルの表示・保存（POST/PUT）・削除（DELETE）。
+- `canEdit` に基づくミニメニュー項目・ボタンの表示制御。
 
 ## 挙動
-- 初期化時にサーバーセレクトをロードし、検索条件から `/api/url-suppressions` を呼び出して結果を描画。
-- ソート中カラムには ▲/▼ を付与し、`STATE.sort`/`STATE.order` をトグルして再描画する。
-- ミニメニューは `mini_menu.js` で生成し、クリック座標近くに `mini-menu` クラスのメニューを表示。権限に応じて項目を hidden/disabled 切替。
-- モーダルは `aria-hidden`/`style.display` で開閉し、保存/削除は fetch(POST/PUT/DELETE) で実行。完了後は一覧再読み込み。
+- 初期ソートは `updatedAt`、1ページ20件固定。検索は `q` 入力をデバウンスし、サーバーフィルタ変更時は page=1 で再検索。URLクエリに `q`, `server`, `sort`, `order`, `page`, `size` を保持。
+- API レスポンス `{items, total, page, size, totalPages, canEdit}` を受け取り、ヘッダ data-column に従い描画・ソート矢印を更新。
+- 行 `isEnabled=false` は `.inactive` で薄表示。削除時は confirm で確認後、完了したらリロード。
 
 ## 細かい指定された仕様
-- 1ページあたり size=20、パラメータは `q`/`server`/`sort`/`order`/`page`/`size` を付与。
-- 取得データに含まれる `canEdit` で編集可否を判定し、ミニメニュー項目や削除ボタンの表示を制御。
-- `inactive` 行は `.inactive` クラスでグレー表示。
-- 削除は confirm ダイアログで再確認してから実行。
+- 必須DOM: `#url-suppression-q`, `#url-suppression-server`, `#url-suppression-pager`, `#url-suppression-body`, ヘッダ `#url-suppression-results th[data-column]`。
+- ミニメニュー: `mini_menu.js` による `mini-menu` を使用、座標は click event の pageX/pageY を使用。
+- モーダル: `aria-hidden` と display で開閉。`canEdit=false` の場合、削除ボタンやミニメニュー項目を hidden/disabled。
+- 依存: `list_view_core.js`, `mini_menu.js`, `script.js`。
 
 ## その他
-- スタイルは `style.css`（テーブル/モーダル）と `mini_menu.css`（ミニメニュー外観）を利用し、HTMLにはインラインstyleを持たない。
+- `ListViewCore` 未ロード時は `window.loadScript('/static/list_view_core.js')` を試行し、初期化リトライで最大30回/3秒。
 
 ## 変更履歴
-- 2026-01-20: ドキュメント新規作成。ミニメニュー共通化とモーダル動作を記載。
+- 2026-01-20: ListViewCore 連携・URLクエリ同期・デバウンス検索を反映。`canEdit` 制御とミニメニュー仕様を更新。

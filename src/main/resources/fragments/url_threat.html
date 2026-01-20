@@ -26,13 +26,13 @@
     <table class="table" id="url-threat-table">
       <thead>
         <tr>
-          <th scope="col" class="threat-col sortable" data-sort="priority">脅威度</th>
-          <th scope="col" class="url-col sortable" data-sort="url">URL</th>
-          <th scope="col" class="method-col sortable" data-sort="method">メソッド</th>
-          <th scope="col" class="attack-col sortable" data-sort="attack">攻撃タイプ</th>
-          <th scope="col" class="access-col sortable" data-sort="latest_access">最終アクセス</th>
-          <th scope="col" class="status-col sortable" data-sort="status">HTTP</th>
-          <th scope="col" class="modsec-col sortable" data-sort="blocked">ModSec</th>
+          <th scope="col" class="threat-col sortable" data-sort="priority" data-column="priority">脅威度</th>
+          <th scope="col" class="url-col sortable" data-sort="url" data-column="url">URL</th>
+          <th scope="col" class="method-col sortable" data-sort="method" data-column="method">メソッド</th>
+          <th scope="col" class="attack-col sortable" data-sort="attack" data-column="attack">攻撃タイプ</th>
+          <th scope="col" class="access-col sortable" data-sort="latest_access" data-column="latest_access">最終アクセス</th>
+          <th scope="col" class="status-col sortable" data-sort="status" data-column="status">HTTP</th>
+          <th scope="col" class="modsec-col sortable" data-sort="blocked" data-column="blocked">ModSec</th>
         </tr>
       </thead>
       <tbody id="url-threat-body">
@@ -84,7 +84,9 @@
   </div>
 </div>
 
+<script src="/static/list_view_core.js"></script>
 <script src="/static/mini_menu.js"></script>
+<script src="/static/url_threat.js"></script>
 <script>
   // フラグメント挿入後に初期化
   setTimeout(function(){

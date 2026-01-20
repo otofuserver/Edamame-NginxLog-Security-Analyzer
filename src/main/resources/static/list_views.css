@@ -1,0 +1,167 @@
+/* リスト系画面共通スタイル (ユーザー管理/サーバー管理/URL抑止/URL脅威度) */
+
+/* 改行禁止・省略表示をデフォルト化 */
+#user-results table.table th,
+#user-results table.table td,
+#server-results table.table th,
+#server-results table.table td,
+#url-suppression-results table.table th,
+#url-suppression-results table.table td,
+#url-threat-table th,
+#url-threat-table td {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+
+/* 共通ページネーション */
+#pagination,
+#server-pagination,
+#url-suppression-pager,
+#url-threat-pager {
+  margin-top: 0.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+#pagination button,
+#server-pagination button,
+#url-suppression-pager button,
+#url-threat-pager button {
+  padding: 0.35rem 0.6rem;
+  border-radius: 6px;
+  border: 1px solid #d7dbe2;
+  background: white;
+  cursor: pointer;
+}
+#pagination button:disabled,
+#server-pagination button:disabled,
+#url-suppression-pager button:disabled,
+#url-threat-pager button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 共通ヒントテキスト */
+.list-hint {
+  margin-top: 0.5rem;
+  font-size: 0.9em;
+  color: #666;
+}
+
+/* ユーザー/サーバー管理: 表領域とカラム幅 */
+#user-results,
+#server-results {
+  max-height: 60vh;
+  min-height: 360px;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+#user-results table.table,
+#server-results table.table {
+  min-width: 900px;
+}
+#user-results table.table th#th-email,
+#user-results table.table td:nth-child(2) {
+  min-width: 220px;
+  width: 40%;
+}
+#user-results table.table th#th-enabled,
+#user-results table.table td:nth-child(4) {
+  width: 80px;
+  min-width: 72px;
+  text-align: center;
+}
+#user-results table.table th:nth-child(1),
+#user-results table.table td:nth-child(1) { min-width: 100px; width: 30%; }
+#user-results table.table th:nth-child(2),
+#user-results table.table td:nth-child(2) { min-width: 150px; width: 40%; }
+#user-results table.table th:nth-child(3),
+#user-results table.table td:nth-child(3) { min-width: 170px; width: 20%; }
+#user-results table.table th:nth-child(4),
+#user-results table.table td:nth-child(4) { min-width: 80px; width: 10%; text-align: center; }
+
+#server-results table.table th:nth-child(1),
+#server-results table.table td:nth-child(1) { min-width: 50px; width: 50%; }
+#server-results table.table th:nth-child(2),
+#server-results table.table td:nth-child(2) { min-width: 50px; width: 35%; }
+#server-results table.table th:nth-child(3),
+#server-results table.table td:nth-child(3) { min-width: 80px; width: 15%; text-align: center; }
+
+#server-results-body tr.inactive,
+#url-suppression-body tr.inactive {
+  background: #f6f7fb;
+  color: #666;
+}
+
+/* URL抑止: コントロール行とテーブル */
+#url-suppression-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+#url-suppression-controls label { white-space: nowrap; }
+#url-suppression-results { overflow-x: auto; }
+#url-suppression-results table.table {
+  table-layout: fixed;
+  min-width: 780px;
+}
+#url-suppression-results col:nth-child(1) { width: 140px; }
+#url-suppression-results col:nth-child(2) { width: auto; }
+#url-suppression-results col:nth-child(3) { width: 90px; }
+#url-suppression-results col:nth-child(4) { width: 150px; }
+#url-suppression-results col:nth-child(5) { width: 110px; }
+#url-suppression-results col:nth-child(6) { width: 150px; }
+#url-suppression-results table.table td.mono {
+  mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0));
+}
+#url-suppression-error {
+  color: #b00020;
+  margin-top: 0.5rem;
+  display: none;
+}
+
+/* URL脅威度: レイアウトと色分け */
+.url-threat-row { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.url-threat-filter-row { margin-top: 0.75rem; display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.url-threat-filter-row label { margin-right: 0.75rem; }
+.url-threat-filter-label { margin-right: 0.75rem; }
+.url-threat-search { margin-top: 0.5rem; }
+.url-threat-message { margin-top: 0.75rem; color: #555; }
+.url-threat-table-wrap { margin-top: 0.75rem; }
+.url-threat-count { margin-top: 0.25rem; font-size: 0.9em; color: #444; }
+.url-threat-legend { margin-top: 0.5rem; font-size: 0.9em; color: #555; }
+.threat-safe { background: #e6f6e9; color: #1c7c3d; }
+.threat-danger { background: #fde8e8; color: #b42318; }
+.threat-caution { background: #fff4e5; color: #a15c00; }
+.threat-unknown { background: #eef2f6; color: #3f4a5a; }
+#url-threat-table tbody tr.threat-safe { border-left: 4px solid #1c7c3d; }
+#url-threat-table tbody tr.threat-danger { border-left: 4px solid #b42318; }
+#url-threat-table tbody tr.threat-caution { border-left: 4px solid #a15c00; }
+#url-threat-table tbody tr.threat-unknown { border-left: 4px solid #5b6473; }
+.threat-col { min-width: 96px; width: 100px; max-width: 120px; text-align: center; }
+.url-col { width: auto; }
+.method-col { min-width: 90px; width: 100px; max-width: 140px; text-align: left; }
+.attack-col { min-width: 128px; width: 140px; max-width: 180px; }
+.access-col { width: 170px; max-width: 170px; }
+.status-col { width: 80px; max-width: 90px; text-align: center; }
+.modsec-col { width: 100px; max-width: 110px; }
+#url-threat-table { table-layout: auto; }
+#url-threat-table td.url-cell { min-width: 240px; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0)); }
+#url-threat-table td.threat-cell { min-width: 96px; text-align: center; white-space: nowrap; }
+#url-threat-table td.method-cell { min-width: 90px; max-width: 140px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#url-threat-table td.attack-cell { min-width: 128px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#url-threat-table td.access-cell { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#url-threat-table td.status-cell { text-align: center; white-space: nowrap; }
+#url-threat-table td.modsec-cell { text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#url-threat-search-form input { width: 100%; max-width: 100%; }
+#url-threat-body tr { cursor: pointer; }
+#url-threat-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.35); z-index: 1600; }
+#url-threat-note-modal { z-index: 1701; }
+.url-threat-note-content { width: 480px; max-width: 94vw; }
+.url-threat-modal-url { font-size: 0.9em; word-break: break-all; }
+#url-threat-note-text { width: 100%; }
+.url-threat-note-hint { color: #666; font-size: 0.9em; }
+.url-threat-note-footer { justify-content: flex-end; gap: 0.5rem; }

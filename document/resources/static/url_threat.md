@@ -3,35 +3,30 @@
 対象: `src/main/resources/static/url_threat.js`
 
 ## 概要
-- URL脅威度ビュー専用のフロントエンドロジック。`url_registry` の最新メタデータを取得し、テーブル描画・ミニメニュー操作・分類更新モーダルを制御する。
+- URL脅威度ビューのフロントエンドロジック。`ListViewCore` を利用して検索・フィルタ・ソート・ページングをURLクエリに保持し、ミニメニューとノートモーダルで脅威分類操作を行う。
 
 ## 主な機能
-- URL一覧取得と描画（サーバー選択・脅威度フィルタ・検索・ソートに対応）。
-- サーバー選択・脅威度フィルタ・検索キーワード・ページ番号をlocalStorageに保存し、再表示時に復元。
-- 行クリック時に `mini_menu.js` を使ってミニメニューを表示（コピー/危険/安全/解除/理由確認）。
-- 危険/安全/解除/理由確認モーダルの表示・送信（`user_final_threat` / `is_whitelisted` / `user_threat_note` を更新）。
-- 最新アクセスメタ（`latest_access_time`/`latest_status_code`/`latest_blocked_by_modsec`）の表示とソート。
-- sortパラメータ: `priority`/`latest_access`/`status`/`blocked`/`attack`/`whitelist`/`threat_key`/`threat_label`/`method`/`url`、order: `asc`/`desc`。
-- 外側クリックや別行クリックでミニメニューを閉じる再入可能なリスナー処理。
+- サーバー選択・脅威度フィルタ（all/danger/caution/unknown/safe）・検索（q）・ソート（priority/url/method/attack/latest_access/status/blocked）・ページングをまとめて `/api/url-threats` へリクエスト。
+- テーブル描画とソート矢印表示、列幅は `list_views.css` のクラス（threat-col/status-col/modsec-col等）で制御。
+- 行クリックでミニメニュー表示（コピー/危険/安全/解除/理由確認）、`canOperate` に応じて hidden/disabled 切替。
+- ノートモーダルで危険/安全/解除/理由確認のPOSTを行い、完了後に一覧を再読込。
 
 ## 挙動
-- 初期化で必要なフラグメントを読み込み、サーバー一覧とURL一覧を順に取得して描画。
-- ミニメニューは共通クラス `mini-menu` を使い、クリック座標周辺に表示。既存メニューがあれば一旦閉じてから再表示。
-- コピー操作はクリップボードAPIでURLをコピーし、通知の出し方を見直した軽量なフィードバックを表示。
-- 分類変更時は権限チェックにより操作不能状態をスタイルで示す。
+- 初期ソートは `priority` (order=asc)、1ページ20件固定。サーバー/フィルタ/検索は URL クエリに保持され、F5後も復元。
+- API レスポンス `{items,total,page,size,totalPages,canOperate}` を用い、`ListViewCore` が pager/renderRows をハンドリング。`STATE.canOperate` でミニメニュー表示状態を制御。
+- サーバー未選択時はメッセージを出し、空リストを返して処理を終了。
 
 ## 細かい指定された仕様
-- データソースは `url_registry` の `latest_*` カラムに統一（access_log への依存なし）。
-- `user_final_threat`=true で危険表示、`is_whitelisted`=true で安全表示、いずれもfalseの場合は最新メタとattack_typeに応じて caution/unknown を判定。
-- メニュー表示条件: 危険化は既に user_final_threat=true の場合非表示、安全化は is_whitelisted=true の場合非表示、解除はどちらかが true の場合のみ表示。
-- 理由確認は operator 以上が編集可、その他は read-only。
-- 外観は `mini_menu.css` の `.mini-menu` を利用し、`url_threat.html` 内でインラインstyleを持たない。
+- 必須DOM: `#url-threat-q`, `#url-threat-server`, `#url-threat-pager`, `#url-threat-body`, ヘッダ `#url-threat-table th.sortable[data-column]`。
+- フィルタラジオ: `name="url-threat-filter"` の change で filter を更新し再読込。
+- ミニメニュー: `mini_menu.js` による `mini-menu` を使用。座標は click event の pageX/pageY。
+- モーダル: `#url-threat-modal-backdrop` と `#url-threat-note-modal` を hidden クラスで開閉。閲覧のみの場合は textarea/readOnly, 保存ボタン disabled。
+- 依存: `list_view_core.js`, `mini_menu.js`, `script.js`。
 
 ## その他
-- ミニメニュー位置/クローズ挙動は共通の `mini_menu.js` に委譲。
+- `ListViewCore` 未ロード時は `window.loadScript('/static/list_view_core.js')` を試行し、初期化を遅延。
 
 ## 変更履歴
-- 2026-01-20: ミニメニューを `mini-menu` クラスに統一し、スタイルを `mini_menu.css` に分離（HTMLインラインstyleを廃止）。
-- 2026-01-17: サーバー・脅威度フィルタ・検索語・ページ番号をlocalStorageに保存してF5/再訪時に復元するよう改修。
-- 2026-01-16: テーブルヘッダークリックでソート切替（sort/orderパラメータ連動）を追加。
-- 2026-01-15: URL脅威度ビュー用スクリプトを追加。`url_registry` 最新メタのみで一覧を構成し、共通ミニメニューを採用。
+- 2026-01-20: ListViewCore 連携と URL クエリ同期に刷新。localStorage 依存を廃止し、ヘッダ data-column を追加。
+- 2026-01-20: ミニメニュー/モーダルの権限制御と列幅 (`list_views.css`) を更新。
+- 2026-01-15: 初版。`url_registry` 最新メタを用いた一覧とミニメニューを実装。

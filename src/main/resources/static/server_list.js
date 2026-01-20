@@ -1,121 +1,16 @@
 (function(){
     'use strict';
 
-    // ServerList モジュール: 検索、一覧描画、ページング、行クリックでコンテキストメニュー表示
     function escapeHtml(s) { if (!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
-    let currentServers = [];
-    let currentTotal = 0;
-    let currentPage = 1;
-    let currentSize = 20;
-    let sortColumn = 'serverName';
-    let sortDir = 1; // 1: asc, -1: desc
     let selectedServer = null;
     let serverMenu = null;
-    // サーバー操作を行う現在ユーザーが管理者かどうか（サーバ側が出力する隠し要素から取得する）
     let currentUserIsAdmin = false;
     let confirmHandlersBound = false;
-
-    async function doSearch(page=1) {
-        console.debug('[ServerList] doSearch', { page });
-        const qInput = document.getElementById('server-q');
-        if (!qInput) { console.warn('[ServerList] q input not found'); return; }
-        const q = (qInput.value || '').trim();
-        const url = q === '' ? ('/api/servers?page=' + page + '&size=' + currentSize) : ('/api/servers?q=' + encodeURIComponent(q) + '&page=' + page + '&size=' + currentSize);
-        try {
-            const resp = await fetch(url, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
-            console.debug('[ServerList] fetch response', { ok: resp.ok, status: resp.status });
-            if (resp.status === 401) { window.location.href = '/login'; return; }
-            if (!resp.ok) {
-                const text = await resp.text().catch(()=>'<no-body>');
-                console.error('[ServerList] fetch failed', { status: resp.status, body: text });
-                renderError('エラー(' + resp.status + ')');
-                return;
-            }
-            const data = await resp.json();
-            render(data.servers || [], data.total || 0, data.page || 1, data.size || currentSize);
-        } catch (e) { console.error('[ServerList] fetch error', e); renderError('通信エラー'); }
-    }
-
-    function render(servers, total, page, size) {
-        currentServers = servers || [];
-        currentTotal = total || 0;
-        currentPage = page || 1;
-        currentSize = size || 20;
-        const body = document.getElementById('server-results-body');
-        const pagination = document.getElementById('server-pagination');
-        if (!body || !pagination) return;
-        if (!currentServers || currentServers.length === 0) { body.innerHTML = '<tr><td colspan="3">該当するサーバーが見つかりません</td></tr>'; pagination.innerHTML = ''; return; }
-
-        const arr = currentServers.slice();
-        arr.sort((a,b) => {
-            let va = a[sortColumn]; let vb = b[sortColumn];
-            if (sortColumn === 'lastLogReceived') { va = va ? new Date(va).getTime() : 0; vb = vb ? new Date(vb).getTime() : 0; }
-            else if (sortColumn === 'isActive') { va = a.isActive ? 1 : 0; vb = b.isActive ? 1 : 0; }
-            else { va = (va||'').toString().toLowerCase(); vb = (vb||'').toString().toLowerCase(); }
-            if (va < vb) return -1 * sortDir; if (va > vb) return 1 * sortDir; return 0;
-        });
-
-        body.innerHTML = '';
-        for (const s of arr) {
-            const last = s.lastLogReceived ? new Date(s.lastLogReceived).toLocaleString() : '';
-            const tr = document.createElement('tr');
-            tr.className = s.isActive ? '' : 'inactive';
-            tr.innerHTML = '<td>' + escapeHtml(s.serverName) + '</td><td>' + escapeHtml(last) + '</td><td>' + (s.isActive ? '有効' : '無効') + '</td>';
-            tr.style.cursor = 'pointer';
-            // 行クリックでコンテキストメニュー表示
-            tr.addEventListener('click', (ev) => {
-                ev.stopPropagation();
-                selectedServer = s;
-                showContextMenu(ev);
-            });
-            body.appendChild(tr);
-        }
-        renderPagination(currentTotal, currentPage, currentSize);
-        updateSortIndicators();
-    }
-
-    function renderPagination(total, page, size) {
-        const pagination = document.getElementById('server-pagination'); if (!pagination) return;
-        pagination.innerHTML = '';
-        const totalPages = Math.max(1, Math.ceil(total / size));
-        const prev = document.createElement('button'); prev.textContent = '前へ'; prev.disabled = page <= 1; prev.addEventListener('click', () => doSearch(page - 1));
-        const next = document.createElement('button'); next.textContent = '次へ'; next.disabled = page >= totalPages; next.addEventListener('click', () => doSearch(page + 1));
-        const info = document.createElement('span'); info.textContent = ' ページ ' + page + ' / ' + totalPages + ' （合計 ' + total + ' 件） ';
-        pagination.appendChild(prev); pagination.appendChild(info); pagination.appendChild(next);
-    }
 
     function renderError(msg) {
         const body = document.getElementById('server-results-body'); if (body) body.innerHTML = '<tr><td colspan="3">' + escapeHtml(msg) + '</td></tr>';
         const pagination = document.getElementById('server-pagination'); if (pagination) pagination.innerHTML = '';
-    }
-
-    function attachHeaderSortHandlers() {
-        document.querySelectorAll('th[data-column]').forEach(th => {
-            th.__edamame_click__ && th.removeEventListener('click', th.__edamame_click__);
-            th.__edamame_click__ = function() { const col = th.getAttribute('data-column'); if (sortColumn === col) sortDir = -sortDir; else { sortColumn = col; sortDir = 1; } render(currentServers, currentTotal, currentPage, currentSize); };
-            th.addEventListener('click', th.__edamame_click__);
-        });
-    }
-
-    function updateSortIndicators() {
-        document.querySelectorAll('th[data-column]').forEach(th => {
-            const col = th.getAttribute('data-column') || '';
-            const active = col === sortColumn;
-            if (!th.dataset.labelOriginal) th.dataset.labelOriginal = th.textContent.trim();
-            const base = th.dataset.labelOriginal;
-            const arrow = active ? (sortDir === -1 ? ' ▼' : ' ▲') : '';
-            th.textContent = base + arrow;
-            th.classList.toggle('active-sort', active);
-        });
-    }
-
-    function hideContextMenu() {
-        if (serverMenu && typeof serverMenu.hide === 'function') {
-            serverMenu.hide();
-            return;
-        }
-        const menu = document.getElementById('server-context-menu'); if (!menu) return; menu.style.display = 'none'; menu.setAttribute('aria-hidden','true');
     }
 
     function showContextMenu(ev) {
@@ -125,7 +20,7 @@
                 serverMenu = window.MiniMenu.create(menuEl);
             }
         }
-        if (!serverMenu) return;
+        if (!serverMenu || !selectedServer) return;
         const isActive = selectedServer && selectedServer.isActive;
         const serverName = selectedServer && selectedServer.serverName ? selectedServer.serverName : '';
         serverMenu.show({
@@ -156,7 +51,14 @@
         });
     }
 
-    // 確認モーダル表示/非表示とコールバック管理（URL脅威度同様に hidden クラスで制御）
+    function hideContextMenu() {
+        if (serverMenu && typeof serverMenu.hide === 'function') {
+            serverMenu.hide();
+            return;
+        }
+        const menu = document.getElementById('server-context-menu'); if (!menu) return; menu.style.display = 'none'; menu.setAttribute('aria-hidden','true');
+    }
+
     let __confirmOkHandler = null;
     function showConfirmModal(message, onOk) {
          hideContextMenu();
@@ -186,18 +88,16 @@
         const cCancel = document.getElementById('confirm-cancel');
         const cOk = document.getElementById('confirm-ok');
         if (cCancel) {
-            cCancel.addEventListener('click', () => { hideConfirmModal(); console.debug('[ServerList] confirm-cancel clicked'); });
+            cCancel.addEventListener('click', () => { hideConfirmModal(); });
         }
         if (cOk) {
             cOk.addEventListener('click', () => {
-                console.debug('[ServerList] confirm-ok clicked handler start');
                 if (typeof __confirmOkHandler === 'function') {
                     try { __confirmOkHandler(); } catch(e){ console.error('confirm ok handler error', e); }
                 }
             });
         }
         confirmHandlersBound = !!(cCancel || cOk);
-        if (!confirmHandlersBound) console.warn('[ServerList] confirm handlers not bound (buttons missing)');
     }
 
     async function disableSelectedServer() {
@@ -214,7 +114,7 @@
             }
             hideContextMenu();
             hideConfirmModal();
-            doSearch(currentPage);
+            if (window.ServerListView && typeof window.ServerListView.reload === 'function') window.ServerListView.reload();
         } catch (e) { console.error('[ServerList] disable error', e); alert('通信エラー'); }
     }
 
@@ -232,52 +132,118 @@
             }
             hideContextMenu();
             hideConfirmModal();
-            doSearch(currentPage);
+            if (window.ServerListView && typeof window.ServerListView.reload === 'function') window.ServerListView.reload();
         } catch (e) { console.error('[ServerList] enable error', e); alert('通信エラー'); }
     }
 
-    function initServerManagement(initialQ) {
-        const MAX_RETRY = 20; let attempt = 0;
+    function renderRows(servers, state){
+        const body = document.getElementById('server-results-body');
+        if (!body) return;
+        if (!servers || servers.length === 0) { body.innerHTML = '<tr><td colspan="3">該当するサーバーが見つかりません</td></tr>'; return; }
+        const sortKey = state.sort || 'serverName';
+        const dir = state.order === 'desc' ? -1 : 1;
+        const arr = servers.slice().sort((a,b)=>{
+            let va = a[sortKey]; let vb = b[sortKey];
+            if (sortKey === 'lastLogReceived') { va = va ? new Date(va).getTime() : 0; vb = vb ? new Date(vb).getTime() : 0; }
+            else if (sortKey === 'isActive') { va = a.isActive ? 1 : 0; vb = b.isActive ? 1 : 0; }
+            else { va = (va||'').toString().toLowerCase(); vb = (vb||'').toString().toLowerCase(); }
+            if (va < vb) return -1 * dir; if (va > vb) return 1 * dir; return 0;
+        });
+        body.innerHTML = '';
+        for (const s of arr) {
+            const last = s.lastLogReceived ? new Date(s.lastLogReceived).toLocaleString() : '';
+            const tr = document.createElement('tr');
+            tr.className = s.isActive ? '' : 'inactive';
+            tr.innerHTML = '<td>' + escapeHtml(s.serverName) + '</td><td>' + escapeHtml(last) + '</td><td>' + (s.isActive ? '有効' : '無効') + '</td>';
+            tr.style.cursor = 'pointer';
+            tr.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                selectedServer = s;
+                showContextMenu(ev);
+            });
+            body.appendChild(tr);
+        }
+    }
+
+    function initServerManagement(){
+        const MAX_RETRY = 30; let attempt = 0;
         function tryInit() {
             attempt++;
             const qInput = document.getElementById('server-q');
-            const form = document.getElementById('server-search-form');
             const body = document.getElementById('server-results-body');
             const pagination = document.getElementById('server-pagination');
-            if (!qInput || !body || !pagination) { if (attempt < MAX_RETRY) { setTimeout(tryInit, 100); return; } console.warn('[ServerList] init: required DOM not found'); return; }
+            const listViewAvailable = window.ListViewCore && typeof window.ListViewCore.createListView === 'function';
+            if (!qInput || !body || !pagination || !listViewAvailable) {
+                if (!listViewAvailable && typeof window.loadScript === 'function') {
+                    try { window.loadScript('/static/list_view_core.js').catch(()=>{}); } catch(e) {}
+                }
+                if (attempt < MAX_RETRY) { setTimeout(tryInit, 100); return; }
+                console.warn('[ServerList] init: required DOM or ListViewCore not ready', { q:!!qInput, body:!!body, pagination:!!pagination, listCore:listViewAvailable });
+                return;
+            }
 
-            // 管理者フラグの取得（DashboardController が隠し要素で出力している）
             try {
                 const adminEl = document.getElementById('current-user-admin');
                 currentUserIsAdmin = adminEl && adminEl.dataset && adminEl.dataset.isAdmin === 'true';
             } catch (e) { currentUserIsAdmin = false; }
 
-            if (initialQ) qInput.value = initialQ;
-
             let debounceTimer = null; const DEBOUNCE_MS = 250;
-            function scheduleSearch() { if (debounceTimer) clearTimeout(debounceTimer); debounceTimer = setTimeout(() => doSearch(1), DEBOUNCE_MS); }
+            function scheduleSearch(listView) { if (debounceTimer) clearTimeout(debounceTimer); debounceTimer = setTimeout(() => { if (listView && listView.reload) listView.reload(1); }, DEBOUNCE_MS); }
 
-            if (form) { form.addEventListener('submit', e => { e.preventDefault(); }); }
-            qInput.addEventListener('input', scheduleSearch);
-            qInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); doSearch(1); } });
+            const listView = window.ListViewCore.createListView({
+                headerSelector: '#server-results th[data-column]',
+                pagerEl: pagination,
+                searchInput: qInput,
+                applyStateToUi: function(state){ if (qInput) qInput.value = state.q || ''; },
+                extractFilters: function(){ return {}; },
+                fetcher: async function(params){
+                    const sp = new URLSearchParams();
+                    if (params.q) sp.append('q', params.q);
+                    sp.append('page', params.page ? params.page : 1);
+                    sp.append('size', params.size ? params.size : 20);
+                    if (params.sort) sp.append('sort', params.sort);
+                    if (params.order) sp.append('order', params.order);
+                    const url = '/api/servers?' + sp.toString();
+                    const resp = await fetch(url, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'application/json' } });
+                    if (resp.status === 401) { window.location.href = '/login'; return { items: [], total:0, page:1, size:20, totalPages:1 }; }
+                    if (!resp.ok) {
+                        const text = await resp.text().catch(()=>'<no-body>');
+                        console.error('[ServerList] fetch failed', { status: resp.status, body: text });
+                        renderError('エラー(' + resp.status + ')');
+                        throw new Error('fetch failed');
+                    }
+                    const data = await resp.json();
+                    return {
+                        items: data.servers || [],
+                        total: data && data.total ? data.total : 0,
+                        page: data && data.page ? data.page : (params.page ? params.page : 1),
+                        size: data && data.size ? data.size : (params.size ? params.size : 20),
+                        totalPages: (data && data.totalPages) ? data.totalPages : Math.max(1, Math.ceil((data && data.total ? data.total : 0) / (data && data.size ? data.size : (params.size ? params.size : 20))))
+                    };
+                },
+                renderRows: renderRows,
+                onStateChange: function(){ /* no-op */ }
+            });
 
-            // attach header handlers
-            attachHeaderSortHandlers();
-
-            // mini_menu.js 初期化（サーバー管理用）
-            try {
-                const menuEl = document.getElementById('server-context-menu');
-                if (menuEl && window.MiniMenu && typeof window.MiniMenu.create === 'function') {
-                    serverMenu = window.MiniMenu.create(menuEl);
+            if (listView) {
+                if (!listView.state.sort) listView.state.sort = 'serverName';
+                listView.init();
+                window.ServerListView = listView;
+                qInput.addEventListener('input', function(){ scheduleSearch(listView); });
+                qInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); scheduleSearch(listView); } });
+                // mini_menu.js 初期化（サーバー管理用）
+                try {
+                    const menuEl = document.getElementById('server-context-menu');
+                    if (menuEl && window.MiniMenu && typeof window.MiniMenu.create === 'function') {
+                        serverMenu = window.MiniMenu.create(menuEl);
+                    }
+                } catch (e) {
+                    console.error('[ServerList] mini menu init error', e);
                 }
-            } catch (e) {
-                console.error('[ServerList] mini menu init error', e);
             }
-
-            doSearch(1);
         }
         tryInit();
     }
 
-    window.ServerList = { doSearch, render, renderError, attachHeaderSortHandlers, initServerManagement };
+    window.ServerList = { renderError, initServerManagement };
  })();
