@@ -667,9 +667,6 @@ public class DbRegistry {
         if (!atk.isEmpty() && !"normal".equalsIgnoreCase(atk)) {
             return new ThreatEvaluation("caution", "注意", 2);
         }
-        if ("normal".equalsIgnoreCase(atk)) {
-            return new ThreatEvaluation("unknown", "不明", 3);
-        }
         return new ThreatEvaluation("unknown", "不明", 3);
     }
 
