@@ -440,7 +440,7 @@ public class DbRegistry {
                                               latest_access_time, latest_status_code, latest_blocked_by_modsec,
                                               threat_key, threat_label, threat_priority)
                     VALUES (?, ?, ?, ?, ?, NOW(), NOW(), ?, ?, ?, ?, ?, ?)
-                     """;
+                """;
 
                 try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
                     pstmt.setString(1, serverName);
