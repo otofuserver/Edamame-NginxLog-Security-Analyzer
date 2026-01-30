@@ -26,11 +26,12 @@
         serverMenu.show({
             x: ev.clientX,
             y: ev.clientY,
+            canOperate: currentUserIsAdmin,
             items: [
                 {
                     label: '無効化',
                     hidden: !isActive,
-                    disabled: !currentUserIsAdmin,
+                    requirePermission: true,
                     onClick: () => {
                         if (!currentUserIsAdmin) return;
                         hideContextMenu();
@@ -40,7 +41,7 @@
                 {
                     label: '有効化',
                     hidden: !!isActive,
-                    disabled: !currentUserIsAdmin,
+                    requirePermission: true,
                     onClick: () => {
                         if (!currentUserIsAdmin) return;
                         hideContextMenu();

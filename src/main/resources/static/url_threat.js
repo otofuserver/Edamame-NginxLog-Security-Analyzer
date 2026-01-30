@@ -38,14 +38,14 @@
         const canOperate = STATE.canOperate;
         const items = [
             { label: 'URLをコピー', onClick: function(){ copyUrl(item.fullUrl || ''); showToast('URLをコピーしました'); } },
-            { label: 'アクセスを危険にカテゴリーする', hidden: item.userFinalThreat, disabled: !canOperate, onClick: function(){ openNoteModal('danger', item); } },
-            { label: 'アクセスを安全にカテゴリーする', hidden: item.isWhitelisted, disabled: !canOperate, onClick: function(){ openNoteModal('safe', item); } },
-            { label: 'カテゴリーを解除する', hidden: (!item.userFinalThreat && !item.isWhitelisted), disabled: !canOperate, onClick: function(){ openNoteModal('clear', item); } },
+            { label: 'アクセスを危険にカテゴリーする', hidden: item.userFinalThreat, requirePermission: true, onClick: function(){ openNoteModal('danger', item); } },
+            { label: 'アクセスを安全にカテゴリーする', hidden: item.isWhitelisted, requirePermission: true, onClick: function(){ openNoteModal('safe', item); } },
+            { label: 'カテゴリーを解除する', hidden: (!item.userFinalThreat && !item.isWhitelisted), requirePermission: true, onClick: function(){ openNoteModal('clear', item); } },
             { label: canOperate ? 'カテゴリーされた理由を確認する' : 'カテゴリーされた理由を確認する（閲覧のみ）', onClick: function(){ openNoteModal('note', item); }, disabled: false }
         ];
         const x = (ev.pageX !== undefined) ? ev.pageX : ev.clientX;
         const y = (ev.pageY !== undefined) ? ev.pageY : ev.clientY;
-        miniMenu.show({ x: x, y: y, items: items });
+        miniMenu.show({ x: x, y: y, items: items, canOperate: canOperate });
     }
 
     function setupMiniMenu() { const menu = document.getElementById('url-threat-mini-menu'); miniMenu = window.MiniMenu ? window.MiniMenu.create(menu) : null; }
@@ -208,7 +208,7 @@
             showMessage('更新しました');
             closeNoteModal();
             if (listViewRef && listViewRef.reload) listViewRef.reload(listViewRef.state.page);
-        } catch (e) { showMessage('通信エ��ーが発生しました'); }
+        } catch (e) { showMessage('通信エラーが発生しました'); }
     }
 
     function updateSortIndicators(state) {
@@ -232,27 +232,12 @@
             STATE.server = sel.value || '';
         }
         const qInput = document.getElementById('url-threat-q');
-        if (qInput && state && typeof state.q === 'string') qInput.value = state.q;
-        const filterVal = (state && state.filter) ? state.filter : STATE.filter;
-        document.querySelectorAll('input[name="url-threat-filter"]').forEach(function(r){ if (r.value === filterVal) r.checked = true; });
-    }
-
-    function bindEvents(listView){
-        const sel = document.getElementById('url-threat-server');
-        if (sel) sel.addEventListener('change', function(){ STATE.server = sel.value || ''; if (listView && listView.reload) listView.reload(1); });
-        document.querySelectorAll('input[name="url-threat-filter"]').forEach(function(r){ r.addEventListener('change', function(){ if (r.checked && listView && listView.reload) { STATE.filter = r.value || 'all'; listView.reload(1); } }); });
-        const save = document.getElementById('url-threat-note-save'); if (save) save.addEventListener('click', submitAction);
-        const cancel = document.getElementById('url-threat-note-cancel'); if (cancel) cancel.addEventListener('click', function(){ closeNoteModal(); });
-        const backdrop = document.getElementById('url-threat-modal-backdrop'); if (backdrop) backdrop.addEventListener('click', function(){ closeNoteModal(); });
-        setupMiniMenu();
-    }
-
-    function parseInitialFromUrl(){
-        try {
-            const params = new URLSearchParams(window.location.search);
-            STATE.server = params.get('server') || STATE.server;
-            STATE.filter = params.get('filter') || STATE.filter;
-        } catch(e) {}
+        if (qInput && state && state.q !== undefined) qInput.value = state.q;
+        const filters = document.querySelectorAll('input[name="url-threat-filter"]');
+        filters.forEach(function(radio){
+            if (state && state.filter) radio.checked = (radio.value === state.filter);
+            else if (STATE.filter) radio.checked = (radio.value === STATE.filter);
+        });
     }
 
     function createListView(){
@@ -307,6 +292,32 @@
             listView.init();
         }
         return listView;
+    }
+
+    function parseInitialFromUrl(){
+        try {
+            const params = new URLSearchParams(window.location.search);
+            STATE.server = params.get('server') || '';
+            STATE.filter = params.get('filter') || 'all';
+        } catch(e) {
+            STATE.server = '';
+            STATE.filter = 'all';
+        }
+    }
+
+    function bindEvents(listView){
+        const sel = document.getElementById('url-threat-server');
+        if (sel && listView && listView.reload) {
+            sel.addEventListener('change', function(){ STATE.server = sel.value || ''; listView.reload(1); });
+        }
+        const filters = document.querySelectorAll('input[name="url-threat-filter"]');
+        filters.forEach(function(radio){
+            radio.addEventListener('change', function(){ STATE.filter = radio.value || 'all'; if (listView && listView.reload) listView.reload(1); });
+        });
+        const searchInput = document.getElementById('url-threat-q');
+        if (searchInput && listView && listView.reload) {
+            searchInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); listView.reload(1); } });
+        }
     }
 
     async function init() {

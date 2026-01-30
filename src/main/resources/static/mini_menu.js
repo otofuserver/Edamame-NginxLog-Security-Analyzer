@@ -9,12 +9,12 @@
     const api = {
       show(opts){
         if (!opts) return;
-        const { x=0, y=0, items=[] } = opts;
+        const { x=0, y=0, items=[], canOperate=true } = opts;
         // 既に表示中なら閉じるだけ（トグル動作）。再表示は次のクリックで行う。
         if (menuEl.classList.contains('show')) { hideMenu(); return; }
         // 既存の表示状態を確実にリセットしてから開く
         hideMenu();
-        buildItems(items);
+        buildItems(normalizeItems(items, canOperate));
         position(x, y);
         menuEl.classList.add('show');
         menuEl.style.display = 'block';
@@ -70,6 +70,17 @@
           hideMenu();
         });
         card.appendChild(btn);
+      });
+    }
+
+    function normalizeItems(items, canOperate){
+      return (items || []).map(item => {
+        const normalized = Object.assign({}, item);
+        if (normalized.requirePermission && !canOperate) {
+          normalized.disabled = true;
+          normalized.hidden = false; // 権限がなくても表示はする
+        }
+        return normalized;
       });
     }
 

@@ -91,11 +91,11 @@
         const canEdit = STATE.canEdit;
         const enabled = item.isEnabled === true;
         const items = [
-            {label: enabled ? '無効化' : '有効化', hidden: !canEdit, onClick: function(){ toggle(item, !enabled); }},
-            {label:'編集', hidden:!canEdit, onClick:function(){ openModal(item); }},
-            {label:'削除', hidden:!canEdit, onClick:function(){ removeItem(item); }}
+            {label: enabled ? '無効化' : '有効化', requirePermission: true, onClick: function(){ toggle(item, !enabled); }},
+            {label:'編集', requirePermission: true, onClick:function(){ openModal(item); }},
+            {label:'削除', requirePermission: true, onClick:function(){ removeItem(item); }}
          ];
-        miniMenu.show({x: ev.pageX ? ev.pageX : ev.clientX, y: ev.pageY ? ev.pageY : ev.clientY, items: items});
+        miniMenu.show({x: ev.pageX ? ev.pageX : ev.clientX, y: ev.pageY ? ev.pageY : ev.clientY, items: items, canOperate: canEdit});
     }
 
     async function toggle(item, enabled){ await saveRule(Object.assign({}, item, { isEnabled: enabled })); }
