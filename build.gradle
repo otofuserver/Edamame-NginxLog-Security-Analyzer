@@ -35,7 +35,7 @@ repositories {
 ext {
     mysqlVersion = '8.4.0' // 最新安定版（2025年8月時点）
     jacksonVersion = '2.15.4'  // より安定したバージョンに変更
-    logbackVersion = '1.5.19' // CVE-2024-12798/CVE-2024-12801/CVE-2025-11226対応
+    logbackVersion = '1.5.26' // CVE-2026-1225 (logback-core/logback-classic)回避
     junitVersion = '5.10.1'
     bouncyCastleVersion = '1.79' // CVE-2025-8916対応
     springSecurityVersion = '6.2.1'
