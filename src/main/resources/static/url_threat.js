@@ -318,10 +318,23 @@
         if (searchInput && listView && listView.reload) {
             searchInput.addEventListener('keydown', function(e){ if (e.key === 'Enter') { e.preventDefault(); listView.reload(1); } });
         }
+        const saveBtn = document.getElementById('url-threat-note-save');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', function(ev){ ev.stopPropagation(); submitAction(); });
+        }
+        const cancelBtn = document.getElementById('url-threat-note-cancel');
+        if (cancelBtn) {
+            cancelBtn.addEventListener('click', function(ev){ ev.stopPropagation(); closeNoteModal(); });
+        }
+        const closeBtn = document.getElementById('url-threat-note-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', function(ev){ ev.stopPropagation(); closeNoteModal(); });
+        }
     }
 
     async function init() {
         parseInitialFromUrl();
+        setupMiniMenu();
         const servers = await fetchServers(STATE.server);
         populateServers(servers, STATE.server);
         listViewRef = createListView();
