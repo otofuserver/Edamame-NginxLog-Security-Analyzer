@@ -86,7 +86,10 @@ dependencies {
 
     // 安全版へ強制（Mend.io報告のCVE-2024-7254対策）
     constraints {
-        implementation "com.google.protobuf:protobuf-java:3.25.5"
+        add("implementation", "com.google.protobuf:protobuf-java") {
+            version { require "3.25.5" }
+            because "CVE-2024-7254対策"
+        }
     }
 }
 
