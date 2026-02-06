@@ -266,7 +266,6 @@ public class LoginController implements HttpHandler {
                         <button type="submit" class="login-btn">ログイン</button>
                     </form>
                     <div class="footer">
-                        <p>デフォルトユーザー: admin / admin123</p>
                         <p>&copy; 2025 Edamame Security Analyzer</p>
                     </div>
                 </div>
