@@ -14,7 +14,7 @@
 - ユーザー削除（`DELETE /api/users/{username}`）
 - ロール付与/削除（`POST /api/users/{username}/roles`, `DELETE /api/users/{username}/roles/{role}`）
 - パスワードリセット（`POST /api/users/{username}/reset-password`）：空ボディはサーバ生成・強制変更フラグON、明示パスワードでも次回変更必須を設定
-- 自分のパスワード変更（`POST /api/me/password`）：本人の変更時は強制変更フラグを解除
+- 自分のパスワード変更（`POST /api/me/password`）：本人の変更時は強制変更フラグを解除し、現在パスワードの入力と検証を必須化
 - 自分自身のプロファイル取得/更新（`GET/PUT /api/me/profile`）
 - 自分のメール変更の所有者確認フロー（`POST /api/me/email-change/request`, `POST /api/me/email-change/verify`）
 
@@ -69,6 +69,7 @@
 - 1.0.0 - 2025-12-30: 新規作成（実装に基づく）
 - 2026-01-05: メール変更の所有者確認フロー（`email_change_requests` / `POST /api/me/email-change/*`）を追加
 - 2026-02-08: パスワード強制変更フラグに対応（管理者リセット時に強制変更、本人変更時に解除）
+- 2026-02-08: `/api/me/password` で現在パスワード入力を必須化
 
 ## コミットメッセージ例
 - docs(web): UserManagementController の仕様書を追加/更新

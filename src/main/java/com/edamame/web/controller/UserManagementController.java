@@ -699,10 +699,13 @@ public class UserManagementController implements HttpHandler {
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         Map<String, Object> payload;
         try { payload = objectMapper.readValue(body, new TypeReference<>(){}); } catch (Exception e) { sendJsonError(exchange, 400, "invalid json"); return; }
+        String currentPassword = payload.containsKey("currentPassword") ? String.valueOf(payload.get("currentPassword")) : null;
         String password = payload.containsKey("password") ? String.valueOf(payload.get("password")) : null;
+        if (currentPassword == null || currentPassword.isEmpty()) { sendJsonError(exchange, 400, "current password required"); return; }
         if (password == null || password.isEmpty()) { sendJsonError(exchange, 400, "password required"); return; }
-        // サーバ側で固定ポリシー検証: 最低8文字、英字・数字・許可記号を含むこと、許可外文字は不可
+        // サーバ側で固定ポリシー検証
         if (!WebSecurityUtils.isPasswordValid(password)) { sendJsonError(exchange, 400, "password policy violation: " + WebSecurityUtils.PASSWORD_POLICY_MESSAGE); return; }
+        if (!authService.verifyPassword(username, currentPassword)) { sendJsonError(exchange, 400, "current password invalid"); return; }
         boolean ok = userService.resetPassword(username, password, false);
         if (!ok) { sendJsonError(exchange, 500, "failed to change password"); return; }
         sendJsonResponse(exchange, 200, Map.of("ok", true));
