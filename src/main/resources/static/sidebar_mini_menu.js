@@ -26,50 +26,19 @@
                     if (userBtnEl.__edamame_mini_bound__) return;
                     userBtnEl.addEventListener('click', (ev) => {
                         ev.stopPropagation();
-                        const isShown = miniEl.classList.contains('show');
-                        if (isShown) {
-                            miniEl.classList.remove('show');
-                            miniEl.style.display = 'none';
-                            miniEl.style.left = ''; miniEl.style.top = ''; miniEl.style.right = ''; miniEl.style.bottom = '';
-                            userBtnEl.setAttribute('aria-expanded','false');
-                        } else {
-                            miniEl.classList.add('show');
-                            miniEl.style.display = 'block';
-                            miniEl.style.zIndex = '1600';
-                            miniEl.style.left = ''; miniEl.style.top = ''; miniEl.style.right = ''; miniEl.style.bottom = '';
-                            try {
-                                const parent = miniEl.parentElement;
-                                const avatarRect = userBtnEl.getBoundingClientRect();
-                                const parentRect = parent.getBoundingClientRect();
-                                const miniRect = miniEl.getBoundingClientRect();
-                                miniEl.style.right = 'auto';
-                                miniEl.style.bottom = 'auto';
-                                let left = (avatarRect.right - parentRect.left) - miniRect.width;
-                                if (left < 4) left = 4;
-                                let top = (avatarRect.top - parentRect.top) - miniRect.height - 6;
-                                if (top < 0) top = (avatarRect.bottom - parentRect.top) + 6;
-                                miniEl.style.left = left + 'px';
-                                miniEl.style.top = top + 'px';
-                            } catch(e) {
-                                // fallback
-                            }
-                        }
-                        userBtnEl.setAttribute('aria-expanded','true');
+                        toggleMiniMenu(userBtnEl, miniEl);
                     });
                     miniEl.addEventListener('click', (e) => { e.stopPropagation(); });
                     document.addEventListener('click', (ev) => {
                         if (!userBtnEl.contains(ev.target) && !miniEl.contains(ev.target)) {
-                            miniEl.classList.remove('show');
-                            miniEl.style.left = ''; miniEl.style.top = ''; miniEl.style.right = ''; miniEl.style.bottom = '';
-                            miniEl.style.display = 'none';
-                            userBtnEl.setAttribute('aria-expanded','false');
+                            hideMiniMenu(userBtnEl, miniEl);
                         }
                     });
-                    attachMiniItemHandlers(miniEl);
+                    attachMiniItemHandlers(miniEl, userBtnEl);
                     userBtnEl.__edamame_mini_bound__ = true;
                 }
 
-                function attachMiniItemHandlers(miniEl) {
+                function attachMiniItemHandlers(miniEl, userBtnEl) {
                     if (!miniEl) return;
                     if (miniEl.__edamame_items_bound__) return;
                     const items = miniEl.querySelectorAll('.mini-menu-item');
@@ -77,6 +46,7 @@
                         if (it.__edamame_item_bound__) return;
                         it.addEventListener('click', (e) => {
                             e.stopPropagation();
+                            hideMiniMenu(userBtnEl, miniEl);
                             const id = it.id;
                             if (id === 'mini-change-password') window.openPasswordModal && window.openPasswordModal();
                             else if (id === 'mini-profile') window.openProfileModal && window.openProfileModal(true);
@@ -89,5 +59,42 @@
             } catch(e) { console.warn('SidebarMini.init error', e); }
         }
     };
-})();
 
+    function hideMiniMenu(userBtnEl, miniEl){
+        if (!miniEl || !userBtnEl) return;
+        miniEl.classList.remove('show');
+        miniEl.style.left = ''; miniEl.style.top = ''; miniEl.style.right = ''; miniEl.style.bottom = '';
+        miniEl.style.display = 'none';
+        userBtnEl.setAttribute('aria-expanded','false');
+    }
+
+    function toggleMiniMenu(userBtnEl, miniEl){
+        if (!miniEl || !userBtnEl) return;
+        const isShown = miniEl.classList.contains('show');
+        if (isShown) {
+            hideMiniMenu(userBtnEl, miniEl);
+        } else {
+            miniEl.classList.add('show');
+            miniEl.style.display = 'block';
+            miniEl.style.zIndex = '1600';
+            miniEl.style.left = ''; miniEl.style.top = ''; miniEl.style.right = ''; miniEl.style.bottom = '';
+            try {
+                const parent = miniEl.parentElement;
+                const avatarRect = userBtnEl.getBoundingClientRect();
+                const parentRect = parent.getBoundingClientRect();
+                const miniRect = miniEl.getBoundingClientRect();
+                miniEl.style.right = 'auto';
+                miniEl.style.bottom = 'auto';
+                let left = (avatarRect.right - parentRect.left) - miniRect.width;
+                if (left < 4) left = 4;
+                let top = (avatarRect.top - parentRect.top) - miniRect.height - 6;
+                if (top < 0) top = (avatarRect.bottom - parentRect.top) + 6;
+                miniEl.style.left = left + 'px';
+                miniEl.style.top = top + 'px';
+            } catch(e) {
+                // fallback
+            }
+            userBtnEl.setAttribute('aria-expanded','true');
+        }
+    }
+ })();

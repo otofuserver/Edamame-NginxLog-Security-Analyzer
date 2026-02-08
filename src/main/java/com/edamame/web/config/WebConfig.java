@@ -205,8 +205,9 @@ public class WebConfig {
                     <header class="modal-header"><h3>パスワードの変更</h3></header>
                     <main class="modal-body">
                       <form id="password-form">
-                        <div class="form-row"><label for="new-password">新しいパスワード</label><input type="password" id="new-password" /></div>
-                        <div class="form-row"><label for="confirm-password">確認</label><input type="password" id="confirm-password" /></div>
+                         <div class="form-row"><label for="current-password">現在のパスワード</label><input type="password" id="current-password" /></div>
+                          <div class="form-row"><label for="new-password">新しいパスワード</label><input type="password" id="new-password" /></div>
+                          <div class="form-row"><label for="confirm-password">確認</label><input type="password" id="confirm-password" /></div>
                         <!-- マスク解除チェック -->
                         <div class="form-row" style="margin-top:.5rem;"><label><input type="checkbox" id="password-unmask" /> パスワードを表示</label></div>
                         <!-- 固定ポリシー表示（編集不可） -->

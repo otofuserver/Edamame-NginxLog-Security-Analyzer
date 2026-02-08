@@ -703,6 +703,7 @@ public class UserManagementController implements HttpHandler {
         String password = payload.containsKey("password") ? String.valueOf(payload.get("password")) : null;
         if (currentPassword == null || currentPassword.isEmpty()) { sendJsonError(exchange, 400, "current password required"); return; }
         if (password == null || password.isEmpty()) { sendJsonError(exchange, 400, "password required"); return; }
+        if (password.equals(currentPassword)) { sendJsonError(exchange, 400, "new password must differ from current password"); return; }
         // サーバ側で固定ポリシー検証
         if (!WebSecurityUtils.isPasswordValid(password)) { sendJsonError(exchange, 400, "password policy violation: " + WebSecurityUtils.PASSWORD_POLICY_MESSAGE); return; }
         if (!authService.verifyPassword(username, currentPassword)) { sendJsonError(exchange, 400, "current password invalid"); return; }
