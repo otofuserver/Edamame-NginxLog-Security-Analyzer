@@ -23,6 +23,8 @@
         } catch (e) { console.error('[UserList] create button setup error', e); }
     }
 
+    let listViewInstance = null;
+
     function createListViewInstance(){
         const qInput = document.getElementById('q');
         const pagerEl = document.getElementById('pagination');
@@ -89,10 +91,33 @@
             // 初期ソートを設定（クエリに無い場合）
             if (!listView.state.sort) listView.state.sort = 'username';
             listView.init();
+            listViewInstance = listView;
             return listView;
         }
         console.warn('[UserList] ListViewCore not available');
         return null;
+    }
+
+    function ensureListView(){
+        if (listViewInstance) return listViewInstance;
+        return createListViewInstance();
+    }
+
+    function doSearch(page){
+        const lv = ensureListView();
+        if (lv && typeof lv.reload === 'function') {
+            lv.reload(page || 1);
+            return true;
+        }
+        return false;
+    }
+
+    function refreshUser(){
+        const lv = ensureListView();
+        if (lv && typeof lv.reload === 'function') {
+            const currentPage = lv.state && lv.state.page ? lv.state.page : 1;
+            lv.reload(currentPage);
+        }
     }
 
     function initUserManagement(){
@@ -113,10 +138,10 @@
                 return;
             }
             attachCreateButton();
-            createListViewInstance();
+            listViewInstance = createListViewInstance();
         }
         tryInit();
     }
 
-    window.UserList = { initUserManagement, renderError };
+    window.UserList = { initUserManagement, renderError, doSearch, refreshUser };
 })();
