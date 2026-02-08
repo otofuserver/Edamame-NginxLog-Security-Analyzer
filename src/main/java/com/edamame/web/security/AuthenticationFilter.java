@@ -40,6 +40,12 @@ public class AuthenticationFilter implements HttpHandler {
             if (sessionId != null) {
                 AuthenticationService.SessionInfo sessionInfo = authService.validateSession(sessionId);
                 if (sessionInfo != null) {
+                    // パスワード変更が必要な場合は専用ページへ強制
+                    if (sessionInfo.isMustChangePassword() && !path.startsWith("/password/change")) {
+                        exchange.getResponseHeaders().set("Location", "/password/change");
+                        exchange.sendResponseHeaders(302, -1);
+                        return;
+                    }
                     // セッション有効
                     exchange.setAttribute(WebConstants.REQUEST_ATTR_USERNAME, sessionInfo.getUsername());
                     AppLogger.debug("認証済みユーザー: " + sessionInfo.getUsername() + " (セッションID: " + sessionId + ")");

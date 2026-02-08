@@ -334,7 +334,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public boolean createUser(String username, String email, boolean enabled) {
         if (username == null || username.trim().isEmpty()) return false;
-        String insertSql = "INSERT INTO users (username, email, password_hash, is_active) VALUES (?, ?, ?, ?)";
+        String insertSql = "INSERT INTO users (username, email, password_hash, is_active, must_change_password, password_changed_at) VALUES (?, ?, ?, ?, ?, ?)";
         // 生成パスワードはランダムだがフロントで必要であれば別エンドポイントで返す設計が良い
         try {
             final String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*()-_";
@@ -350,6 +350,8 @@ public class UserServiceImpl implements UserService {
                     ps.setString(2, email);
                     ps.setString(3, hashed);
                     ps.setBoolean(4, enabled);
+                    ps.setBoolean(5, true); // 初回ログインでパスワード変更を要求
+                    ps.setTimestamp(6, null);
                     int v = ps.executeUpdate();
                     return v > 0;
                 } catch (SQLException e) {
@@ -398,7 +400,7 @@ public class UserServiceImpl implements UserService {
             expires = java.sql.Timestamp.valueOf(exp);
         }
 
-        String insertUserSql = "INSERT INTO users (username, email, password_hash, is_active) VALUES (?, ?, ?, ?)";
+        String insertUserSql = "INSERT INTO users (username, email, password_hash, is_active, must_change_password, password_changed_at) VALUES (?, ?, ?, ?, ?, ?)";
         String findUserIdSql = "SELECT id FROM users WHERE username = ? LIMIT 1";
         String insertTokenSql = "INSERT INTO activation_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)";
 
@@ -408,6 +410,8 @@ public class UserServiceImpl implements UserService {
                 ps.setString(2, email);
                 ps.setString(3, hashed);
                 ps.setBoolean(4, enabled);
+                ps.setBoolean(5, true); // 初回ログインでパスワード変更を要求
+                ps.setTimestamp(6, null);
                 int v = ps.executeUpdate();
                 if (v <= 0) { AppLogger.warn("createUserWithActivation: users挿入が0件でした attempt=" + attempt); continue; }
 
@@ -669,16 +673,18 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public boolean resetPassword(String username, String plainPassword) {
+    public boolean resetPassword(String username, String plainPassword, boolean requireChangeNextLogin) {
         if (username == null || plainPassword == null) return false;
-        // BCrypt でハッシュ化して保存
         try {
             String hashed = at.favre.lib.crypto.bcrypt.BCrypt.withDefaults().hashToString(12, plainPassword.toCharArray());
-            String sql = "UPDATE users SET password_hash = ? WHERE username = ?";
+            String sql = "UPDATE users SET password_hash = ?, must_change_password = ?, password_changed_at = ? WHERE username = ?";
+            java.sql.Timestamp changedAt = requireChangeNextLogin ? null : java.sql.Timestamp.valueOf(LocalDateTime.now());
             for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
                     ps.setString(1, hashed);
-                    ps.setString(2, username);
+                    ps.setBoolean(2, requireChangeNextLogin);
+                    if (changedAt == null) ps.setNull(3, java.sql.Types.TIMESTAMP); else ps.setTimestamp(3, changedAt);
+                    ps.setString(4, username);
                     int updated = ps.executeUpdate();
                     return updated > 0;
                 } catch (SQLException e) {
@@ -694,9 +700,8 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public String generateAndResetPassword(String username) {
+    public String generateAndResetPassword(String username, boolean requireChangeNextLogin) {
         if (username == null) return null;
-        // 生成ルール: 14文字、英大文字/小文字/数字/記号を混ぜる
         final String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*()-_";
         final int length = 14;
         java.security.SecureRandom rnd = new java.security.SecureRandom();
@@ -705,24 +710,8 @@ public class UserServiceImpl implements UserService {
             sb.append(chars.charAt(rnd.nextInt(chars.length())));
         }
         String plain = sb.toString();
-        // ハッシュ化して保存
-        try {
-            String hashed = at.favre.lib.crypto.bcrypt.BCrypt.withDefaults().hashToString(12, plain.toCharArray());
-            String sql = "UPDATE users SET password_hash = ? WHERE username = ?";
-            for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-                try (PreparedStatement ps = getConnection().prepareStatement(sql)) {
-                    ps.setString(1, hashed);
-                    ps.setString(2, username);
-                    int updated = ps.executeUpdate();
-                    if (updated > 0) return plain;
-                    else return null;
-                } catch (SQLException e) {
-                    AppLogger.warn("generateAndResetPassword SQLエラー (試行:" + attempt + "): " + e.getMessage());
-                    try { Thread.sleep(100 * attempt); } catch (InterruptedException ignored) {}
-                }
-            }
-        } catch (Exception e) {
-            AppLogger.warn("generateAndResetPassword ハッシュ生成エラー: " + e.getMessage());
+        if (resetPassword(username, plain, requireChangeNextLogin)) {
+            return plain;
         }
         AppLogger.error("generateAndResetPassword に失敗しました");
         return null;

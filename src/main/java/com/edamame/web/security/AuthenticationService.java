@@ -43,29 +43,38 @@ public class AuthenticationService {
 
 
     /**
+     * 認証結果を表すレコード
+     * @param sessionId セッションID
+     * @param mustChangePassword 初回ログイン等でパスワード変更が必須かどうか
+     */
+    public record AuthResult(String sessionId, boolean mustChangePassword) { }
+
+    /**
      * ユーザー認証を実行（IPアドレス・User-Agent対応）
      * @param username ユーザー名
      * @param password パスワード
      * @param rememberMe ログイン状態維持フラグ
      * @param ipAddress クライアントIPアドレス
      * @param userAgent ユーザーエージェント
-     * @return セッションID（認証失敗時はnull）
+     * @return 認証結果（失敗時はnull）
      */
-    public String authenticate(String username, String password, boolean rememberMe, String ipAddress, String userAgent) {
+    public AuthResult authenticate(String username, String password, boolean rememberMe, String ipAddress, String userAgent) {
         if (username == null || password == null) {
             return null;
         }
-        String sql = "SELECT password_hash FROM users WHERE username = ? AND is_active = TRUE";
+        String sql = "SELECT password_hash, must_change_password, password_changed_at FROM users WHERE username = ? AND is_active = TRUE";
         try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
             stmt.setString(1, username);
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 String storedHash = rs.getString("password_hash");
+                boolean mustChangeFlag = rs.getBoolean("must_change_password");
+                boolean mustChange = mustChangeFlag || rs.getTimestamp("password_changed_at") == null;
                 if (passwordEncoder.matches(password, storedHash)) {
                     String sessionId = createSession(username, rememberMe);
                     insertLoginHistory(username, true, ipAddress, userAgent);
-                    AppLogger.info("ユーザー認証成功: " + username);
-                    return sessionId;
+                    AppLogger.info("ユーザー認証成功: " + username + " (mustChange=" + mustChange + ")");
+                    return new AuthResult(sessionId, mustChange);
                 }
             }
             insertLoginHistory(username, false, ipAddress, userAgent);
@@ -108,15 +117,17 @@ public class AuthenticationService {
      */
     public SessionInfo validateSession(String sessionId) {
         if (sessionId == null) return null;
-        try (PreparedStatement stmt = getConnection().prepareStatement("SELECT username, expires_at FROM sessions WHERE session_id = ?")) {
+        String sql = "SELECT s.username, s.expires_at, u.must_change_password, u.password_changed_at FROM sessions s JOIN users u ON s.username = u.username WHERE s.session_id = ?";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
             stmt.setString(1, sessionId);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     LocalDateTime expiresAt = rs.getObject("expires_at", LocalDateTime.class);
+                    boolean mustChange = rs.getBoolean("must_change_password") || rs.getTimestamp("password_changed_at") == null;
                     if (expiresAt != null && expiresAt.isAfter(LocalDateTime.now())) {
                         String username = rs.getString("username");
                         AppLogger.debug("セッション認証成功: " + username + " (" + sessionId + ")");
-                        return new SessionInfo(username, sessionId, expiresAt);
+                        return new SessionInfo(username, sessionId, expiresAt, mustChange);
                     } else {
                         AppLogger.warn("期限切れセッション: " + sessionId);
                     }
@@ -196,17 +207,20 @@ public class AuthenticationService {
         private final String username;
         private final String sessionId;
         private final LocalDateTime expiresAt;
+        private final boolean mustChangePassword;
 
         /**
          * コンストラクタ
          * @param username ユーザー名
          * @param sessionId セッションID
          * @param expiresAt 有効期限
+         * @param mustChangePassword パスワード変更が必要か
          */
-        public SessionInfo(String username, String sessionId, LocalDateTime expiresAt) {
+        public SessionInfo(String username, String sessionId, LocalDateTime expiresAt, boolean mustChangePassword) {
             this.username = username;
             this.sessionId = sessionId;
             this.expiresAt = expiresAt;
+            this.mustChangePassword = mustChangePassword;
         }
 
         /**
@@ -225,11 +239,38 @@ public class AuthenticationService {
         public LocalDateTime getExpiresAt() { return expiresAt; }
 
         /**
+         * パスワード変更が必要か
+         */
+        public boolean isMustChangePassword() { return mustChangePassword; }
+
+        /**
          * セッションが期限切れか判定
          */
         public boolean isExpired() {
             return expiresAt == null || LocalDateTime.now().isAfter(expiresAt);
         }
+    }
+
+    /**
+     * 現在のパスワードが一致するか検証
+     * @param username ユーザー名
+     * @param plainPassword 平文パスワード
+     * @return 一致する場合true
+     */
+    public boolean verifyPassword(String username, String plainPassword) {
+        if (username == null || plainPassword == null) return false;
+        String sql = "SELECT password_hash FROM users WHERE username = ? AND is_active = TRUE";
+        try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                String storedHash = rs.getString("password_hash");
+                return passwordEncoder.matches(plainPassword, storedHash);
+            }
+        } catch (SQLException e) {
+            AppLogger.error("verifyPassword失敗: " + e.getMessage());
+        }
+        return false;
     }
 
     /**
@@ -280,4 +321,3 @@ public class AuthenticationService {
         }
     }
 }
-

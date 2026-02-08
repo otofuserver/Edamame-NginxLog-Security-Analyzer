@@ -126,7 +126,7 @@ public class DbInitialData {
                     BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
                     String hashedPassword = passwordEncoder.encode("admin123");
 
-                    String insertUserSql = "INSERT INTO users (username, email, password_hash, is_active) VALUES (?, ?, ?, TRUE)";
+                    String insertUserSql = "INSERT INTO users (username, email, password_hash, is_active, must_change_password) VALUES (?, ?, ?, TRUE, TRUE)";
                     try (PreparedStatement pstmt = conn.prepareStatement(insertUserSql, Statement.RETURN_GENERATED_KEYS)) {
                         pstmt.setString(1, "admin");
                         pstmt.setString(2, "admin@example.com");

@@ -107,17 +107,19 @@ public interface UserService {
      * メソッド内でハッシュ化してDBに保存する
      * @param username ユーザー名
      * @param plainPassword 新しい平文パスワード
+     * @param requireChangeNextLogin 次回ログインでパスワード変更を強制するか
      * @return 成功ならtrue
      */
-    boolean resetPassword(String username, String plainPassword);
+    boolean resetPassword(String username, String plainPassword, boolean requireChangeNextLogin);
 
     /**
      * 指定ユーザーのパスワードをサーバ側で生成してリセットする。
      * 生成した平文パスワードを返す（クライアントには一度だけ表示する用途）。
      * @param username ユーザー名
+     * @param requireChangeNextLogin 次回ログインでパスワード変更を強制するか
      * @return 生成した平文パスワード（失敗時は null）
      */
-    String generateAndResetPassword(String username);
+    String generateAndResetPassword(String username, boolean requireChangeNextLogin);
 
     /**
      * 指定ユーザーのログイン履歴を取得する（最新の N 件）

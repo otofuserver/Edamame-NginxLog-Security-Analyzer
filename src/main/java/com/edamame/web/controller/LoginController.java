@@ -2,6 +2,7 @@ package com.edamame.web.controller;
 
 import com.edamame.web.config.WebConstants;
 import com.edamame.web.security.AuthenticationService;
+import com.edamame.web.security.AuthenticationService.AuthResult;
 import com.edamame.web.security.WebSecurityUtils;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
@@ -87,12 +88,16 @@ public class LoginController implements HttpHandler {
         String ipAddress = exchange.getRemoteAddress() != null ? exchange.getRemoteAddress().getAddress().getHostAddress() : "";
         String userAgent = exchange.getRequestHeaders().getFirst("User-Agent");
         // 認証を実行（IP・UA付き）
-        String sessionId = authService.authenticate(username, password, rememberMe, ipAddress, userAgent);
+        AuthResult authResult = authService.authenticate(username, password, rememberMe, ipAddress, userAgent);
 
-        if (sessionId != null) {
+        if (authResult != null && authResult.sessionId() != null) {
             // 認証成功 - セッションCookieを設定
-            setSessionCookie(exchange, sessionId, rememberMe);
-            sendLoginSuccessResponse(exchange);
+            setSessionCookie(exchange, authResult.sessionId(), rememberMe);
+            if (authResult.mustChangePassword()) {
+                sendPasswordChangeRedirect(exchange);
+            } else {
+                sendLoginSuccessResponse(exchange);
+            }
         } else {
             // 認証失敗 - エラーメッセージ付きでログイン画面を再表示
             String loginHtml = generateLoginHtml("ユーザー名またはパスワードが正しくありません。");
@@ -357,6 +362,14 @@ public class LoginController implements HttpHandler {
     private void sendDashboardRedirect(HttpExchange exchange) throws IOException {
         // 明示的に view パラメータを付与
         exchange.getResponseHeaders().set("Location", "/main?view=main");
+        exchange.sendResponseHeaders(302, -1);
+    }
+
+    /**
+     * パスワード変更ページへリダイレクト（初回ログイン強制）
+     */
+    private void sendPasswordChangeRedirect(HttpExchange exchange) throws IOException {
+        exchange.getResponseHeaders().set("Location", "/password/change");
         exchange.sendResponseHeaders(302, -1);
     }
 

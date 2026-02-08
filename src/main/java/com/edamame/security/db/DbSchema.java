@@ -117,6 +117,8 @@ public class DbSchema {
         usersDefs.put("username", "VARCHAR(50) NOT NULL UNIQUE");
         usersDefs.put("email", "VARCHAR(255) NOT NULL DEFAULT ''");
         usersDefs.put("password_hash", "VARCHAR(255) NOT NULL");
+        usersDefs.put("must_change_password", "BOOLEAN DEFAULT TRUE");
+        usersDefs.put("password_changed_at", "DATETIME NULL");
         usersDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
         usersDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
         usersDefs.put("is_active", "BOOLEAN DEFAULT TRUE");

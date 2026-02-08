@@ -1,7 +1,7 @@
 # Web認証仕様書 (Edamame Security Dashboard)
 
-**バージョン**: 1.3.2  
-**最終更新**: 2026-01-16  
+**バージョン**: 1.3.3  
+**最終更新**: 2026-02-08  
 **対象システム**: Edamame NginxLog Security Analyzer Web Dashboard
 
 ## 概要
@@ -305,6 +305,7 @@ DELETE FROM sessions WHERE session_id = ?;
 | 1.3.0 | 2025-07-23 | セッション管理仕様をDB永続化方式に全面更新 |
 | 1.3.1 | 2025-07-23 | 認証成功時にAuthenticationFilterがexchangeへusername属性を必ずセットする仕様を明記し、302リダイレクトループ防止策を仕様書に追記 |
 | 1.3.2 | 2026-01-16 | remember-me時のCookie Max-Age=30日・Secure未付与を明記。sessionsテーブルのカラム構成とDB仕様参照先を追記しました。 |
+| 1.3.3 | 2026-02-08 | 初回パスワード変更必須フロー `/password/change` と must_change_password 管理を追加 |
 
 ---
 

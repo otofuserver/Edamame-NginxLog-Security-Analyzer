@@ -407,7 +407,7 @@ public class UserManagementController implements HttpHandler {
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         String trimmed = body.trim();
         if (trimmed.isEmpty()) {
-            String plain = userService.generateAndResetPassword(target);
+            String plain = userService.generateAndResetPassword(target, true);
             if (plain == null) { sendJsonError(exchange, 500, "failed to generate password"); return; }
             sendJsonResponse(exchange, 200, Map.of("password", plain));
             return;
@@ -424,8 +424,7 @@ public class UserManagementController implements HttpHandler {
             sendJsonError(exchange, 400, "password policy violation: must be >=8 chars, include letter, digit and one of !@#$%&*()-_ and use only allowed characters");
             return;
         }
-
-        boolean ok = userService.resetPassword(target, password);
+        boolean ok = userService.resetPassword(target, password, true);
         if (!ok) { sendJsonError(exchange, 500, "failed to reset password"); return; }
         sendJsonResponse(exchange, 200, Map.of("ok", true));
     }
@@ -704,7 +703,7 @@ public class UserManagementController implements HttpHandler {
         if (password == null || password.isEmpty()) { sendJsonError(exchange, 400, "password required"); return; }
         // サーバ側で固定ポリシー検証: 最低8文字、英字・数字・許可記号を含むこと、許可外文字は不可
         if (!isValidPassword(password)) { sendJsonError(exchange, 400, "password policy violation: must be >=8 chars, include letter, digit and one of !@#$%&*()-_ and use only allowed characters"); return; }
-        boolean ok = userService.resetPassword(username, password);
+        boolean ok = userService.resetPassword(username, password, false);
         if (!ok) { sendJsonError(exchange, 500, "failed to change password"); return; }
         sendJsonResponse(exchange, 200, Map.of("ok", true));
     }
@@ -725,3 +724,4 @@ public class UserManagementController implements HttpHandler {
         return lengthOk && hasLetter && hasDigit && hasSymbol && allAllowed;
     }
 }
+

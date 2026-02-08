@@ -135,6 +135,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - url-threats APIにsort/orderパラメータを追加し、脅威度要素ごとのソート（優先度/最終アクセス/ステータス/ModSecブロック/攻撃タイプ/ホワイトリスト/脅威キー・ラベル/メソッド/URL）をサポート。
 - URL抑止管理（正規表現ベースの破棄条件、operator閲覧/admin操作、url_suppressionsテーブル、フロント断片とAPI、MiniMenu操作）。
 - url_suppressions テーブルの UNIQUE 制約を撤廃し、パターン重複を許容。
+- users テーブルの must_change_password / password_changed_at カラム仕様を明記し、強制パスワード変更フローをドキュメントに反映
 
 ### Changed
 - fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）

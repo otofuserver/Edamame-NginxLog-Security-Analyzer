@@ -94,7 +94,6 @@
 - 2026-01-15: url_registry に最終アクセス情報カラムを追加（latest_access_time, latest_status_code, latest_blocked_by_modsec）
 - 2026-01-16: url_registry に脅威分類カラム（threat_key/threat_label/threat_priority）を追加し、詳細仕様を`document/db_schema_spec.md`へ集約開始
 - 2026-01-20: url_suppressions テーブルを追加（URL抑止ルール管理）。
+- 2026-02-08: usersテーブルに must_change_password / password_changed_at を追記し、初回パスワード変更フローを反映
 
-## コミットメッセージ例
-- docs(db): DbSchema に email_change_requests の仕様を追加
-- docs(db): url_registry に最終アクセス情報カラムを追加
+```

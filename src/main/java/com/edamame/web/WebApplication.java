@@ -156,6 +156,10 @@ public class WebApplication {
         // ルートパス（ダッシュボードにリダイレクト）
         server.createContext("/", new AuthenticationFilter(authService,
             new MainController()));
+
+        // パスワード強制変更ページ（認証後）
+        server.createContext("/password/change", new AuthenticationFilter(authService,
+            new ForcePasswordChangeController(authService)));
     }
 
     /**

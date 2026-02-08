@@ -44,11 +44,11 @@
   - 生成したランダムパスワードを BCrypt でハッシュして `users` に保存。
   - 重複ユーザー名は `DuplicateResourceException` を投げる（コントローラで 409 にマップ）。
 
-- `boolean resetPassword(String username, String plainPassword)`
-  - 指定パスワードで BCrypt ハッシュを保存。
+- `boolean resetPassword(String username, String plainPassword, boolean requireChangeNextLogin)`
+  - BCrypt ハッシュを保存し、`must_change_password` と `password_changed_at` を同時に更新する。`requireChangeNextLogin=true` の場合は変更日時を NULL にする。
 
-- `String generateAndResetPassword(String username)`
-  - サーバ側でパスワードを生成してハッシュ化して保存し、生成パスワード（平文）を返す。
+- `String generateAndResetPassword(String username, boolean requireChangeNextLogin)`
+  - パスワードを生成してハッシュ保存し、平文を返却。`requireChangeNextLogin` で初回変更必須を制御。
 
 ## リトライ・エラーハンドリング
 - すべての DB 操作は `MAX_RETRIES`（デフォルト 5）回のリトライを実施。
@@ -66,4 +66,6 @@
 - `src/main/java/com/edamame/web/exception/AdminRetentionException.java`
 - `src/main/java/com/edamame/web/exception/DuplicateResourceException.java`
 
-
+## 変更履歴
+- 1.0.0 - 2025-12-30: ドキュメント作成
+- 1.1.0 - 2026-02-08: パスワード操作に must_change_password/requireChangeNextLogin 対応を追記

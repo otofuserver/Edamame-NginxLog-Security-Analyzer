@@ -12,18 +12,20 @@
 - サーバの開始・停止・状態チェック
 
 ## 挙動
-- `initialize()` でサービスを初期化し、`start()` でサーバを作成して `setupRoutes()` と `startServer()` を実行する。
+- `initialize()` でサービスを初期化し、`start()` でサーバ を作成して `setupRoutes()` と `startServer()` を実行する。
 - ルーティングは `AuthenticationFilter` を組み合わせて静的・動的コンテンツを保護する設計。
 
 ## 細かい指定された仕様
 - デフォルトポートは `WEB_PORT` 環境変数（デフォルト 8080）。`WEB_BIND_ADDRESS` でバインドアドレスを指定可能。
 - `/api/activate` は `ActivationController` にルーティングされ、`/api/me/*` などの一部は `UserManagementController` に直接割り当てられる。
+- `/password/change` は `ForcePasswordChangeController` を `AuthenticationFilter` 経由で割り当て、must_change_password フラグを持つセッションを誘導する。
 
 ## その他
 - `start(int port)` と `start()` を提供して、テスト環境と本番環境の起動方法を使い分け可能。
 
 ## 変更履歴
 - 2026-01-05: ドキュメント自動生成
+- 2026-02-08: `/password/change` ルート追加と説明を追記
 
 ## メソッド一覧
 - `public boolean initialize()` - サービス初期化

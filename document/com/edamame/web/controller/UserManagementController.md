@@ -13,7 +13,8 @@
 - ユーザー更新（`PUT /api/users/{username}`）
 - ユーザー削除（`DELETE /api/users/{username}`）
 - ロール付与/削除（`POST /api/users/{username}/roles`, `DELETE /api/users/{username}/roles/{role}`）
-- パスワードリセット（`POST /api/users/{username}/reset-password`）
+- パスワードリセット（`POST /api/users/{username}/reset-password`）：空ボディはサーバ生成・強制変更フラグON、明示パスワードでも次回変更必須を設定
+- 自分のパスワード変更（`POST /api/me/password`）：本人の変更時は強制変更フラグを解除
 - 自分自身のプロファイル取得/更新（`GET/PUT /api/me/profile`）
 - 自分のメール変更の所有者確認フロー（`POST /api/me/email-change/request`, `POST /api/me/email-change/verify`）
 
@@ -23,6 +24,7 @@
 - パスやメソッドに応じてルーティングを行い、各ハンドラメソッド（`handleUsersApi`, `handleCreateUser`, `handleUpdateUser` など）へ振り分ける。
 - JSON 入出力は Jackson (`ObjectMapper`) を使用し、LocalDateTime のサポートを有効にしている。
 - 管理者保護（最後の admin を削除/無効化しない）を `AdminRetentionException` により実施する。
+- must_change_password が立っているセッションは AuthenticationFilter により `/password/change` へ誘導される。
 
 ## 細かい指定された仕様
 - 入力は `WebSecurityUtils.sanitizeInput` でサニタイズし、XSS 攻撃を軽減する。
@@ -66,6 +68,7 @@
 ## 変更履歴
 - 1.0.0 - 2025-12-30: 新規作成（実装に基づく）
 - 2026-01-05: メール変更の所有者確認フロー（`email_change_requests` / `POST /api/me/email-change/*`）を追加
+- 2026-02-08: パスワード強制変更フラグに対応（管理者リセット時に強制変更、本人変更時に解除）
 
 ## コミットメッセージ例
 - docs(web): UserManagementController の仕様書を追加/更新

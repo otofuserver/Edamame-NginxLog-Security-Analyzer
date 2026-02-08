@@ -7,18 +7,19 @@
 
 ## 主な機能
 - Cookie からのセッション ID 取得（`getSessionIdFromCookie`）
-- セッション検証と属性のセット（username を `exchange` に設定）
+- セッション検証と属性のセット（username を `exchange` に設定、`isAdmin` はコントローラ側で使えるよう属性に保存）
+- 初回パスワード変更が必要なセッションは `/password/change` へリダイレクト
 - 認証済みなら `protectedHandler.handle(exchange)` を呼ぶ
 - 未認証・無効なセッションは 302 リダイレクトで `/login` へ誘導
 - 内部エラー時は 500 応答を返す
 
 ## 挙動
-- `handle` 内で `authService.validateSession` を呼び、`SessionInfo` が有効であれば `exchange` に username を属性として設定する。
+- `handle` 内で `authService.validateSession` を呼び、`SessionInfo` が有効であれば `exchange` に username を属性として設定する。`SessionInfo.isMustChangePassword()` が true かつ `/password/change` 以外のリクエストは強制リダイレクト。
 - 例外発生時は `sendInternalServerError` を呼び 500 応答を返す。
 - `getSessionIdFromCookie` は `WebConstants.extractSessionId` を利用して Cookie ヘッダを解析する。
 
 ## 細かい指定された仕様
-- リダイレクトは Location ヘッダに `/login` を設定し、ステータスコード 302 を返す。
+- リダイレクトは Location ヘッダに `/login` または `/password/change` を設定し、ステータスコード 302 を返す。
 - エラー時の応答本文は "Internal Server Error" を UTF-8 で返す（簡易実装）。
 - 本クラスは `com.sun.net.httpserver.HttpHandler` を実装しているため、組み込み HTTP サーバで直接利用できる。
 
@@ -28,12 +29,9 @@
 - `private String getSessionIdFromCookie(HttpExchange exchange)` - Cookie からセッション ID を抽出
 - `private void sendInternalServerError(HttpExchange exchange) throws IOException` - 500 応答を返す
 
-## その他
-- 実運用ではリダイレクト先やログ出力フォーマット、エラーページのカスタマイズを行うこと。
-
 ## 変更履歴
 - 1.0.0 - 2025-12-30: 新規作成
+- 1.1.0 - 2026-02-08: must_change_password が立っているセッションを `/password/change` にリダイレクトする仕様を追記
 
 ## コミットメッセージ例
 - docs(web): AuthenticationFilter の仕様書を追加
-
