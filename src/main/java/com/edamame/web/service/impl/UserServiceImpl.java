@@ -7,6 +7,7 @@ import com.edamame.security.tools.AppLogger;
 import static com.edamame.security.db.DbService.getConnection;
 
 import com.edamame.security.action.MailActionHandler;
+import com.edamame.web.security.WebSecurityUtils;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -337,12 +338,7 @@ public class UserServiceImpl implements UserService {
         String insertSql = "INSERT INTO users (username, email, password_hash, is_active, must_change_password, password_changed_at) VALUES (?, ?, ?, ?, ?, ?)";
         // 生成パスワードはランダムだがフロントで必要であれば別エンドポイントで返す設計が良い
         try {
-            final String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*()-_";
-            final int length = 12;
-            java.security.SecureRandom rnd = new java.security.SecureRandom();
-            StringBuilder sb = new StringBuilder(length);
-            for (int i = 0; i < length; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
-            String plain = sb.toString();
+            String plain = WebSecurityUtils.generatePolicyCompliantPassword(14);
             String hashed = at.favre.lib.crypto.bcrypt.BCrypt.withDefaults().hashToString(12, plain.toCharArray());
             for (int attempt = 1; attempt <= MAX_RETRIES; attempt++) {
                 try (PreparedStatement ps = getConnection().prepareStatement(insertSql)) {
@@ -383,12 +379,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public String createUserWithActivation(String username, String email, boolean enabled) {
         if (username == null || username.trim().isEmpty()) return null;
-        final String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*()-_";
-        final int length = 12;
-        java.security.SecureRandom rnd = new java.security.SecureRandom();
-        StringBuilder sb = new StringBuilder(length);
-        for (int i = 0; i < length; i++) sb.append(chars.charAt(rnd.nextInt(chars.length())));
-        String plain = sb.toString();
+        String plain = WebSecurityUtils.generatePolicyCompliantPassword(14);
         String hashed;
         try { hashed = at.favre.lib.crypto.bcrypt.BCrypt.withDefaults().hashToString(12, plain.toCharArray()); } catch (Exception e) { AppLogger.warn("createUserWithActivation ハッシュ生成エラー: " + e.getMessage()); return null; }
 
@@ -702,14 +693,7 @@ public class UserServiceImpl implements UserService {
     @Override
     public String generateAndResetPassword(String username, boolean requireChangeNextLogin) {
         if (username == null) return null;
-        final String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%&*()-_";
-        final int length = 14;
-        java.security.SecureRandom rnd = new java.security.SecureRandom();
-        StringBuilder sb = new StringBuilder(length);
-        for (int i = 0; i < length; i++) {
-            sb.append(chars.charAt(rnd.nextInt(chars.length())));
-        }
-        String plain = sb.toString();
+        String plain = WebSecurityUtils.generatePolicyCompliantPassword(14);
         if (resetPassword(username, plain, requireChangeNextLogin)) {
             return plain;
         }

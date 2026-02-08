@@ -420,8 +420,8 @@ public class UserManagementController implements HttpHandler {
         if (password == null) { sendJsonError(exchange, 400, "password required"); return; }
 
         // サーバ側でパスワードポリシーを検証
-        if (!isValidPassword(password)) {
-            sendJsonError(exchange, 400, "password policy violation: must be >=8 chars, include letter, digit and one of !@#$%&*()-_ and use only allowed characters");
+        if (!WebSecurityUtils.isPasswordValid(password)) {
+            sendJsonError(exchange, 400, "password policy violation: " + WebSecurityUtils.PASSWORD_POLICY_MESSAGE);
             return;
         }
         boolean ok = userService.resetPassword(target, password, true);
@@ -702,7 +702,7 @@ public class UserManagementController implements HttpHandler {
         String password = payload.containsKey("password") ? String.valueOf(payload.get("password")) : null;
         if (password == null || password.isEmpty()) { sendJsonError(exchange, 400, "password required"); return; }
         // サーバ側で固定ポリシー検証: 最低8文字、英字・数字・許可記号を含むこと、許可外文字は不可
-        if (!isValidPassword(password)) { sendJsonError(exchange, 400, "password policy violation: must be >=8 chars, include letter, digit and one of !@#$%&*()-_ and use only allowed characters"); return; }
+        if (!WebSecurityUtils.isPasswordValid(password)) { sendJsonError(exchange, 400, "password policy violation: " + WebSecurityUtils.PASSWORD_POLICY_MESSAGE); return; }
         boolean ok = userService.resetPassword(username, password, false);
         if (!ok) { sendJsonError(exchange, 500, "failed to change password"); return; }
         sendJsonResponse(exchange, 200, Map.of("ok", true));
@@ -713,15 +713,7 @@ public class UserManagementController implements HttpHandler {
      * ポリシー: 最低8文字、英字1文字以上、数字1文字以上、許可記号(!@#$%&*()-_)のうち1文字以上、許可外文字は不可
      */
     private boolean isValidPassword(String pw) {
-        if (pw == null) return false;
-        boolean lengthOk = pw.length() >= 8;
-        boolean hasLetter = pw.matches(".*[A-Za-z].*");
-        boolean hasDigit = pw.matches(".*\\d.*");
-        // 記号として @ を許可する
-        boolean hasSymbol = pw.matches(".*[!@#$%&*()\\-@].*");
-        // 全体が許可文字だけで構成されているか（@ を許可）
-        boolean allAllowed = pw.matches("^[A-Za-z0-9!@#$%&*()\\-@_]+$");
-        return lengthOk && hasLetter && hasDigit && hasSymbol && allAllowed;
+        return WebSecurityUtils.isPasswordValid(pw);
     }
 }
 

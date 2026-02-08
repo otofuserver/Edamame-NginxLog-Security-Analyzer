@@ -22,6 +22,9 @@ public class WebSecurityUtils {
         Pattern.compile("onmouseover\\s*=", Pattern.CASE_INSENSITIVE)
     };
 
+    private static final String PASSWORD_ALLOWED_SYMBOLS = "!@#$%&*()-_";
+    public static final String PASSWORD_POLICY_MESSAGE = "8文字以上で、英字・数字・記号（" + PASSWORD_ALLOWED_SYMBOLS + "のいずれか）を各1文字以上含み、許可された文字のみを使用してください";
+
     /**
      * XSS攻撃を検知
      * @param input 検査対象文字列
@@ -290,5 +293,31 @@ public class WebSecurityUtils {
             }
         }
         return map;
+    }
+
+    /**
+     * パスワードポリシーに合致するか検証する
+     */
+    public static boolean isPasswordValid(String pw) {
+        if (pw == null) return false;
+        boolean lengthOk = pw.length() >= 8;
+        boolean hasLetter = pw.matches(".*[A-Za-z].*");
+        boolean hasDigit = pw.matches(".*\\d.*");
+        boolean hasSymbol = pw.matches(".*[" + Pattern.quote(PASSWORD_ALLOWED_SYMBOLS) + "].*");
+        boolean allAllowed = pw.matches("^[A-Za-z0-9" + Pattern.quote(PASSWORD_ALLOWED_SYMBOLS) + "]+$");
+        return lengthOk && hasLetter && hasDigit && hasSymbol && allAllowed;
+    }
+
+    /**
+     * ポリシーに沿ったランダムパスワードを生成する
+     */
+    public static String generatePolicyCompliantPassword(int length) {
+        final String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789" + PASSWORD_ALLOWED_SYMBOLS;
+        var rnd = new java.security.SecureRandom();
+        var sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(chars.charAt(rnd.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 }

@@ -79,8 +79,8 @@ public class ForcePasswordChangeController implements HttpHandler {
             renderPage(exchange, "新しいパスワードと確認が一致しません。");
             return;
         }
-        if (!isValidPassword(newPw)) {
-            renderPage(exchange, "パスワードポリシーに違反しています（8文字以上、英字・数字・記号を含める必要があります）。");
+        if (!WebSecurityUtils.isPasswordValid(newPw)) {
+            renderPage(exchange, "パスワードポリシーに違反しています（" + WebSecurityUtils.PASSWORD_POLICY_MESSAGE + "）。");
             return;
         }
         if (!authService.verifyPassword(username, currentPw)) {
@@ -106,13 +106,7 @@ public class ForcePasswordChangeController implements HttpHandler {
      * パスワードポリシー検証
      */
     private boolean isValidPassword(String pw) {
-        if (pw == null) return false;
-        boolean lengthOk = pw.length() >= 8;
-        boolean hasLetter = pw.matches(".*[A-Za-z].*");
-        boolean hasDigit = pw.matches(".*\\d.*");
-        boolean hasSymbol = pw.matches(".*[!@#$%&*()\\-@_].*");
-        boolean allAllowed = pw.matches("^[A-Za-z0-9!@#$%&*()\\-@_]+$");
-        return lengthOk && hasLetter && hasDigit && hasSymbol && allAllowed;
+        return WebSecurityUtils.isPasswordValid(pw);
     }
 
     private void renderPage(HttpExchange exchange, String message) throws IOException {
