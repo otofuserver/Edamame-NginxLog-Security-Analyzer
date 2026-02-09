@@ -8,6 +8,7 @@ MainController はアプリケーションのメインページ（/main）のサ
 - 認証フィルタ(AuthenticationFilter) が設定したリクエスト属性（username, isAdmin, scriptNonce）を利用して表示を制御する。
 - クライアント側の強制ナビゲーションでサーバレンダリングが上書きされないよう `data-no-client-nav` 属性を `<main>` 要素に付与する。
 - generateMenuHtml, generateUserInitial 等のユーティリティを保持（メニューは AuthenticationFilter 経由で生成されることを厳格化）。
+- サイドメニューには「設定」ボタン（ミニメニュー起動トリガー）と「URL脅威度」を含め、URL指定非監視設定への直接リンクは配置しない。
 
 挙動
 
@@ -26,6 +27,7 @@ MainController はアプリケーションのメインページ（/main）のサ
   - {{AUTO_REFRESH_SCRIPT}}: 空文字列（フルページの自動リロードは無効化）
 - `data-no-client-nav="true"` 属性を `<main id="main-content" data-view="...">` に追加する
 - generateMenuHtml(String username, boolean isAdmin) は AuthenticationFilter 経由でのみ呼ばれることを前提にする（MainController 側でのフォールバックは削除）
+- サイドメニューの構成: ダッシュボード/サンプル/ユーザー管理(管理者のみ)/サーバー管理/設定(ミニメニュー起動)/URL脅威度。URL指定非監視設定はミニメニュー経由のみ到達。
 
 存在するメソッドと機能
 
@@ -43,5 +45,5 @@ MainController はアプリケーションのメインページ（/main）のサ
 
 変更歴
 
+- 2026-02-10: サイドメニューからURL指定非監視設定の直接リンクを削除し、ミニメニュー起点に限定する仕様を追記。
 - 2026-01-11: 新規作成。`/main` のサーバ側レンダリングと `data-no-client-nav` 付与の仕様を追加。
-

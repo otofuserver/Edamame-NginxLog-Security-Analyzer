@@ -19,6 +19,7 @@ body {
 .sidebar { width:240px; min-width:240px; max-width:240px; flex:0 0 240px; background:#fff; border-radius:8px; padding:1rem; box-shadow:0 2px 8px rgba(0,0,0,0.06); height:calc(100vh - 120px); overflow:auto; }
 .sidebar .nav-link { display:block; padding:0.5rem 0.75rem; color:#333; text-decoration:none; border-radius:6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar .nav-link:hover, .sidebar .nav-link.active { background:linear-gradient(90deg,#eef2ff,#f5f7ff); color:#222; }
+.sidebar .nav-link.nav-button { border: none; background: transparent; width: 100%; text-align: left; cursor: pointer; font: inherit; }
 
 /* サイドバー内のユーザー表示調整 */
 .sidebar .sidebar-user-footer {

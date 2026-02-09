@@ -2,7 +2,7 @@
 対象: `src/main/resources/static/url_suppression.js`
 
 ## 概要
-- URL抑止管理ビューのフロントエンドロジック。`ListViewCore` を用いて検索・ソート・ページングの状態をURLクエリに保持し、ミニメニュー/モーダルを介して `/api/url-suppressions` と連携する。
+- URL指定非監視設定ビューのフロントエンドロジック。`ListViewCore` を用いて検索・ソート・ページングの状態をURLクエリに保持し、ミニメニュー/モーダルを介して `/api/url-suppressions` と連携する。
 
 ## 主な機能
 - サーバー一覧取得とセレクト初期化（`/api/servers?size=200`）。
@@ -27,3 +27,4 @@
 
 ## 変更履歴
 - 2026-01-20: ListViewCore 連携・URLクエリ同期・デバウンス検索を反映。`canEdit` 制御とミニメニュー仕様を更新。
+- 2026-02-10: 表記を「URL指定非監視設定」に変更。

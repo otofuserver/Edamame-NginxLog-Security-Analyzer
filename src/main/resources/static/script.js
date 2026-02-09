@@ -94,12 +94,13 @@
         dbg('DOM ready - starting bootstrap');
         sanitizeUrlParams();
         // 依存モジュールを順に読み込む
-        await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js','/static/mini_menu.js','/static/list_view_core.js','/static/url_threat.js']);
+        await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js','/static/mini_menu.js','/static/sidebar_settings_menu.js','/static/list_view_core.js','/static/url_threat.js']);
         dbg('loaded core modules, loadedScripts=', Array.from(_loadedScripts));
 
         // 初期化
         try {
             if (window.SidebarMini && typeof window.SidebarMini.init === 'function') window.SidebarMini.init();
+            if (window.SidebarSettingsMenu && typeof window.SidebarSettingsMenu.init === 'function') window.SidebarSettingsMenu.init();
             if (window.ProfileModal && typeof window.ProfileModal.open === 'function') window.openProfileModal = window.ProfileModal.open.bind(window.ProfileModal);
             if (window.PasswordModal && typeof window.PasswordModal.open === 'function') window.openPasswordModal = window.PasswordModal.open.bind(window.PasswordModal);
         } catch(e) { console.warn('bootstrap init error', e); }

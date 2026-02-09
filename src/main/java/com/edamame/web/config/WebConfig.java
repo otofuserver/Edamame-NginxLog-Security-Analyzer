@@ -134,8 +134,13 @@ public class WebConfig {
                                 {{MENU_HTML}}
                             </nav>
 
-                            <div class="sidebar-footer">
-                                <!-- ユーザー情報は下部に配置（時刻・ログアウトの上） -->
+                            <!-- 設定メニュー用のミニメニューコンテナ -->
+                            <div class="mini-menu" id="sidebar-settings-mini-menu" aria-hidden="true" style="display:none; visibility:hidden;">
+                                <div class="mini-menu-card"></div>
+                            </div>
+ 
+                             <div class="sidebar-footer">
+                                 <!-- ユーザー情報は下部に配置（時刻・ログアウトの上） -->
                                 <div class="sidebar-user-footer" id="sidebar-user" data-current-user="{{CURRENT_USER}}">
                                     <div class="user-avatar" id="sidebar-user-button" role="button" aria-haspopup="true" aria-expanded="false">
                                         <div class="avatar-circle">{{CURRENT_USER_INITIAL}}</div>

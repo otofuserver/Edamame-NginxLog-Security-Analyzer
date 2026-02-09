@@ -13,12 +13,14 @@
 - コアモジュールの順次読み込み（`sidebar_mini_menu.js`, `profile_modal.js`, `password_modal.js`, `logout.js`）
 - 分割モジュール（`clock.js`, `fragment_refresh.js`, `navigation.js`）の読み込みと初期化開始
 - デバッグユーティリティ `window.dbg` の提供
+- 設定ミニメニュー（`sidebar_settings_menu.js`）のロードと初期化フック呼び出し
 
 ## 挙動
 - `DOMContentLoaded` 時にコアモジュールを逐次ロードし、初期化フックを呼ぶ。
 - 続けて `clock.js`, `fragment_refresh.js`, `navigation.js` を読み込む。これらは分割された機能（時計、断片自動更新、断片ナビゲーション）を提供する。
 - `loadScriptsSequential` は各スクリプトを同期的に読み込み順序を保証するために使用される。
 - ページ内 `#main-content` の `data-no-client-nav` 属性が `true` の場合はサーバ側でレンダリングされたコンテンツを尊重し、必要なクライアント初期化のみ行う。
+- 設定ミニメニューの初期化（`SidebarSettingsMenu.init`）はコアモジュール読み込み直後に呼び出し、サイドバー設定ボタンのトリガーを有効化する。
 
 ## 細かい指定された仕様
 - `window.loadScript` / `window.loadScriptsSequential` をグローバルに公開し、他モジュールはこれを利用すること（一本化）。
@@ -38,6 +40,7 @@
 
 ## 変更履歴
 - 2026-01-09: `script.js` を軽量ブートストラップ化し、`clock.js`, `fragment_refresh.js`, `navigation.js` へ機能分割。`loadScriptsSequential` をグローバル公開してローダを一本化。
+- 2026-02-10: 設定ミニメニュー (`sidebar_settings_menu.js`) のロードと初期化呼び出しを追加。
 
 ## コミットメッセージ例
 - docs(front): script.js の仕様を分割後の構成に合わせて更新
