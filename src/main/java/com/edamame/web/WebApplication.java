@@ -4,8 +4,10 @@ import com.edamame.security.config.VersionProvider;
 import com.edamame.web.controller.*;
 import com.edamame.web.security.AuthenticationFilter;
 import com.edamame.web.security.AuthenticationService;
+import com.edamame.web.security.RequestSanitizationFilter;
 import com.edamame.web.service.DataService;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpHandler;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -111,55 +113,55 @@ public class WebApplication {
      */
     private void setupRoutes() {
         // 認証が不要なエンドポイント
-        server.createContext("/login", new LoginController(authService));
-        server.createContext("/logout", new LogoutController(authService));
+        server.createContext("/login", sanitize(new LoginController(authService)));
+        server.createContext("/logout", sanitize(new LogoutController(authService)));
 
         // favicon.ico専用ルーティング（認証不要）
         server.createContext("/favicon.ico", exchange -> new StaticResourceController().handleFavicon(exchange));
 
         // 静的リソース（認証フィルターを通す）
-        server.createContext("/static", new AuthenticationFilter(authService,
-            new StaticResourceController()));
+        server.createContext("/static", sanitize(new AuthenticationFilter(authService,
+            new StaticResourceController())));
 
         // 認証が必要なエンドポイント
-        server.createContext("/dashboard", new AuthenticationFilter(authService,
-            new DashboardController(dataService)));
+        server.createContext("/dashboard", sanitize(new AuthenticationFilter(authService,
+            new DashboardController(dataService))));
 
         // 新しいメインパス: /main を独立した MainController で扱う（DashboardController から分離）
-        server.createContext("/main", new AuthenticationFilter(authService,
-            new MainController()));
+        server.createContext("/main", sanitize(new AuthenticationFilter(authService,
+            new MainController())));
 
         // /api は AJAX 呼び出しが多いため、フィルターでリダイレクトさせず ApiController 側で認証を扱う
         // 管理者専用のユーザー管理断片と検索APIは専用コントローラで処理
-        server.createContext("/api/fragment/users", new UserManagementController(authService));
-        server.createContext("/api/users", new UserManagementController(authService));
+        server.createContext("/api/fragment/users", sanitize(new UserManagementController(authService)));
+        server.createContext("/api/users", sanitize(new UserManagementController(authService)));
         // アクティベーション用エンドポイントを追加
-        server.createContext("/api/activate", new com.edamame.web.controller.ActivationController());
+        server.createContext("/api/activate", sanitize(new com.edamame.web.controller.ActivationController()));
         // 自分用のプロフィール/パスワード変更は ApiController にルーティングされると Method Not Allowed になるため
         // 明示的に UserManagementController を割り当てる（/api より前に登録）
-        server.createContext("/api/me/profile", new UserManagementController(authService));
-        server.createContext("/api/me/password", new UserManagementController(authService));
+        server.createContext("/api/me/profile", sanitize(new UserManagementController(authService)));
+        server.createContext("/api/me/password", sanitize(new UserManagementController(authService)));
         // /api/me 配下の汎用ルートも UserManagementController に任せる（email-change など）
-        server.createContext("/api/me", new UserManagementController(authService));
+        server.createContext("/api/me", sanitize(new UserManagementController(authService)));
         // 明示的に email-change のエンドポイントを UserManagementController に割り当て（POST を許可するため）
-        server.createContext("/api/me/email-change/request", new UserManagementController(authService));
-        server.createContext("/api/me/email-change/verify", new UserManagementController(authService));
+        server.createContext("/api/me/email-change/request", sanitize(new UserManagementController(authService)));
+        server.createContext("/api/me/email-change/verify", sanitize(new UserManagementController(authService)));
 
-        server.createContext("/api", new ApiController(dataService, authService));
+        server.createContext("/api", sanitize(new ApiController(dataService, authService)));
 
         // URL抑止管理（operator閲覧・admin操作）
-        server.createContext("/api/fragment/url_suppressions", new AuthenticationFilter(authService,
-            new UrlSuppressionController(authService)));
-        server.createContext("/api/url-suppressions", new AuthenticationFilter(authService,
-            new UrlSuppressionController(authService)));
+        server.createContext("/api/fragment/url_suppressions", sanitize(new AuthenticationFilter(authService,
+            new UrlSuppressionController(authService))));
+        server.createContext("/api/url-suppressions", sanitize(new AuthenticationFilter(authService,
+            new UrlSuppressionController(authService))));
 
         // ルートパス（ダッシュボードにリダイレクト）
-        server.createContext("/", new AuthenticationFilter(authService,
-            new MainController()));
+        server.createContext("/", sanitize(new AuthenticationFilter(authService,
+            new MainController())));
 
         // パスワード強制変更ページ（認証後）
-        server.createContext("/password/change", new AuthenticationFilter(authService,
-            new ForcePasswordChangeController(authService)));
+        server.createContext("/password/change", sanitize(new AuthenticationFilter(authService,
+            new ForcePasswordChangeController(authService))));
     }
 
     /**
@@ -208,5 +210,9 @@ public class WebApplication {
     private static String getEnvOrDefault(String envName, String defaultValue) {
         String value = System.getenv(envName);
         return value != null ? value : defaultValue;
+    }
+
+    private HttpHandler sanitize(HttpHandler handler) {
+        return new RequestSanitizationFilter(handler);
     }
 }

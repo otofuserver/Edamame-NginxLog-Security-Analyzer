@@ -58,12 +58,13 @@ public class LoginController implements HttpHandler {
             return;
         }
 
-        // URLクエリパラメータを解析
-        String query = exchange.getRequestURI().getQuery();
-        boolean showLogoutSuccess = query != null && query.contains("logout=success");
+        @SuppressWarnings("unchecked")
+        Map<String, String> safeQuery = (Map<String, String>) exchange.getAttribute(WebConstants.REQUEST_ATTR_SANITIZED_QUERY);
+        boolean showLogoutSuccess = safeQuery != null && "success".equals(safeQuery.get("logout"));
 
-        String loginHtml = generateLoginHtml(showLogoutSuccess);
-        sendHtmlResponse(exchange, loginHtml);
+        String scriptNonce = generateNonce();
+        String loginHtml = generateLoginHtml(showLogoutSuccess, scriptNonce);
+        sendHtmlResponse(exchange, loginHtml, scriptNonce);
     }
 
     /**
@@ -100,23 +101,24 @@ public class LoginController implements HttpHandler {
             }
         } else {
             // 認証失敗 - エラーメッセージ付きでログイン画面を再表示
-            String loginHtml = generateLoginHtml("ユーザー名またはパスワードが正しくありません。");
-            sendHtmlResponse(exchange, loginHtml);
+            String scriptNonce = generateNonce();
+            String loginHtml = generateLoginHtml("ユーザー名またはパスワードが正しくありません。", scriptNonce);
+            sendHtmlResponse(exchange, loginHtml, scriptNonce);
         }
     }
 
     /**
      * ログイン画面のHTMLを生成（ログアウト成功メッセージ対応）
      */
-    private String generateLoginHtml(boolean showLogoutSuccess) {
+    private String generateLoginHtml(boolean showLogoutSuccess, String scriptNonce) {
         String successMessage = showLogoutSuccess ? "ログアウトしました。" : null;
-        return generateLoginHtml(successMessage);
+        return generateLoginHtml(successMessage, scriptNonce);
     }
 
     /**
      * ログイン画面のHTMLを生成
      */
-    private String generateLoginHtml(String message) {
+    private String generateLoginHtml(String message, String scriptNonce) {
         StringBuilder html = new StringBuilder();
 
         html.append("""
@@ -274,11 +276,36 @@ public class LoginController implements HttpHandler {
                         <p>&copy; 2025 Edamame Security Analyzer</p>
                     </div>
                 </div>
-                <script>
-                    document.addEventListener('DOMContentLoaded', function() {
-                        document.getElementById('username').focus();
-                    });
-                    document.addEventListener('keypress', function(e) {
+                """);
+
+        String scriptBlockTemplate = """
+                <script nonce="__NONCE__">
+                      document.addEventListener('DOMContentLoaded', function() {
+                         document.getElementById('username').focus();
+                         // DOM XSS対策: 危険なリダイレクト系パラメータを破棄し、ヒストリーを書き換える
+                         try {
+                             const dangerousParams = ['redirect','url','next','return','callback'];
+                             const url = new URL(window.location.href);
+                             let mutated = false;
+                             dangerousParams.forEach(p => {
+                                 const v = url.searchParams.get(p);
+                                 if (v) {
+                                     const lower = v.toLowerCase();
+                                     const hasJs = lower.includes('javascript:');
+                                     const hasTag = /[<>]/.test(v);
+                                     if (hasJs || hasTag || !/^\\/[-A-Za-z0-9._/#?&=%%-]*$/.test(v)) {
+                                         url.searchParams.delete(p);
+                                         mutated = true;
+                                     }
+                                 }
+                             });
++                            // ハッシュはサーバで扱わないため無視
+                             if (mutated) {
+                                 window.history.replaceState({}, '', url.pathname + (url.search ? ('?' + url.searchParams.toString()) : '') + url.hash);
+                             }
+                         } catch (e) { /* ignore */ }
+                     });
+                     document.addEventListener('keypress', function(e) {
                         if (e.key === 'Enter') {
                             document.querySelector('form').submit();
                         }
@@ -286,7 +313,11 @@ public class LoginController implements HttpHandler {
                 </script>
             </body>
             </html>
-            """);
+            """;
+
+        String scriptBlock = scriptBlockTemplate.replace("__NONCE__", scriptNonce);
+
+        html.append(scriptBlock);
 
         return html.toString();
     }
@@ -337,7 +368,9 @@ public class LoginController implements HttpHandler {
     /**
      * HTMLレスポンスを送信
      */
-    private void sendHtmlResponse(HttpExchange exchange, String html) throws IOException {
+
+    private void sendHtmlResponse(HttpExchange exchange, String html, String scriptNonce) throws IOException {
+        applySecurityHeaders(exchange, scriptNonce);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
         exchange.sendResponseHeaders(200, html.getBytes(StandardCharsets.UTF_8).length);
@@ -351,8 +384,8 @@ public class LoginController implements HttpHandler {
      * ログイン成功レスポンスを送信（302リダイレクト）
      */
     private void sendLoginSuccessResponse(HttpExchange exchange) throws IOException {
-        // 明示的に view を付与してクライアント側の初期化を一貫させる
         exchange.getResponseHeaders().set("Location", "/main?view=main");
+        applySecurityHeaders(exchange, null);
         exchange.sendResponseHeaders(302, -1);
     }
 
@@ -360,8 +393,8 @@ public class LoginController implements HttpHandler {
      * ダッシュボードにリダイレクト
      */
     private void sendDashboardRedirect(HttpExchange exchange) throws IOException {
-        // 明示的に view パラメータを付与
         exchange.getResponseHeaders().set("Location", "/main?view=main");
+        applySecurityHeaders(exchange, null);
         exchange.sendResponseHeaders(302, -1);
     }
 
@@ -370,6 +403,7 @@ public class LoginController implements HttpHandler {
      */
     private void sendPasswordChangeRedirect(HttpExchange exchange) throws IOException {
         exchange.getResponseHeaders().set("Location", "/password/change");
+        applySecurityHeaders(exchange, null);
         exchange.sendResponseHeaders(302, -1);
     }
 
@@ -377,6 +411,7 @@ public class LoginController implements HttpHandler {
      * エラーレスポンスを送信
      */
     private void sendErrorResponse(HttpExchange exchange, int statusCode, String message) throws IOException {
+        applySecurityHeaders(exchange, null);
         exchange.sendResponseHeaders(statusCode, message.getBytes(StandardCharsets.UTF_8).length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(message.getBytes(StandardCharsets.UTF_8));
@@ -395,9 +430,28 @@ public class LoginController implements HttpHandler {
      */
     private void sendInternalServerError(HttpExchange exchange) throws IOException {
         String errorMessage = "Internal Server Error";
+        exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=UTF-8");
+        applySecurityHeaders(exchange, null);
         exchange.sendResponseHeaders(500, errorMessage.getBytes(StandardCharsets.UTF_8).length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(errorMessage.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    /**
+     * 基本的なセキュリティヘッダーを付与
+     */
+    private void applySecurityHeaders(HttpExchange exchange, String scriptNonce) {
+        exchange.getResponseHeaders().set("X-Content-Type-Options", "nosniff");
+        exchange.getResponseHeaders().set("X-Frame-Options", "DENY");
+        exchange.getResponseHeaders().set("X-XSS-Protection", "1; mode=block");
+        String cspScript = scriptNonce == null ? "'self'" : "'self' 'nonce-" + scriptNonce + "'";
+        exchange.getResponseHeaders().set("Content-Security-Policy", "default-src 'self'; script-src " + cspScript + "; style-src 'self' 'unsafe-inline'");
+    }
+
+    private String generateNonce() {
+        byte[] bytes = new byte[16];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getEncoder().encodeToString(bytes);
     }
 }

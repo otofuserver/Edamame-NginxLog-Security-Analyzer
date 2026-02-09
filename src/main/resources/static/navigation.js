@@ -2,7 +2,8 @@
     'use strict';
 
     async function navigateTo(view, push = true) {
-        if (window.dbg) window.dbg('navigateTo called, view=', view, 'push=', push);
+        try { if (window.sanitizeUrlParams) window.sanitizeUrlParams(); } catch(e) {}
+         if (window.dbg) window.dbg('navigateTo called, view=', view, 'push=', push);
         try {
             const main = document.getElementById('main-content'); if (!main) return;
             const routeMap = { 'dashboard': '/api/fragment/dashboard', 'template': '/api/fragment/test', 'users': '/api/fragment/users', 'servers': '/api/fragment/servers', 'url_threat': '/api/fragment/url_threat', 'url_suppression': '/api/fragment/url_suppressions' };
@@ -71,4 +72,4 @@
     }
 
     window.navigateTo = navigateTo;
-})();
+ })();

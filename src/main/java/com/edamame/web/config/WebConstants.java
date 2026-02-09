@@ -24,6 +24,7 @@ public final class WebConstants {
     public static final String REQUEST_ATTR_USERNAME = "username";
     public static final String REQUEST_ATTR_IS_ADMIN = "isAdmin";
     public static final String REQUEST_ATTR_SCRIPT_NONCE = "scriptNonce";
+    public static final String REQUEST_ATTR_SANITIZED_QUERY = "sanitizedQuery";
 
     /**
      * プライベートコンストラクタ（インスタンス化を防止）

@@ -27,6 +27,36 @@
     window.loadScript = loadScript;
     window.loadScriptsSequential = loadScriptsSequential;
 
+    function sanitizeUrlParams(extraParams) {
+        try {
+            const dangerousParams = Array.from(new Set(['redirect','url','next','return','callback'].concat(extraParams||[])));
+            const url = new URL(window.location.href);
+            let mutated = false;
+            dangerousParams.forEach(p => {
+                const v = url.searchParams.get(p);
+                if (!v) return;
+                const lower = v.toLowerCase();
+                const hasJs = lower.includes('javascript:');
+                const hasTag = /[<>]/.test(v);
+                const allowed = /^\/[\w./#?&=%-]*$/.test(v);
+                if (hasJs || hasTag || !allowed) {
+                    url.searchParams.delete(p);
+                    mutated = true;
+                }
+            });
+            if (url.hash && (url.hash.toLowerCase().includes('javascript:') || /[<>]/.test(url.hash))) {
+                url.hash = '';
+                mutated = true;
+            }
+            if (mutated) {
+                const newSearch = url.searchParams.toString();
+                const newUrl = url.pathname + (newSearch ? ('?' + newSearch) : '') + url.hash;
+                window.history.replaceState({}, '', newUrl);
+            }
+        } catch(e) { /* ignore */ }
+    }
+    window.sanitizeUrlParams = sanitizeUrlParams;
+
     // デバッグユーティリティ
     function dbg(...args) { try { if (window && window.console && console.debug) console.debug('[EDAMAME]', ...args); } catch(e) { /* ignore */ } }
     window.dbg = dbg;
@@ -62,6 +92,7 @@
 
     document.addEventListener('DOMContentLoaded', async function(){
         dbg('DOM ready - starting bootstrap');
+        sanitizeUrlParams();
         // 依存モジュールを順に読み込む
         await loadScriptsSequential(['/static/sidebar_mini_menu.js','/static/profile_modal.js','/static/password_modal.js','/static/logout.js','/static/mini_menu.js','/static/list_view_core.js','/static/url_threat.js']);
         dbg('loaded core modules, loadedScripts=', Array.from(_loadedScripts));
@@ -181,5 +212,3 @@
         }
     });
 })();
-
-
