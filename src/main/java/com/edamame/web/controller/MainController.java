@@ -135,6 +135,16 @@ public class MainController implements HttpHandler {
                     fragmentHtml = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"url_suppression\">" + tpl + "</div>";
                 }
             }
+            case "whitelist_settings" -> {
+                if (!isAdmin) {
+                    fragmentHtml = "<div class=\"fragment-root\" data-auto-refresh=\"0\"><div class=\"card\"><p>管理者のみ閲覧可能です</p></div></div>";
+                    break;
+                }
+                String tpl = fragmentService.getFragmentTemplate("whitelist_settings");
+                if (tpl != null) {
+                    fragmentHtml = "<div class=\"fragment-root\" data-auto-refresh=\"0\" data-fragment-name=\"whitelist_settings\">" + tpl + "</div>";
+                }
+            }
             case "test" -> fragmentHtml = fragmentService.testFragment();
             default -> {
                 String tpl = fragmentService.getFragmentTemplate(currentView);

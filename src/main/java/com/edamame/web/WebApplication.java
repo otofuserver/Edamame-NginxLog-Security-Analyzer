@@ -155,6 +155,12 @@ public class WebApplication {
         server.createContext("/api/url-suppressions", sanitize(new AuthenticationFilter(authService,
             new UrlSuppressionController(authService))));
 
+        // ホワイトリスト設定（admin専用）
+        server.createContext("/api/fragment/whitelist_settings", sanitize(new AuthenticationFilter(authService,
+            new WhitelistSettingsController(authService))));
+        server.createContext("/api/whitelist-settings", sanitize(new AuthenticationFilter(authService,
+            new WhitelistSettingsController(authService))));
+
         // ルートパス（ダッシュボードにリダイレクト）
         server.createContext("/", sanitize(new AuthenticationFilter(authService,
             new MainController())));

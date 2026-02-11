@@ -1,9 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-**specification.txt version**: v1.0.58
-- **最終更新**: 2026-01-17
-- 注記: URL抑止管理を追加（正規表現での破棄条件、operator閲覧/admin操作、url_suppressionsテーブル）。
+**specification.txt version**: v1.0.60
+- **最終更新**: 2026-02-11
+- 注記: ホワイトリスト設定変更時にauditorロール（および上位ロール）へ監査メールを送信するように対応。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 

@@ -120,7 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- URL脅威度ビューを追加し、サーバー選択と脅威度フィルタ（安全/危険/注意/不明/全件）付きで色分け表示を実装。
+ - ホワイトリスト設定変更（モードON/OFF・IP追加/削除）時にauditorロールおよび上位ロールへ監査メールを送信。
+ - URL脅威度ビューを追加し、サーバー選択と脅威度フィルタ（安全/危険/注意/不明/全件）付きで色分け表示を実装。
 - feat(web): 管理者向けユーザー管理断片を追加（断片: `/api/fragment/users`、検索API: `/api/users`）。
   - 管理者ロールのみ閲覧可能（AuthenticationService / users_roles を参照して判定）。
   - 検索はサーバーサイドで実行（ユーザー名・メールアドレスで部分一致検索、ページング対応）。
@@ -137,6 +138,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - url_suppressions テーブルの UNIQUE 制約を撤廃し、パターン重複を許容。
 - users テーブルの must_change_password / password_changed_at カラム仕様を明記し、強制パスワード変更フローをドキュメントに反映
 - サイドバーに「設定」ミニメニューを追加し、URL指定非監視設定ビューへ遷移する項目を提供
+- ホワイトリスト設定フラグメントを追加（admin限定）。モード切替スイッチと許可IPリスト管理をWeb UI化し、list_view_coreで描画。
+- 設定ミニメニューにホワイトリスト設定リンクを追加。
 
 ### Changed
 - fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）

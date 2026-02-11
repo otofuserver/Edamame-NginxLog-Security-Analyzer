@@ -104,12 +104,7 @@ public class DbSchema {
         settingsDefs.put("whitelist_mode", "BOOLEAN DEFAULT FALSE");
         settingsDefs.put("whitelist_ip", "VARCHAR(370) DEFAULT ''");
         settingsDefs.put("log_retention_days", "INT DEFAULT 365");
-        // 旧カラム名からの移行
-        var settingsMigrate = new java.util.HashMap<String, String>();
-        settingsMigrate.put("access_log_retention_days", "log_retention_days");
-        settingsMigrate.put("login_history_retention_days", "log_retention_days");
-        settingsMigrate.put("action_execution_log_retention_days", "log_retention_days");
-        autoSyncTableColumns(dbSession, "settings", settingsDefs, settingsMigrate);
+        autoSyncTableColumns(dbSession, "settings", settingsDefs, null);
 
         // users
         var usersDefs = new java.util.LinkedHashMap<String, String>();

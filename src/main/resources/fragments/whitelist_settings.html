@@ -1,0 +1,51 @@
+<!-- ホワイトリスト設定断片（admin限定） -->
+<div class="card" id="whitelist-settings-card">
+  <h2>ホワイトリスト設定</h2>
+  <p class="text-muted">ホワイトリストモードの切り替えと登録IPの管理を行います</p>
+  <p class="text-muted">登録IPからのアクセスは自動的にURL脅威度が安全に設定されます</p>
+
+  <div class="whitelist-row">
+    <div class="switch-container">
+      <label for="whitelist-mode-toggle">ホワイトリストモード</label><br>
+      <label class="switch">
+        <input type="checkbox" id="whitelist-mode-toggle" aria-label="ホワイトリストモード切替" />
+        <span class="slider round"></span>
+      </label>
+      <span id="whitelist-mode-status" class="status-label">OFF</span>
+    </div>
+  </div>
+
+  <div class="whitelist-row add-ip-row">
+    <div class="add-ip-header" style="display:flex;justify-content:space-between;align-items:center;gap:.5rem;">
+      <label for="whitelist-ip-input" style="margin:0;">新規登録IP</label>
+      <button type="button" id="whitelist-add-btn">追加</button>
+    </div>
+    <div class="ip-input-group">
+      <input type="text" id="whitelist-ip-input" placeholder="例: 203.0.113.10 または 2001:db8::1" aria-label="許可IP入力" />
+    </div>
+    <small class="text-muted">複数追加はカンマ区切りで入力できます。</small>
+    <div id="whitelist-error" class="form-error" style="display:none;"></div>
+  </div>
+
+  <div id="whitelist-list" class="whitelist-list">
+    <table class="table" aria-label="登録IP一覧">
+      <thead>
+        <tr>
+          <th data-column="ip" scope="col">IPアドレス</th>
+          <th scope="col" style="width:120px;">操作</th>
+        </tr>
+      </thead>
+      <tbody id="whitelist-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="/static/list_view_core.js"></script>
+<script src="/static/whitelist_settings.js"></script>
+<script>
+  (function(){
+    try {
+      window.WhitelistSettings && window.WhitelistSettings.init && window.WhitelistSettings.init();
+    } catch (e) { console.error('WhitelistSettings init error', e); }
+  })();
+</script>

@@ -439,5 +439,35 @@ public class DbUpdate {
                                                Timestamp latestAccessTime, Integer latestStatusCode, Boolean latestBlockedByModsec) throws SQLException {
         DbRegistry.updateUrlRegistryLatest(dbSession, serverName, method, fullUrl, latestAccessTime, latestStatusCode, latestBlockedByModsec);
     }
+
+    /**
+     * ホワイトリスト設定を更新
+     * @param dbSession データベースセッション
+     * @param whitelistMode ホワイトリストモード
+     * @param whitelistIp カンマ区切りIP一覧
+     * @throws SQLException SQL例外
+     */
+    public static void updateWhitelistSettings(DbSession dbSession, boolean whitelistMode, String whitelistIp) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                String sql = """
+                    UPDATE settings
+                    SET whitelist_mode = ?, whitelist_ip = ?
+                    WHERE id = 1
+                    """;
+                try (var pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setBoolean(1, whitelistMode);
+                    pstmt.setString(2, whitelistIp == null ? "" : whitelistIp);
+                    int updated = pstmt.executeUpdate();
+                    if (updated == 0) {
+                        AppLogger.warn("settingsテーブルが存在しないためwhitelist設定を更新できません");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("ホワイトリスト設定更新エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
+    }
 }
 

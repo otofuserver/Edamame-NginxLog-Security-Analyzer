@@ -210,3 +210,18 @@ tr:hover { background: #fafcff; }
 #url-suppression-results table.table td.mono {
   mask-image: linear-gradient(90deg, #000 85%, rgba(0,0,0,0));
 }
+
+/* ホワイトリスト設定用スイッチ・リンクボタン・レイアウト調整 */
+.switch { position: relative; display: inline-block; width: 46px; height: 24px; margin-left: .5rem; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; inset: 0; background-color: #ccc; transition: .2s; border-radius: 24px; }
+.slider:before { position: absolute; content: ""; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; transition: .2s; border-radius: 50%; }
+input:checked + .slider { background-color: #4caf50; }
+input:checked + .slider:before { transform: translateX(22px); }
+.switch-container { display:flex; align-items:center; gap:.5rem; margin-bottom:1rem; }
+.link-like { background:none; border:none; color:#1f6feb; cursor:pointer; text-decoration:underline; padding:0; }
+.whitelist-row { margin-bottom:1rem; display:flex; flex-direction:column; gap:.35rem; }
+.whitelist-row .ip-input-group { display:flex; gap:.5rem; align-items:center; }
+.whitelist-row input[type='text'] { width:100%; }
+#whitelist-list table.table { min-width: 460px; }
+.form-error { color:#b00020; }

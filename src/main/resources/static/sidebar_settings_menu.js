@@ -15,7 +15,8 @@
 
                 const operatorEl = document.getElementById('current-user-operator');
                 const adminEl = document.getElementById('current-user-admin');
-                const canOperate = (adminEl && adminEl.dataset.isAdmin === 'true') || (operatorEl && operatorEl.dataset.isOperator === 'true');
+                const isAdmin = adminEl && adminEl.dataset.isAdmin === 'true';
+                const canOperate = isAdmin || (operatorEl && operatorEl.dataset.isOperator === 'true');
 
                 btn.addEventListener('click', (ev) => {
                     ev.preventDefault();
@@ -47,6 +48,22 @@
                                         }
                                     } catch (e) {
                                         window.location.href = '/main?view=url_suppression';
+                                    }
+                                }
+                            },
+                            {
+                                label: 'ホワイトリスト設定',
+                                requirePermission: true,
+                                disabled: !isAdmin,
+                                onClick: () => {
+                                    try {
+                                        if (window.navigateTo) {
+                                            window.navigateTo('whitelist_settings', true);
+                                        } else {
+                                            window.location.href = '/main?view=whitelist_settings';
+                                        }
+                                    } catch (e) {
+                                        window.location.href = '/main?view=whitelist_settings';
                                     }
                                 }
                             }

@@ -445,4 +445,15 @@ public final class DbService {
         checkInitialized();
         globalSession.rollback();
     }
+
+    /**
+     * ホワイトリスト設定を更新
+     * @param whitelistMode ホワイトリストモード
+     * @param whitelistIp カンマ区切りIP一覧
+     * @throws SQLException SQL例外
+     */
+    public static void updateWhitelistSettings(boolean whitelistMode, String whitelistIp) throws SQLException {
+        checkInitialized();
+        DbUpdate.updateWhitelistSettings(globalSession, whitelistMode, whitelistIp);
+    }
 }

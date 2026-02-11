@@ -153,6 +153,7 @@
                         }
                         const hasUrlThreat = initialView === 'url_threat' || !!mainEl.querySelector('#url-threat-table');
                         const hasUrlSuppression = initialView === 'url_suppression' || !!mainEl.querySelector('#url-suppression-results');
+                        const hasWhitelistSettings = initialView === 'whitelist_settings' || !!mainEl.querySelector('#whitelist-settings-card');
                         if (hasUrlThreat) {
                             await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/url_threat.js']);
                             if (window.UrlThreat && typeof window.UrlThreat.init === 'function') {
@@ -166,6 +167,13 @@
                                 try { window.UrlSuppression.init(); } catch (e) { console.error('UrlSuppression.init error (server-rendered)', e); }
                             }
                             dbg('initialized url suppression because hasUrlSuppression=true');
+                        }
+                        if (hasWhitelistSettings) {
+                            await loadScriptsSequential(['/static/list_view_core.js','/static/whitelist_settings.js']);
+                            if (window.WhitelistSettings && typeof window.WhitelistSettings.init === 'function') {
+                                try { window.WhitelistSettings.init(); } catch (e) { console.error('WhitelistSettings.init error (server-rendered)', e); }
+                            }
+                            dbg('initialized whitelist settings because hasWhitelistSettings=true');
                         }
 
                         // 強制的なビュー別初期化
@@ -200,6 +208,13 @@
                                     try { window.UrlSuppression.init(); } catch(e) { console.error('UrlSuppression.init error (force)', e); }
                                 }
                             }
+                            if (initialView === 'whitelist_settings') {
+                                dbg('forcing whitelist_settings init because initialView=whitelist_settings');
+                                await loadScriptsSequential(['/static/list_view_core.js','/static/whitelist_settings.js']);
+                                if (window.WhitelistSettings && typeof window.WhitelistSettings.init === 'function') {
+                                    try { window.WhitelistSettings.init(); } catch(e) { console.error('WhitelistSettings.init error (force)', e); }
+                                }
+                            }
                         } catch(e) {
                             console.warn('server-rendered forced init error', e);
                         }
@@ -208,6 +223,7 @@
                     }
                 }
             }
+
         } catch(e) {
             console.error('initial navigation error', e);
         }
