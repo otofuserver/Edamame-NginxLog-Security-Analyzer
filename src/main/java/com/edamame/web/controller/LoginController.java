@@ -280,32 +280,32 @@ public class LoginController implements HttpHandler {
 
         String scriptBlockTemplate = """
                 <script nonce="__NONCE__">
-                      document.addEventListener('DOMContentLoaded', function() {
-                         document.getElementById('username').focus();
-                         // DOM XSS対策: 危険なリダイレクト系パラメータを破棄し、ヒストリーを書き換える
-                         try {
-                             const dangerousParams = ['redirect','url','next','return','callback'];
-                             const url = new URL(window.location.href);
-                             let mutated = false;
-                             dangerousParams.forEach(p => {
-                                 const v = url.searchParams.get(p);
-                                 if (v) {
-                                     const lower = v.toLowerCase();
-                                     const hasJs = lower.includes('javascript:');
-                                     const hasTag = /[<>]/.test(v);
-                                     if (hasJs || hasTag || !/^\\/[-A-Za-z0-9._/#?&=%%-]*$/.test(v)) {
-                                         url.searchParams.delete(p);
-                                         mutated = true;
-                                     }
-                                 }
-                             });
-+                            // ハッシュはサーバで扱わないため無視
-                             if (mutated) {
-                                 window.history.replaceState({}, '', url.pathname + (url.search ? ('?' + url.searchParams.toString()) : '') + url.hash);
-                             }
-                         } catch (e) { /* ignore */ }
-                     });
-                     document.addEventListener('keypress', function(e) {
+                    document.addEventListener('DOMContentLoaded', function() {
+                        document.getElementById('username').focus();
+                        // DOM XSS対策: 危険なリダイレクト系パラメータを破棄し、ヒストリーを書き換える
+                        try {
+                            const dangerousParams = ['redirect','url','next','return','callback'];
+                            const url = new URL(window.location.href);
+                            let mutated = false;
+                            dangerousParams.forEach(p => {
+                                const v = url.searchParams.get(p);
+                                if (v) {
+                                    const lower = v.toLowerCase();
+                                    const hasJs = lower.includes('javascript:');
+                                    const hasTag = /[<>]/.test(v);
+                                    if (hasJs || hasTag || !/^\\/[-A-Za-z0-9._/#?&=%%-]*$/.test(v)) {
+                                        url.searchParams.delete(p);
+                                        mutated = true;
+                                    }
+                                }
+                            });
+                            // ハッシュはサーバで扱わないため無視
+                            if (mutated) {
+                                window.history.replaceState({}, '', url.pathname + (url.search ? ('?' + url.searchParams.toString()) : '') + url.hash);
+                            }
+                        } catch (e) { /* ignore */ }
+                    });
+                    document.addEventListener('keypress', function(e) {
                         if (e.key === 'Enter') {
                             document.querySelector('form').submit();
                         }
