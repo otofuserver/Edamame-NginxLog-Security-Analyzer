@@ -308,8 +308,8 @@ public class AuthenticationService {
         if (ipBytes == null) {
             return;
         }
-        String sql = "INSERT INTO block_ip (ip_address, service_type, target_agent_name, reason, trigger_source, start_at, end_at, status, created_by, updated_by) " +
-                "VALUES (?, 'APP_LOGIN', NULL, ?, 'RATE_LIMIT', NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE), 'ACTIVE', ?, ?)";
+        String sql = "INSERT INTO block_ip (ip_address, service_type, target_agent_name, reason, start_at, end_at, status, created_by, updated_by) " +
+                "VALUES (?, 'APP_LOGIN', NULL, ?, NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE), 'ACTIVE', ?, ?)";
         try (PreparedStatement stmt = getConnection().prepareStatement(sql)) {
             stmt.setBytes(1, ipBytes);
             stmt.setString(2, "ログイン失敗が5回/5分に到達したため自動ブロック");

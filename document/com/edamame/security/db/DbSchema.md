@@ -96,3 +96,4 @@
 - 2026-01-20: url_suppressions テーブルを追加（URL抑止ルール管理）。
 - 2026-02-08: usersテーブルに must_change_password / password_changed_at を追記し、初回パスワード変更フローを反映
 - 2026-02-20: block_ipテーブルとsettingsのblock_ip_retention_daysを追加し、ブロックIP保持期間削除を仕様化
+- 2026-03-16: block_ipからtrigger_sourceカラムを廃止し、テーブル定義を整理

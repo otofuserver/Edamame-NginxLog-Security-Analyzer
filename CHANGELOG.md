@@ -119,6 +119,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- block_ip テーブルから `trigger_source` カラムを削除し、スキーマ自動同期とログイン自動ブロック登録処理を更新。
+
 ### Added
  - ホワイトリスト設定変更（モードON/OFF・IP追加/削除）時にauditorロールおよび上位ロールへ監査メールを送信。
  - URL脅威度ビューを追加し、サーバー選択と脅威度フィルタ（安全/危険/注意/不明/全件）付きで色分け表示を実装。

@@ -1,9 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.62
-- **最終更新**: 2026-03-11
-- 注記: ブロックIPクリーンアップを専用バッチに分離し、メンテナンス呼び出しを整理。
+- **specification.txt version**: v1.0.63
+- **最終更新**: 2026-03-16
+- 注記: block_ip から trigger_source を廃止し、関連処理を整理。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 
