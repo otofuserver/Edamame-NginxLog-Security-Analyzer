@@ -8,18 +8,18 @@ import java.sql.SQLException;
  * DBログ自動削除バッチ処理ユーティリティ
  * settingsテーブルの保存日数に従い、各テーブルの古いレコードを削除する
  * v2.1.0: DbService static化に対応、DbSessionを直接受け取る設計に変更
+ * v2.2.0: block_ipクリーンアップを専用バッチに分離
  */
 public class DbDelete {
 
     /**
-     * ログ自動削除バッチ処理
+     * ログ自動削除バッチ処理（ログ系テーブル専用）
      * @param dbSession データベースセッション
      */
     public static void runLogCleanupBatch(DbSession dbSession) {
         try {
             dbSession.execute(conn -> {
                 try {
-                    // settingsテーブルから保存日数設定を取得
                     String settingsSql = "SELECT log_retention_days FROM settings WHERE id = 1";
 
                     try (var pstmt = conn.prepareStatement(settingsSql)) {
@@ -44,7 +44,7 @@ public class DbDelete {
                                 // アクション実行ログを削除
                                 deleteOldActionExecutionLog(dbSession, retentionDays);
 
-                                AppLogger.info("ログクリーンアップバッチ完了: " + retentionDays + "日以前のデータを削除");
+                                AppLogger.info("ログクリーンアップバッチ完了: " + retentionDays + "日以前のログ系データを削除");
                             }
                         } else {
                             AppLogger.warn("log_retention_days設定が見つかりません");
@@ -59,6 +59,97 @@ public class DbDelete {
             AppLogger.error("ログクリーンアップバッチで致命的エラー: " + e.getMessage());
         }
     }
+
+    /**
+     * ブロックIP専用のクリーンアップバッチ処理
+     * settings.block_ip_retention_days に従って期限切れ更新と削除を行う
+     * @param dbSession データベースセッション
+     */
+    public static void runBlockIpCleanupBatch(DbSession dbSession) {
+        try {
+            dbSession.execute(conn -> {
+                try {
+                    if (!tableExists(conn, "block_ip")) {
+                        AppLogger.warn("ブロックIPクリーンアップをスキップ: block_ipテーブルが存在しません");
+                        return;
+                    }
+
+                    int blockRetentionDays = 30;
+                    if (tableExists(conn, "settings") && hasColumn(conn, "settings", "block_ip_retention_days")) {
+                        // noinspection SqlResolve
+                        try (var pstmt = conn.prepareStatement("SELECT block_ip_retention_days FROM settings WHERE id = 1")) {
+                            var rs = pstmt.executeQuery();
+                            if (rs.next()) {
+                                blockRetentionDays = rs.getInt("block_ip_retention_days");
+                            }
+                        }
+                    }
+
+                    // end_at経過分をEXPIREDへ更新
+                    markExpiredBlockedIp(dbSession);
+
+                    // 保持期間経過分を削除（負値設定時は内部でスキップ）
+                    deleteOldBlockedIp(dbSession, blockRetentionDays);
+
+                    AppLogger.info("ブロックIPクリーンアップバッチ完了: 保持" + blockRetentionDays + "日設定");
+                } catch (Exception e) {
+                    AppLogger.error("ブロックIPクリーンアップバッチエラー: " + e.getMessage());
+                    throw new RuntimeException(e);
+                }
+            });
+        } catch (Exception e) {
+            AppLogger.error("ブロックIPクリーンアップバッチで致命的エラー: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 有効期限切れのブロックIPをEXPIREDに更新
+     */
+    private static void markExpiredBlockedIp(DbSession dbSession) throws SQLException {
+        dbSession.execute(conn -> {
+            try {
+                final String tableName = "block_ip";
+                if (!tableExists(conn, tableName)) return; // 旧環境互換
+                // noinspection SqlResolve
+                String sql = "UPDATE " + tableName + " SET status = 'EXPIRED', updated_at = NOW(), updated_by = 'system' " +
+                        "WHERE status = 'ACTIVE' AND end_at IS NOT NULL AND end_at <= NOW()";
+                try (var pstmt = conn.prepareStatement(sql)) {
+                    int updated = pstmt.executeUpdate();
+                    if (updated > 0) {
+                        AppLogger.info("期限切れブロックIPをEXPIREDへ更新: " + updated + " 件");
+                    }
+                }
+            } catch (SQLException e) {
+                AppLogger.error("期限切れブロックIP更新エラー: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    /**
+     * 期限切れまたは解除済みのブロックIPを削除
+     */
+    private static void deleteOldBlockedIp(DbSession dbSession, int blockRetentionDays) throws SQLException {
+         if (blockRetentionDays < 0) return; // 無効設定時はスキップ
+         dbSession.execute(conn -> {
+             try {
+                 final String tableName = "block_ip";
+                 if (!tableExists(conn, tableName)) return; // 旧環境互換
+                // noinspection SqlResolve
+                 String sql = "DELETE FROM " + tableName + " WHERE status IN ('EXPIRED','REVOKED') AND updated_at < DATE_SUB(NOW(), INTERVAL ? DAY)";
+                try (var pstmt = conn.prepareStatement(sql)) {
+                    pstmt.setInt(1, blockRetentionDays);
+                    int deleted = pstmt.executeUpdate();
+                    if (deleted > 0) {
+                        AppLogger.info("古いブロックIPレコードを削除: " + deleted + " 件");
+                    }
+                }
+             } catch (SQLException e) {
+                 AppLogger.error("ブロックIP削除エラー: " + e.getMessage());
+                 throw new RuntimeException(e);
+             }
+         });
+     }
 
     /**
      * 古いModSecurityアラートを削除
@@ -397,5 +488,30 @@ public class DbDelete {
         });
     }
     
-    
+    // カラム存在チェック（旧環境互換用）
+    @SuppressWarnings({"SqlResolve","SameParameterValue"})
+    private static boolean hasColumn(java.sql.Connection conn, String tableName, String columnName) {
+         try (var ps = conn.prepareStatement("SHOW COLUMNS FROM " + tableName + " LIKE ?")) {
+            ps.setString(1, columnName);
+            try (var rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    // テーブル存在チェック（旧環境互換用）
+    @SuppressWarnings({"SqlResolve","SameParameterValue","BooleanMethodIsAlwaysInverted"})
+    private static boolean tableExists(java.sql.Connection conn, String tableName) {
+          try (var ps = conn.prepareStatement("SHOW TABLES LIKE ?")) {
+              ps.setString(1, tableName);
+              try (var rs = ps.executeQuery()) {
+                  return rs.next();
+              }
+          } catch (SQLException e) {
+              return false;
+          }
+      }
+
 }

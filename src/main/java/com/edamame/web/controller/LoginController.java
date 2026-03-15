@@ -88,6 +88,16 @@ public class LoginController implements HttpHandler {
         // IPアドレスとUser-Agentを取得
         String ipAddress = exchange.getRemoteAddress() != null ? exchange.getRemoteAddress().getAddress().getHostAddress() : "";
         String userAgent = exchange.getRequestHeaders().getFirst("User-Agent");
+
+        // IPブロック中なら429でログインフォームを再表示（汎用メッセージ＋再試行案内）
+        if (authService.isLoginBlocked(ipAddress)) {
+            authService.insertLoginHistory(username, false, ipAddress, userAgent);
+            AppLogger.warn("ブロック中IPからのログイン試行を拒否: " + ipAddress);
+            String scriptNonce = generateNonce();
+            String loginHtml = generateLoginHtml("ユーザー名またはパスワードが正しくありません。数分後に再試行してください。", scriptNonce);
+            sendHtmlResponse(exchange, loginHtml, scriptNonce, 429);
+            return;
+        }
         // 認証を実行（IP・UA付き）
         AuthResult authResult = authService.authenticate(username, password, rememberMe, ipAddress, userAgent);
 
@@ -370,13 +380,21 @@ public class LoginController implements HttpHandler {
      */
 
     private void sendHtmlResponse(HttpExchange exchange, String html, String scriptNonce) throws IOException {
+        sendHtmlResponse(exchange, html, scriptNonce, 200);
+    }
+
+    /**
+     * HTMLレスポンスを送信（ステータス指定）
+     */
+    private void sendHtmlResponse(HttpExchange exchange, String html, String scriptNonce, int statusCode) throws IOException {
         applySecurityHeaders(exchange, scriptNonce);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=UTF-8");
         exchange.getResponseHeaders().set("Cache-Control", "no-cache, no-store, must-revalidate");
-        exchange.sendResponseHeaders(200, html.getBytes(StandardCharsets.UTF_8).length);
+        byte[] body = html.getBytes(StandardCharsets.UTF_8);
+        exchange.sendResponseHeaders(statusCode, body.length);
 
         try (OutputStream os = exchange.getResponseBody()) {
-            os.write(html.getBytes(StandardCharsets.UTF_8));
+            os.write(body);
         }
     }
 

@@ -104,7 +104,25 @@ public class DbSchema {
         settingsDefs.put("whitelist_mode", "BOOLEAN DEFAULT FALSE");
         settingsDefs.put("whitelist_ip", "VARCHAR(370) DEFAULT ''");
         settingsDefs.put("log_retention_days", "INT DEFAULT 365");
+        settingsDefs.put("block_ip_retention_days", "INT DEFAULT 30");
         autoSyncTableColumns(dbSession, "settings", settingsDefs, null);
+
+        // block_ip
+        var blockIpDefs = new java.util.LinkedHashMap<String, String>();
+        blockIpDefs.put("id", "BIGINT AUTO_INCREMENT PRIMARY KEY");
+        blockIpDefs.put("ip_address", "VARBINARY(16) NOT NULL");
+        blockIpDefs.put("service_type", "ENUM('MONITOR_BLOCK','APP_LOGIN') NOT NULL");
+        blockIpDefs.put("target_agent_name", "VARCHAR(128)");
+        blockIpDefs.put("reason", "VARCHAR(255) NOT NULL");
+        blockIpDefs.put("trigger_source", "ENUM('MODSEC','WAF','RATE_LIMIT','MANUAL','OTHER') NOT NULL");
+        blockIpDefs.put("start_at", "DATETIME NOT NULL");
+        blockIpDefs.put("end_at", "DATETIME NULL");
+        blockIpDefs.put("status", "ENUM('ACTIVE','EXPIRED','REVOKED') NOT NULL DEFAULT 'ACTIVE'");
+        blockIpDefs.put("created_at", "DATETIME DEFAULT CURRENT_TIMESTAMP");
+        blockIpDefs.put("updated_at", "DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+        blockIpDefs.put("created_by", "VARCHAR(64) NOT NULL");
+        blockIpDefs.put("updated_by", "VARCHAR(64) NOT NULL");
+        autoSyncTableColumns(dbSession, "block_ip", blockIpDefs, null);
 
         // users
         var usersDefs = new java.util.LinkedHashMap<String, String>();

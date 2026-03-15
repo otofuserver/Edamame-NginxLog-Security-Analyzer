@@ -41,32 +41,48 @@ public class DbInitialData {
      * settingsテーブルの初期データを挿入（現行スキーマに合わせて修正）
      */
     private static void initializeSettingsTable(DbSession dbSession) throws SQLException {
-        dbSession.execute(conn -> {
-            try {
-                boolean isEmpty;
-                try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM settings")) {
-                    ResultSet rs = pstmt.executeQuery();
-                    isEmpty = rs.next() && rs.getInt(1) == 0;
-                }
+         dbSession.execute(conn -> {
+             try {
+                 boolean isEmpty;
+                 try (PreparedStatement pstmt = conn.prepareStatement("SELECT COUNT(*) FROM settings")) {
+                     ResultSet rs = pstmt.executeQuery();
+                     isEmpty = rs.next() && rs.getInt(1) == 0;
+                 }
 
-                if (isEmpty) {
-                    // settingsテーブルはid=1の単一レコードのみ
-                    String insertSql = "INSERT INTO settings (id, whitelist_mode, whitelist_ip, log_retention_days) VALUES (?, ?, ?, ?)";
+                 if (isEmpty) {
+                     // settingsテーブルはid=1の単一レコードのみ
+                    boolean hasBlockRetention = hasColumn(conn, "settings", "block_ip_retention_days");
+
+                    java.util.List<String> cols = new java.util.ArrayList<>();
+                    cols.add("id");
+                    cols.add("whitelist_mode");
+                    cols.add("whitelist_ip");
+                    cols.add("log_retention_days");
+                    if (hasBlockRetention) cols.add("block_ip_retention_days");
+
+                    String insertSql = buildInsertSql("settings", cols);
                     try (PreparedStatement pstmt = conn.prepareStatement(insertSql)) {
-                        pstmt.setInt(1, 1);
-                        pstmt.setBoolean(2, false); // デフォルト: ホワイトリスト無効
-                        pstmt.setString(3, "");    // デフォルト: 空
-                        pstmt.setInt(4, 365);       // デフォルト: 365日
+                        int idx = 1;
+                        for (String col : cols) {
+                            switch (col) {
+                                case "id" -> pstmt.setInt(idx++, 1);
+                                case "whitelist_mode" -> pstmt.setBoolean(idx++, false);
+                                case "whitelist_ip" -> pstmt.setString(idx++, "");
+                                case "log_retention_days" -> pstmt.setInt(idx++, 365);
+                                case "block_ip_retention_days" -> pstmt.setInt(idx++, 30);
+                                default -> pstmt.setObject(idx++, null);
+                            }
+                        }
                         pstmt.executeUpdate();
                         AppLogger.info("settingsテーブル初期データ挿入完了（id=1固定、現行スキーマ対応）");
                     }
-                }
-            } catch (SQLException e) {
-                AppLogger.error("settingsテーブル初期データ挿入エラー: " + e.getMessage());
-                throw new RuntimeException(e);
-            }
-        });
-    }
+                 }
+             } catch (SQLException e) {
+                 AppLogger.error("settingsテーブル初期データ挿入エラー: " + e.getMessage());
+                 throw new RuntimeException(e);
+             }
+         });
+     }
 
     /**
      * rolesテーブルの初期データを挿入
@@ -126,11 +142,31 @@ public class DbInitialData {
                     BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
                     String hashedPassword = passwordEncoder.encode("admin123");
 
-                    String insertUserSql = "INSERT INTO users (username, email, password_hash, is_active, must_change_password) VALUES (?, ?, ?, TRUE, TRUE)";
+                    boolean hasMustChange = hasColumn(conn, "users", "must_change_password");
+                    boolean hasPasswordChangedAt = hasColumn(conn, "users", "password_changed_at");
+
+                    java.util.List<String> cols = new java.util.ArrayList<>();
+                    cols.add("username");
+                    cols.add("email");
+                    cols.add("password_hash");
+                    cols.add("is_active");
+                    if (hasMustChange) cols.add("must_change_password");
+                    if (hasPasswordChangedAt) cols.add("password_changed_at");
+
+                    String insertUserSql = buildInsertSql("users", cols);
                     try (PreparedStatement pstmt = conn.prepareStatement(insertUserSql, Statement.RETURN_GENERATED_KEYS)) {
-                        pstmt.setString(1, "admin");
-                        pstmt.setString(2, "admin@example.com");
-                        pstmt.setString(3, hashedPassword);
+                        int idx = 1;
+                        for (String col : cols) {
+                            switch (col) {
+                                case "username" -> pstmt.setString(idx++, "admin");
+                                case "email" -> pstmt.setString(idx++, "admin@example.com");
+                                case "password_hash" -> pstmt.setString(idx++, hashedPassword);
+                                case "is_active" -> pstmt.setBoolean(idx++, true);
+                                case "must_change_password" -> pstmt.setBoolean(idx++, true);
+                                case "password_changed_at" -> pstmt.setTimestamp(idx++, null);
+                                default -> pstmt.setObject(idx++, null);
+                            }
+                        }
                         pstmt.executeUpdate();
                         AppLogger.info("usersテーブル初期データ挿入完了 (デフォルト管理者: admin/admin123)");
 

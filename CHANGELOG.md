@@ -140,6 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - サイドバーに「設定」ミニメニューを追加し、URL指定非監視設定ビューへ遷移する項目を提供
 - ホワイトリスト設定フラグメントを追加（admin限定）。モード切替スイッチと許可IPリスト管理をWeb UI化し、list_view_coreで描画。
 - 設定ミニメニューにホワイトリスト設定リンクを追加。
+- block_ipテーブルを追加し、単一IPブロックの履歴・状態を保存（VARBINARY(16)でIPv4/IPv6対応）。
 
 ### Changed
 - fix(web): `WebApplication` のルーティングを更新して `/api/me` 配下のメール変更エンドポイントを `UserManagementController` に割り当て（POST の 405 回避）
@@ -151,6 +152,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `is_whitelisted` をユーザー操作で false に戻せるよう仕様を更新（危険/解除操作でホワイトリスト解除を許可）。
 - url_registry の既存URL再アクセス時に `latest_access_time`/`latest_status_code`/`latest_blocked_by_modsec` を即時同期するよう AgentTcpServer・DbUpdate/DbRegistry/DbService を更新
 - UI: サーバー管理・ユーザー管理のテーブルヘッダーにソート方向（▲/▼）を表示
+- settingsテーブルにblock_ip_retention_daysを追加
+- ログクリーンアップバッチからブロックIP処理を分離し、`runBlockIpCleanupBatch` として専用実行に変更。
 
 ### Fixed
 - UI: URL脅威度テーブルの「脅威度」「攻撃タイプ」「メソッド」ヘッダーが折り返されないように改行禁止と最小幅を設定

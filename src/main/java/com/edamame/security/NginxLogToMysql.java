@@ -58,6 +58,8 @@ public class NginxLogToMysql {
 
     // 定期メンテナンス用: 最終ログクリーンアップ実行時刻
     private static long lastLogCleanupTime = 0;
+    // 定期メンテナンス用: 最終ブロックIPクリーンアップ実行時刻
+    private static long lastBlockIpCleanupTime = 0;
 
     // グローバル変数
     private static final AtomicBoolean isRunning = new AtomicBoolean(true);
@@ -285,9 +287,15 @@ public class NginxLogToMysql {
             AppLogger.log("Webフロントエンドは無効に設定されています", "INFO");
         }
 
-        // 起動時にログ自動削除バッチも実行（static method使用）
+        // 起動時にログ自動削除バッチを実行（static method使用）
         runLogCleanupBatch();
+        lastLogCleanupTime = System.currentTimeMillis();
         AppLogger.log("起動時にログ自動削除バッチを実行しました", "INFO");
+
+        // 起動時にブロックIPクリーンアップバッチも実行
+        runBlockIpCleanupBatch();
+        lastBlockIpCleanupTime = System.currentTimeMillis();
+        AppLogger.log("起動時にブロックIPクリーンアップバッチを実行しました", "INFO");
 
         AppLogger.log("初期化処理が完了しました", "INFO");
         return true;
@@ -456,12 +464,19 @@ public class NginxLogToMysql {
      */
     private static void performMaintenanceTasks() {
         try {
-            final long logCleanupInterval = 24 * 60 * 60 * 1000L; // 24時間
+            final long cleanupInterval = 24 * 60 * 60 * 1000L; // 24時間
             // 24時間ごとにログ自動削除バッチを実行（static method使用）
-            if (System.currentTimeMillis() - lastLogCleanupTime > logCleanupInterval) {
+            if (System.currentTimeMillis() - lastLogCleanupTime > cleanupInterval) {
                 runLogCleanupBatch();
                 lastLogCleanupTime = System.currentTimeMillis();
                 AppLogger.log("定期メンテナンス: ログ自動削除バッチを実行しました", "INFO");
+            }
+
+            // 24時間ごとにブロックIPクリーンアップバッチを実行
+            if (System.currentTimeMillis() - lastBlockIpCleanupTime > cleanupInterval) {
+                runBlockIpCleanupBatch();
+                lastBlockIpCleanupTime = System.currentTimeMillis();
+                AppLogger.log("定期メンテナンス: ブロックIPクリーンアップバッチを実行しました", "INFO");
             }
 
             // 攻撃パターン更新（YAML版）

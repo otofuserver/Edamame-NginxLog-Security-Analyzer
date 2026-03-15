@@ -17,6 +17,7 @@ import java.util.function.Consumer;
 public final class DbService {
     private static DbSession globalSession;
     private static boolean initialized = false;
+    private static volatile Runnable blockIpCleanupRescheduler;
 
     // staticクラスのためコンストラクタを非公開
     private DbService() {}
@@ -33,6 +34,14 @@ public final class DbService {
         }
         globalSession = new DbSession(url, properties);
         initialized = true;
+    }
+
+    /**
+     * ブロックIPクリーンアップ完了後に呼び出す再スケジュール処理を登録
+     * @param rescheduler クリーンアップ完了後に実行するRunnable（null可）
+     */
+    public static void registerBlockIpCleanupRescheduler(Runnable rescheduler) {
+        blockIpCleanupRescheduler = rescheduler;
     }
 
     /**
@@ -367,6 +376,25 @@ public final class DbService {
         try {
             checkInitialized();
             DbDelete.runLogCleanupBatch(globalSession);
+        } catch (Exception e) {
+            // 例外は上位でハンドリング、ログ出力のみ
+        }
+    }
+
+    /**
+     * ブロックIPクリーンアップバッチ処理
+     */
+    public static void runBlockIpCleanupBatch() {
+        try {
+            checkInitialized();
+            DbDelete.runBlockIpCleanupBatch(globalSession);
+            if (blockIpCleanupRescheduler != null) {
+                try {
+                    blockIpCleanupRescheduler.run();
+                } catch (Exception ignored) {
+                    // 再スケジュール処理の失敗は致命的でないため握りつぶす
+                }
+            }
         } catch (Exception e) {
             // 例外は上位でハンドリング、ログ出力のみ
         }
