@@ -121,8 +121,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - block_ip テーブルから `trigger_source` カラムを削除し、スキーマ自動同期とログイン自動ブロック登録処理を更新。
+- block_ip 一覧のステータス未指定時のデフォルトを ACTIVE に揃え、UI/サーバーで統一したフィルター挙動に変更。
+- block_ip ステータス表示ラベル「解除済み」を「無効」に変更し、UI/APIの文言を統一。
+- block_ip 一覧のデフォルトソートを IP 昇順に変更し、フィルター/ソート/検索状態をURLクエリに保持するように改善。
+- block_ip 検索で INET6_NTOA/INET6_ATON を用い、文字列表記IP（例: 192.168.x.x）で正しくヒットするように改善。
+- block_ip 手動作成時、終了時刻に過去時刻を指定できないようバリデーションを追加（空欄は無期限）。
+- block_ip 一覧の対象サーバー表示を「対象エージェント」に変更し、編集メニューで対象エージェント/終了時刻/理由を更新可能に。
+- block_ip の手動作成/編集/削除後にブロックIPクリーンアップの次回予約を再スケジュールするように変更。
+- block_ip 断片の60秒オートリロードを正式廃止し、クリーンアップ完了ポーリングのみでリフレッシュするよう変更。
+- block_ip テーブルのレイアウトをURL脅威度ビューと同等のlist_view共通スタイル（改行禁止・横スクロール・カラム幅固定）に揃え、表示崩れを防止。
+- block_ip クリーンアップ完了を `/api/block-ip/cleanup-status` でポーリングし、バージョン更新時に断片/一覧をリフレッシュするトリガーを追加。
+- block_ip の対象エージェント入力に英数字・ハイフン・アンダースコア・ドットのみ64文字以内（空欄可、CDN名可）のバリデーションをフロント/サーバー双方に追加。
+- block_ip で agent_servers.agent_name の重複排除リストに `cloudflare` を加えたサジェストAPI（`GET /api/block-ip/agents`）を追加し、作成/編集入力にdatalistで表示。
+- block_ip サジェスト表示を `agent:` / `CDN:` で識別しつつ、入力値は元のエージェント名（`:` 不可）のまま利用するよう調整。
+- block_ip エージェント候補取得でドライバのセッションNULL例外が出た場合、再接続せずに1回だけ再実行するリトライを追加。
+- block_ip エージェント候補取得でドライバのセッションNULL例外が出た場合、再接続して1回だけ自動リトライするよう調整。
 
 ### Added
+ - block_ip 行の無効化（REVOKED化）操作をミニメニュー経由で追加し、確認モーダルと `POST /api/block-ip/{id}/revoke` を実装。
+ - block_ip 行の有効化（ACTIVE化）操作をミニメニュー経由で追加し、確認モーダルと `POST /api/block-ip/{id}/activate` を実装。
+  - block_ip の有効化時に終了時刻が過去の場合、新しい終了時刻（空欄で無期限）を入力してから有効化できるようフロント/APIを更新。
  - ホワイトリスト設定変更（モードON/OFF・IP追加/削除）時にauditorロールおよび上位ロールへ監査メールを送信。
  - URL脅威度ビューを追加し、サーバー選択と脅威度フィルタ（安全/危険/注意/不明/全件）付きで色分け表示を実装。
 - feat(web): 管理者向けユーザー管理断片を追加（断片: `/api/fragment/users`、検索API: `/api/users`）。
@@ -152,6 +170,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `document/com/edamame/security/db/DbSchema.md` に `email_change_requests` テーブル仕様を追加
   - `document/com/edamame/web/controller/UserManagementController.md` にメール変更フローを追記
   - `document/com/edamame/web/service/UserService.md` に `requestEmailChange` / `verifyEmailChange` 契約を追加
+  - `document/db_schema_spec.md` を v1.0.4 に更新し、block_ip ステータス名称を「無効」に統一
 - `is_whitelisted` をユーザー操作で false に戻せるよう仕様を更新（危険/解除操作でホワイトリスト解除を許可）。
 - url_registry の既存URL再アクセス時に `latest_access_time`/`latest_status_code`/`latest_blocked_by_modsec` を即時同期するよう AgentTcpServer・DbUpdate/DbRegistry/DbService を更新
 - UI: サーバー管理・ユーザー管理のテーブルヘッダーにソート方向（▲/▼）を表示

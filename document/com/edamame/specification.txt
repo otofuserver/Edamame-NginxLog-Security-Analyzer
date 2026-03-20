@@ -1,9 +1,9 @@
 # Edamame NginxLog Security Analyzer
 
 ## specification.txt バージョン情報
-- **specification.txt version**: v1.0.63
-- **最終更新**: 2026-03-16
-- 注記: block_ip から trigger_source を廃止し、関連処理を整理。
+- **specification.txt version**: v1.0.84
+- **最終更新**: 2026-03-21
+- 注記: block_ipで60秒オートリロードを正式廃止し、クリーンアップポーリングのみで更新。対象エージェントは英数字/._- 64文字以内（空欄可、`:`不可）を維持しつつ、agent_servers.agent_nameの重複排除＋cloudflareをサジェスト表示し、候補表示を `agent:` / `CDN:` で識別。初回取得でセッション不整合が出た場合は自動リトライするよう調整。AuthenticationServiceのバックグラウンドタスク起動をコンストラクタから分離し、WebApplication初期化時に明示的に開始するよう変更。
 - ※このファイルを更新した場合は、必ず上記バージョン情報も更新すること
 - ※変更履歴は CHANGELOG.md に記録されます
 

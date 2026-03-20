@@ -25,13 +25,14 @@ public class AuthenticationService {
     private final ScheduledExecutorService scheduler;
     private final ScheduledExecutorService blockIpScheduler;
     private ScheduledFuture<?> blockIpCleanupFuture;
+    private boolean backgroundStarted = false;
 
     // セッション有効期限（デフォルト: 24時間）
     private static final long SESSION_TIMEOUT_HOURS = 24;
     private static final int LOGIN_FAIL_THRESHOLD = 5;
     private static final long LOGIN_FAIL_WINDOW_MINUTES = 5;
     private static final long AUTO_BLOCK_DURATION_MINUTES = 10;
-    private static final long CLEANUP_OFFSET_MINUTES = 1;
+    private static final long CLEANUP_OFFSET_SECONDS = 10;
 
     /**
      * コンストラクタ
@@ -40,7 +41,15 @@ public class AuthenticationService {
         this.passwordEncoder = new BCryptPasswordEncoder();
         this.scheduler = Executors.newScheduledThreadPool(1);
         this.blockIpScheduler = Executors.newScheduledThreadPool(1);
+    }
 
+    /**
+     * バックグラウンド処理の起動（コンストラクタからのthisエスケープを防止）
+     */
+    public synchronized void startBackgroundTasks() {
+        if (backgroundStarted) {
+            return;
+        }
         // ブロックIPクリーンアップ後に次回予約を自動セットするフックを登録
         registerBlockIpCleanupRescheduler(this::scheduleNextBlockIpCleanupFromDatabase);
 
@@ -49,6 +58,7 @@ public class AuthenticationService {
 
         // 起動時に block_ip の最短 end_at を参照し、クリーンアップを一度予約
         scheduleNextBlockIpCleanupFromDatabase();
+        backgroundStarted = true;
     }
 
 
@@ -366,7 +376,7 @@ public class AuthenticationService {
                 var next = rs.getTimestamp("next_end");
                 if (next != null) {
                     LocalDateTime nextEnd = next.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
-                    scheduleBlockIpCleanup(nextEnd.plusMinutes(CLEANUP_OFFSET_MINUTES));
+                    scheduleBlockIpCleanup(nextEnd.plusSeconds(CLEANUP_OFFSET_SECONDS));
                 }
             }
         } catch (SQLException e) {

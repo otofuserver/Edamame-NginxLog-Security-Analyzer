@@ -1,0 +1,188 @@
+<!-- ブロックIP管理断片: block_ipテーブルの閲覧・削除・手動作成を行う -->
+<div class="card">
+  <h2>ブロックIP管理</h2>
+
+
+  <div class="form-row block-ip-filter-row">
+    <span class="block-ip-filter-label">ステータス</span>
+    <label><input type="radio" name="block-ip-status" value="all" /> すべて表示</label>
+    <label><input type="radio" name="block-ip-status" value="ACTIVE" checked /> 有効</label>
+    <label><input type="radio" name="block-ip-status" value="EXPIRED" /> 期限切れ</label>
+    <label><input type="radio" name="block-ip-status" value="REVOKED" /> 無効</label>
+  </div>
+
+  <div class="form-row block-ip-filter-row">
+    <span class="block-ip-filter-label">種別</span>
+    <label><input type="radio" name="block-ip-service" value="all" checked /> すべて表示</label>
+    <label><input type="radio" name="block-ip-service" value="MONITOR_BLOCK" /> モニターブロック</label>
+    <label><input type="radio" name="block-ip-service" value="APP_LOGIN" /> アプリログイン</label>
+    <label><input type="radio" name="block-ip-service" value="MANUAL" /> マニュアル</label>
+  </div>
+
+  <div class="block-ip-actions-row" style="display:flex;justify-content:space-between;align-items:center;gap:12px;">
+    <div id="block-ip-search-form" class="search-form block-ip-search" style="flex:1;">
+      <input type="text" id="block-ip-q" name="q" placeholder="IP・理由・作成者で検索" aria-label="ブロックIP検索" />
+    </div>
+    <button type="button" id="block-ip-create-btn" class="primary" style="white-space:nowrap;">手動作成</button>
+  </div>
+
+  <div id="block-ip-message" class="block-ip-message"></div>
+
+  <div class="table-responsive block-ip-table-wrap">
+    <table class="table" id="block-ip-table">
+      <thead>
+        <tr>
+          <th scope="col" class="ip-col sortable" data-sort="ipAddress" data-column="ipAddress">IP</th>
+          <th scope="col" class="service-col sortable" data-sort="serviceType" data-column="serviceType">種別</th>
+          <th scope="col" class="target-col sortable" data-sort="targetAgentName" data-column="targetAgentName">対象エージェント</th>
+          <th scope="col" class="status-col sortable" data-sort="status" data-column="status">ステータス</th>
+          <th scope="col" class="start-col sortable" data-sort="startAt" data-column="startAt">開始</th>
+          <th scope="col" class="end-col sortable" data-sort="endAt" data-column="endAt">終了</th>
+          <th scope="col" class="reason-col sortable" data-sort="reason" data-column="reason">理由</th>
+          <th scope="col" class="updated-col sortable" data-sort="updatedAt" data-column="updatedAt">更新</th>
+        </tr>
+      </thead>
+      <tbody id="block-ip-body">
+        <tr><td colspan="8">読み込み中...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="block-ip-pager" class="block-ip-pager"></div>
+  <div id="block-ip-count" class="block-ip-count"></div>
+</div>
+
+<div id="block-ip-mini-menu" class="mini-menu block-ip-mini" role="menu" aria-hidden="true">
+  <div class="mini-menu-card">
+    <button class="mini-menu-item" data-action="activate">有効化</button>
+    <button class="mini-menu-item" data-action="disable">無効化</button>
+    <button class="mini-menu-item" data-action="edit">編集</button>
+    <button class="mini-menu-item" data-action="delete">削除</button>
+  </div>
+</div>
+
+<div id="block-ip-modal-backdrop" class="modal-backdrop hidden"></div>
+
+<div id="block-ip-delete-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="block-ip-delete-title">
+  <div class="modal-content block-ip-delete-content">
+    <div class="modal-header">
+      <h3 id="block-ip-delete-title">削除確認</h3>
+    </div>
+    <div class="modal-body">
+      <p id="block-ip-delete-target"></p>
+      <p>このIPブロックを削除してもよろしいですか？</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="block-ip-delete-cancel">キャンセル</button>
+      <button type="button" id="block-ip-delete-confirm" class="danger">削除する</button>
+    </div>
+  </div>
+</div>
+
+<div id="block-ip-disable-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="block-ip-disable-title">
+  <div class="modal-content block-ip-disable-content">
+    <div class="modal-header">
+      <h3 id="block-ip-disable-title">無効化確認</h3>
+    </div>
+    <div class="modal-body">
+      <p id="block-ip-disable-target"></p>
+      <p>このIPブロックを無効化してもよろしいですか？</p>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="block-ip-disable-cancel">キャンセル</button>
+      <button type="button" id="block-ip-disable-confirm" class="danger">無効化する</button>
+    </div>
+  </div>
+</div>
+
+<div id="block-ip-activate-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="block-ip-activate-title">
+  <div class="modal-content block-ip-activate-content">
+    <div class="modal-header">
+      <h3 id="block-ip-activate-title">有効化確認</h3>
+    </div>
+    <div class="modal-body">
+      <p id="block-ip-activate-target"></p>
+      <p>このIPブロックを有効化してもよろしいですか？</p>
+      <div class="form-row" id="block-ip-activate-end-row" style="display:none;">
+        <label for="block-ip-activate-end">新しい終了時刻 (任意・空欄で無期限)</label>
+        <input type="datetime-local" id="block-ip-activate-end" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="block-ip-activate-cancel">キャンセル</button>
+      <button type="button" id="block-ip-activate-confirm" class="primary">有効化する</button>
+    </div>
+  </div>
+</div>
+
+<div id="block-ip-create-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="block-ip-create-title">
+  <div class="modal-content block-ip-create-content">
+    <div class="modal-header">
+      <h3 id="block-ip-create-title">ブロックIP手動作成</h3>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label for="block-ip-input-address">IPアドレス</label>
+        <input type="text" id="block-ip-input-address" placeholder="例: 192.0.2.10 または 2001:db8::1" />
+      </div>
+      <div class="form-row">
+        <label for="block-ip-input-server">対象エージェント</label>
+        <input type="text" id="block-ip-input-server" list="block-ip-agent-list" placeholder="例: agent-1 / cloudflare" />
+        <small class="hint">英数字・ハイフン・アンダースコア・ドットのみ、64文字以内（空欄可。CDN名でも可）</small>
+      </div>
+      <div class="form-row">
+        <label for="block-ip-input-end">終了時刻 (任意)</label>
+        <input type="datetime-local" id="block-ip-input-end" />
+      </div>
+      <div class="form-row">
+        <label for="block-ip-input-reason">理由</label>
+        <textarea id="block-ip-input-reason" rows="3" placeholder="ブロック理由を記載"></textarea>
+      </div>
+      <div id="block-ip-create-error" class="error" style="display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="block-ip-create-cancel">キャンセル</button>
+      <button type="button" id="block-ip-create-save" class="primary">作成する</button>
+    </div>
+  </div>
+</div>
+
+<div id="block-ip-edit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="block-ip-edit-title">
+  <div class="modal-content block-ip-edit-content">
+    <div class="modal-header">
+      <h3 id="block-ip-edit-title">ブロックIP編集</h3>
+    </div>
+    <div class="modal-body">
+      <p id="block-ip-edit-target"></p>
+      <div class="form-row">
+        <label for="block-ip-edit-server">対象エージェント</label>
+        <input type="text" id="block-ip-edit-server" list="block-ip-agent-list" placeholder="例: agent-1 / cloudflare" />
+        <small class="hint">英数字・ハイフン・アンダースコア・ドットのみ、64文字以内（空欄可。CDN名でも可）</small>
+      </div>
+      <div class="form-row">
+        <label for="block-ip-edit-end">終了時刻 (任意・空欄で無期限)</label>
+        <input type="datetime-local" id="block-ip-edit-end" />
+      </div>
+      <div class="form-row">
+        <label for="block-ip-edit-reason">理由</label>
+        <textarea id="block-ip-edit-reason" rows="3" placeholder="ブロック理由を記載"></textarea>
+      </div>
+      <div id="block-ip-edit-error" class="error" style="display:none;"></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" id="block-ip-edit-cancel">キャンセル</button>
+      <button type="button" id="block-ip-edit-save" class="primary">保存する</button>
+    </div>
+  </div>
+</div>
+
+<datalist id="block-ip-agent-list"></datalist>
+
+<script src="/static/list_view_core.js"></script>
+<script src="/static/mini_menu.js"></script>
+<script src="/static/block_ip.js"></script>
+<script>
+  setTimeout(function(){
+    try { if (window.BlockIp && typeof window.BlockIp.init === 'function') { window.BlockIp.init(); } }
+    catch(e){ console.error('BlockIp init error', e); }
+  }, 0);
+</script>

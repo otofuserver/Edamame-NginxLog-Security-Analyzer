@@ -6,13 +6,14 @@
 - Webフロントエンドの起動とルーティング、サービス初期化を担当するクラス。`HttpServer` を使って静的リソース・API・ダッシュボードのルーティングを行う。
 
 ## 主な機能
-- サービス層（`AuthenticationService`, `DataService`）の初期化
+- サービス層（`AuthenticationService`, `DataService`）の初���化。認証サービスのバックグラウンドタスクは初期化直後に明示起動。
 - HTTPサーバ（`HttpServer`）の作成とスレッドプールの設定
 - ルーティング設定（`/login`, `/logout`, `/static`, `/dashboard`, `/api/*`等）
 - サーバの開始・停止・状態チェック
 
 ## 挙動
 - `initialize()` でサービスを初期化し、`start()` でサーバ を作成して `setupRoutes()` と `startServer()` を実行する。
+- `AuthenticationService` 生成直後に `startBackgroundTasks()` を呼び出し、セッションクリーンアップと block_ip クリーンアップ再スケジュールを起動する。
 - ルーティングは `AuthenticationFilter` を組み合わせて静的・動的コンテンツを保護する設計。
 
 ## 細かい指定された仕様
@@ -24,11 +25,12 @@
 - `start(int port)` と `start()` を提供して、テスト環境と本番環境の起動方法を使い分け可能。
 
 ## 変更履歴
+- 2026-03-21: `startBackgroundTasks()` 呼び出しを初期化時に追加した旨を追記
 - 2026-01-05: ドキュメント自動生成
 - 2026-02-08: `/password/change` ルート追加と説明を追記
 
 ## メソッド一覧
-- `public boolean initialize()` - サービス初期化
+- `public boolean initialize()` - サービス初期化（authのバックグラウンド起動含む）
 - `public boolean start(int port)` - 指定ポートでサーバを起動
 - `public boolean start()` - デフォルトポートで起動
 - `public void stop()` - サーバ停止

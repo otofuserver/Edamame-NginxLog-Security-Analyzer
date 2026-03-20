@@ -6,7 +6,7 @@
          if (window.dbg) window.dbg('navigateTo called, view=', view, 'push=', push);
         try {
             const main = document.getElementById('main-content'); if (!main) return;
-            const routeMap = { 'dashboard': '/api/fragment/dashboard', 'template': '/api/fragment/test', 'users': '/api/fragment/users', 'servers': '/api/fragment/servers', 'url_threat': '/api/fragment/url_threat', 'url_suppression': '/api/fragment/url_suppressions', 'whitelist_settings': '/api/fragment/whitelist_settings' };
+            const routeMap = { 'dashboard': '/api/fragment/dashboard', 'template': '/api/fragment/test', 'users': '/api/fragment/users', 'servers': '/api/fragment/servers', 'url_threat': '/api/fragment/url_threat', 'url_suppression': '/api/fragment/url_suppressions', 'whitelist_settings': '/api/fragment/whitelist_settings', 'block_ip': '/api/fragment/block_ip' };
             const apiPath = routeMap[view] || ('/api/fragment/' + encodeURIComponent(view));
             main.innerHTML = '<div class="card"><p>読み込み中...</p></div>';
             const resp = await fetch(apiPath, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'text/html, application/json' } });
@@ -54,6 +54,12 @@
                     await loadScriptsSequential(['/static/list_view_core.js','/static/whitelist_settings.js']);
                     if (window.WhitelistSettings && typeof window.WhitelistSettings.init === 'function') {
                         try { window.WhitelistSettings.init(); } catch (e) { console.error('WhitelistSettings.init error', e); }
+                    }
+                }
+                if (view === 'block_ip') {
+                    await loadScriptsSequential(['/static/list_view_core.js','/static/mini_menu.js','/static/block_ip.js']);
+                    if (window.BlockIp && typeof window.BlockIp.init === 'function') {
+                        try { window.BlockIp.init(); } catch (e) { console.error('BlockIp.init error', e); }
                     }
                 }
             } else {

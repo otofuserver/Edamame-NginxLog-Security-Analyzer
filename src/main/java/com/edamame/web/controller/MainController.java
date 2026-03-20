@@ -202,6 +202,7 @@ public class MainController implements HttpHandler {
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=test\">サンプル</a></li>");
         if (isAdmin) sb.append("<li><a class=\"nav-link\" href=\"/main?view=users\">ユーザー管理</a></li>");
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=servers\">サーバー管理</a></li>");
+        sb.append("<li><a class=\"nav-link\" href=\"/main?view=block_ip\">ブロックIP管理</a></li>");
         sb.append("<li><button type=\"button\" class=\"nav-link nav-button\" id=\"sidebar-settings-button\" aria-haspopup=\"true\" aria-expanded=\"false\">設定</button></li>");
         sb.append("<li><a class=\"nav-link\" href=\"/main?view=url_threat\">URL脅威度</a></li>");
         sb.append("</ul>");

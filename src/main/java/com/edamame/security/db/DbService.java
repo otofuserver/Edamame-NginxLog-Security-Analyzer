@@ -18,6 +18,7 @@ public final class DbService {
     private static DbSession globalSession;
     private static boolean initialized = false;
     private static volatile Runnable blockIpCleanupRescheduler;
+    private static volatile long blockIpCleanupVersion = 0L;
 
     // staticクラスのためコンストラクタを非公開
     private DbService() {}
@@ -43,6 +44,21 @@ public final class DbService {
     public static void registerBlockIpCleanupRescheduler(Runnable rescheduler) {
         blockIpCleanupRescheduler = rescheduler;
     }
+
+    /**
+     * ブロックIPクリーンアップの再スケジュールをトリガーする。
+     * バッチ実行は行わず、登録済みの再スケジューラーがあれば即時実行する。
+     */
+    public static void rescheduleBlockIpCleanup() {
+        if (blockIpCleanupRescheduler != null) {
+            try {
+                blockIpCleanupRescheduler.run();
+            } catch (Exception ignored) {
+                // 再スケジューラー失敗は致命的でないため無視
+            }
+        }
+    }
+
 
     /**
      * DbServiceが初期化済みかチェック
@@ -388,6 +404,7 @@ public final class DbService {
         try {
             checkInitialized();
             DbDelete.runBlockIpCleanupBatch(globalSession);
+            blockIpCleanupVersion++;
             if (blockIpCleanupRescheduler != null) {
                 try {
                     blockIpCleanupRescheduler.run();
@@ -398,6 +415,14 @@ public final class DbService {
         } catch (Exception e) {
             // 例外は上位でハンドリング、ログ出力のみ
         }
+    }
+
+    /**
+     * block_ipクリーンアップの完了バージョン（ポーリング用）。
+     * @return 現在のクリーンアップ完了バージョン
+     */
+    public static long getBlockIpCleanupVersion() {
+        return blockIpCleanupVersion;
     }
 
     /**

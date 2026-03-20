@@ -3,7 +3,7 @@
 対象: `src/main/java/com/edamame/web/security/AuthenticationService.java`
 
 ## 概要
-- ユーザー認証・セッション管理・ログイン履歴記録を担うサービス。BCrypt照合による認証、セッション発行/検証/削除、期限切れセッションの定期クリーンアップ、ログイン失敗多発時の自動IPブロックとブロック期間終了に合わせたクリーンアップ予約を行う。
+- ユーザー認証・セッション管理・ログイン履歴記録を担うサービス。BCrypt照合による認証、セッション発行/検証/削除、期限切れセッションの定期クリーンアップ、ログイン失敗多発時の自動IPブロックとブロック期間終了に合わせたクリーンアップ予約を行う。バックグラウンドスケジューラは `startBackgroundTasks()` で明示起動する。
 
 ## 主な機能
 - 認証: `authenticate` でユーザー名/パスワード照合し、成功時にセッション生成・履歴記録・パスワード変更要否を返却。
@@ -14,10 +14,10 @@
 
 ## 挙動
 - `authenticate` は先に `isActiveLoginBlockExists` でブロックを確認し、ブロック中は履歴記録のみ行ってnullを返す。認証成功時は `AuthResult(sessionId, mustChangePassword)` を返す。
-- 失敗時は `insertLoginHistory` で記録し、同一IP��直近5分失敗回数が5件以上なら `registerLoginBlock` で block_ip に ACTIVE をINSERTし、直後に最短 `end_at` を再読込してクリーンアップを予約する。
-- 起動時コンストラクタで block_ip の最短 `end_at` を1回読み取り、`CLEANUP_OFFSET_MINUTES`(+1分)を足した時刻で一度だけ予約。クリーンアップ後は `runBlockIpCleanupBatch` 内のフックで再スケジュール。
+- 失敗時は `insertLoginHistory` で記録し、同一IPの直近5分失敗回数が5件以上なら `registerLoginBlock` で block_ip に ACTIVE をINSERTし、直後に最短 `end_at` を再読込してクリーンアップを予約する。
+- `startBackgroundTasks()` でセッションクリーンアップの定期スケジュール（1時間間隔）と block_ip クリーンアップ再スケジュールフック登録を開始し、コンストラクタからの this エスケープを防止。起動後に block_ip の最短 `end_at` を1回読み取り、+1分で一度予約。クリーンアップ後は `runBlockIpCleanupBatch` 内のフックで再スケジュール。
 - セッションは `sessions` テーブルに UUID を保存し、有効期限はデフォルト24時間・rememberMe時30日。`validateSession` で `must_change_password` も読み取る。
-- `cleanupExpiredSessions` は1時間ごとに期限切れセッションを削除。
+- `cleanupExpiredSessions` は1時間ごとに期限切れ��ッションを削除。
 
 ## 細かい指定された仕様
 - セッション有効期限: `SESSION_TIMEOUT_HOURS = 24`、rememberMe時は30日。
@@ -27,8 +27,8 @@
 - DB��作は `DbService.getConnection()` 経由。SQLException 発生時はロギングし安全側（ブロック判定失敗時は非ブロック扱い）で処理。
 - ��歴保存は login_history に成功/失敗を残し、ユーザー名・IP・User-Agent を記録。
 
-## 主なメソッド（Java）
 - `public AuthenticationService()`
+- `public synchronized void startBackgroundTasks()`
 - `public AuthResult authenticate(String username, String password, boolean rememberMe, String ipAddress, String userAgent)`
 - `public boolean isLoginBlocked(String ipAddress)`
 - `public String createSession(String username, boolean rememberMe)`

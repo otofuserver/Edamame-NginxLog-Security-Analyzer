@@ -8,7 +8,9 @@
 #url-suppression-results table.table th,
 #url-suppression-results table.table td,
 #url-threat-table th,
-#url-threat-table td {
+#url-threat-table td,
+#block-ip-table th,
+#block-ip-table td {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -88,6 +90,23 @@
 #server-results table.table td:nth-child(2) { min-width: 50px; width: 35%; }
 #server-results table.table th:nth-child(3),
 #server-results table.table td:nth-child(3) { min-width: 80px; width: 15%; text-align: center; }
+
+/* block_ip: 横スクロール許可とカラム幅定義 */
+.block-ip-table-wrap {
+  overflow-x: auto;
+}
+#block-ip-table {
+  min-width: 1100px;
+  table-layout: fixed;
+}
+#block-ip-table th.ip-col, #block-ip-table td:nth-child(1) { min-width: 160px; }
+#block-ip-table th.service-col, #block-ip-table td:nth-child(2) { min-width: 140px; }
+#block-ip-table th.target-col, #block-ip-table td:nth-child(3) { min-width: 200px; }
+#block-ip-table th.status-col, #block-ip-table td:nth-child(4) { min-width: 120px; text-align: center; }
+#block-ip-table th.start-col, #block-ip-table td:nth-child(5) { min-width: 180px; }
+#block-ip-table th.end-col, #block-ip-table td:nth-child(6) { min-width: 180px; }
+#block-ip-table th.reason-col, #block-ip-table td:nth-child(7) { min-width: 220px; }
+#block-ip-table th.updated-col, #block-ip-table td:nth-child(8) { min-width: 180px; }
 
 #server-results-body tr.inactive,
 #url-suppression-body tr.inactive {

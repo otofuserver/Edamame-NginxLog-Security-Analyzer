@@ -35,6 +35,9 @@
             if (order === 'desc' || order === 'asc') state.order = order;
             const page = Number(params.get('page'));
             if (!Number.isNaN(page) && page > 0) state.page = page;
+            if (typeof config.applyFiltersFromUrl === 'function') {
+                config.applyFiltersFromUrl(params, state);
+            }
         }
 
         function writeToUrl(){

@@ -127,7 +127,7 @@ public class DbDelete {
     }
 
     /**
-     * 期限切れまたは解除済みのブロックIPを削除
+     * 期限切れまたは無効のブロックIPを削除
      */
     private static void deleteOldBlockedIp(DbSession dbSession, int blockRetentionDays) throws SQLException {
          if (blockRetentionDays < 0) return; // 無効設定時はスキップ

@@ -87,6 +87,7 @@ public class WebApplication {
     private void initializeServices() {
         try {
             authService = new AuthenticationService();
+            authService.startBackgroundTasks();
             dataService = new DataService();
             AppLogger.info("サービス層初期化完了");
         } catch (Exception e) {
@@ -154,6 +155,12 @@ public class WebApplication {
             new UrlSuppressionController(authService))));
         server.createContext("/api/url-suppressions", sanitize(new AuthenticationFilter(authService,
             new UrlSuppressionController(authService))));
+
+        // ブロックIP管理（admin専用）
+        server.createContext("/api/fragment/block_ip", sanitize(new AuthenticationFilter(authService,
+            new com.edamame.web.controller.BlockIpController(authService))));
+        server.createContext("/api/block-ip", sanitize(new AuthenticationFilter(authService,
+            new com.edamame.web.controller.BlockIpController(authService))));
 
         // ホワイトリスト設定（admin専用）
         server.createContext("/api/fragment/whitelist_settings", sanitize(new AuthenticationFilter(authService,

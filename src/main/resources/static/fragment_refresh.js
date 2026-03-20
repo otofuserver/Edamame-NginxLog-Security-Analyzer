@@ -35,10 +35,7 @@
                             const ct = resp.headers.get('content-type') || '';
                             if (ct.includes('text/html')) {
                                 const html = await resp.text();
-                                const tmp = document.createElement('div');
-                                tmp.innerHTML = html;
-                                const newFragment = tmp.querySelector('.fragment-root') || tmp;
-                                el.innerHTML = newFragment.innerHTML || '';
+                                applyFragmentHtml(el, html);
 
                                 if (name === 'users') {
                                     // グローバル loader を利用して必要なスクリプトを読み込む
@@ -63,5 +60,53 @@
         } catch(e) { console.warn('setupFragmentAutoRefresh error', e); }
     }
 
+    async function refreshFragmentOnce(name) {
+        if (!name) return;
+        try {
+            const path = '/api/fragment/' + encodeURIComponent(name);
+            const resp = await fetch(path, { method: 'GET', credentials: 'same-origin', headers: { 'Accept': 'text/html, application/json' } });
+            if (resp.status === 401) { console.warn('Manual refresh unauthorized for fragment', name); return; }
+            if (!resp.ok) { console.warn('Manual refresh failed for', name, resp.status); return; }
+            const ct = resp.headers.get('content-type') || '';
+            if (ct.includes('text/html')) {
+                const html = await resp.text();
+                const target = document.querySelector('.fragment-root[data-fragment-name="' + name + '"]');
+                if (target) {
+                    applyFragmentHtml(target, html);
+                    if (name === 'block_ip') {
+                        await ensureBlockIpInit();
+                    }
+                }
+            }
+        } catch (e) { console.warn('Manual fragment refresh error for', name, e); }
+    }
+
+    async function ensureBlockIpInit(){
+        const doInit = () => {
+            if (!window.BlockIp) return false;
+            try { if (typeof window.BlockIp.dispose === 'function') window.BlockIp.dispose(); } catch(_){ }
+            try { if (typeof window.BlockIp.init === 'function') { window.BlockIp.init(); return true; } } catch(e){ console.warn('block_ip init after refresh failed', e); }
+            return false;
+        };
+        if (doInit()) return;
+        if (typeof window.loadScript === 'function') {
+            try {
+                await window.loadScript('/static/block_ip.js');
+                doInit();
+            } catch(e){ console.warn('block_ip script load failed', e); }
+        }
+    }
+
+    function applyFragmentHtml(el, html) {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        const newFragment = tmp.querySelector('.fragment-root') || tmp;
+        el.innerHTML = newFragment.innerHTML || '';
+    }
+
     window.setupFragmentAutoRefresh = setupFragmentAutoRefresh;
+    window.refreshFragmentOnce = refreshFragmentOnce;
+
+    // block_ipクリーンアップ完了時の軽量トリガー用: このイベントを受けたら block_ip 断片だけ再取得
+    window.addEventListener('block-ip:cleanup-done', function(){ refreshFragmentOnce('block_ip'); });
 })();
